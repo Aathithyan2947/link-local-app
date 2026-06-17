@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../core/theme/app_colors.dart';
 
-String _abs(String url) => url.startsWith('http') ? url : '${AppConfig.apiBaseUrl.replaceAll('/api/v1', '')}$url';
+String _abs(String url) => AppConfig.assetUrl(url);
 
 /// Circular avatar that falls back to initials.
 class Avatar extends StatelessWidget {

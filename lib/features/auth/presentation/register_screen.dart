@@ -63,13 +63,30 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     }
   }
 
+  static final _emailRe = RegExp(r'^[\w.+-]+@[\w-]+\.[\w.-]+$');
+
+  /// Mirrors the backend password policy so the user gets an instant, specific message.
+  String? _passwordError(String p) {
+    if (p.length < 8) return 'Password must be at least 8 characters';
+    if (!RegExp(r'[A-Z]').hasMatch(p)) return 'Password must include an uppercase letter';
+    if (!RegExp(r'[a-z]').hasMatch(p)) return 'Password must include a lowercase letter';
+    if (!RegExp(r'[0-9]').hasMatch(p)) return 'Password must include a number';
+    if (!RegExp(r'[^A-Za-z0-9]').hasMatch(p)) return 'Password must include a special character';
+    return null;
+  }
+
   Future<void> _registerEmail() async {
-    if (_name.text.trim().isEmpty || _email.text.trim().isEmpty) {
-      setState(() => _error = 'Enter your name and email');
+    if (_name.text.trim().isEmpty) {
+      setState(() => _error = 'Enter your name');
       return;
     }
-    if (_password.text.length < 6) {
-      setState(() => _error = 'Password must be at least 6 characters');
+    if (!_emailRe.hasMatch(_email.text.trim())) {
+      setState(() => _error = 'Please enter a valid email address');
+      return;
+    }
+    final pwdError = _passwordError(_password.text);
+    if (pwdError != null) {
+      setState(() => _error = pwdError);
       return;
     }
     if (_password.text != _confirm.text) {
@@ -152,6 +169,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         PillField(controller: _email, hint: 'Enter your Email', icon: Icons.mail_outline, keyboardType: TextInputType.emailAddress),
         const SizedBox(height: 20),
         const Text('Create a strong password', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+        const SizedBox(height: 4),
+        const Text(
+          'At least 8 characters with an uppercase letter, a lowercase letter, a number and a special character.',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
+        ),
         const SizedBox(height: 12),
         PillField(controller: _password, hint: 'Create your Password', icon: Icons.lock_outline, obscure: true),
         const SizedBox(height: 16),

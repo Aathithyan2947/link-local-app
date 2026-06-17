@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../core/config/app_config.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../../core/widgets/primary_button.dart';
@@ -96,9 +97,7 @@ class _BasicInfoScreenState extends ConsumerState<BasicInfoScreen> {
                       radius: 48,
                       backgroundColor: AppColors.primarySurface,
                       backgroundImage: p.photoUrl != null
-                          ? NetworkImage(p.photoUrl!.startsWith('http')
-                              ? p.photoUrl!
-                              : 'http://localhost:4000${p.photoUrl}')
+                          ? NetworkImage(AppConfig.assetUrl(p.photoUrl!))
                           : null,
                       child: p.photoUrl == null
                           ? Text(p.name.isNotEmpty ? p.name[0].toUpperCase() : '?',

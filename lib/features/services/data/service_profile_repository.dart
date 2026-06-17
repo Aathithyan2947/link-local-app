@@ -8,10 +8,17 @@ class ServiceProfileRepository {
   ServiceProfileRepository(this._dio);
   final Dio _dio;
 
-  /// Replaces the current SP's selected service subcategories.
-  Future<void> saveServiceTypes(List<int> subcategoryIds) async {
+  /// Replaces the current SP's selected service subcategories. `customServices` are free-text
+  /// "Other" services ({categoryId, name}) that the backend queues for admin approval.
+  Future<void> saveServiceTypes(
+    List<int> subcategoryIds, {
+    List<Map<String, dynamic>> customServices = const [],
+  }) async {
     try {
-      await _dio.post('/profiles/me/service-types', data: {'subcategoryIds': subcategoryIds});
+      await _dio.post('/profiles/me/service-types', data: {
+        'subcategoryIds': subcategoryIds,
+        if (customServices.isNotEmpty) 'customServices': customServices,
+      });
     } on DioException catch (e) {
       throw ApiException.fromDio(e);
     }

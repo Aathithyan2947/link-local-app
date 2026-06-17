@@ -8,6 +8,12 @@
 	<string>Link Local needs camera access so you can capture your address proof document.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Link Local needs photo access so you can upload your address proof document.</string>
+	<!-- Allow plain-HTTP calls to the local dev backend (http://localhost:4000) during development. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

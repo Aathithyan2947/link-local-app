@@ -13,17 +13,14 @@ class AddressRepository {
   AddressRepository(this._dio);
   final Dio _dio;
 
-  /// Directory autocomplete (localities + known complexes) from the backend.
+  /// Directory autocomplete (curated Address Master localities) from the backend.
   Future<DirectoryResults> searchDirectory(String q) async {
     try {
       final res = await _dio.get('/addresses/directory', queryParameters: {'q': q});
       final data = res.data['data'] as Map<String, dynamic>;
       return DirectoryResults(
         localities: ((data['localities'] as List?) ?? [])
-            .map((e) => LocalitySuggestion.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        complexes: ((data['complexes'] as List?) ?? [])
-            .map((e) => ComplexSuggestion.fromJson(e as Map<String, dynamic>))
+            .map((e) => MasterSuggestion.fromJson(e as Map<String, dynamic>))
             .toList(),
       );
     } on DioException catch (e) {
@@ -31,7 +28,23 @@ class AddressRepository {
     }
   }
 
-  /// Reverse-geocode a map pin via OpenStreetMap Nominatim (no API key).
+  /// Approved Address Master localities within ~2 km of a GPS pin, nearest first.
+  /// This is the primary, curated source for autofilling lane/area/suburb/city/pincode.
+  Future<List<MasterSuggestion>> nearbyMaster(double lat, double lng) async {
+    try {
+      final res = await _dio.get('/addresses/nearby', queryParameters: {'lat': lat, 'lng': lng});
+      return ((res.data['data'] as List?) ?? [])
+          .map((e) => MasterSuggestion.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
+    }
+  }
+
+  /// Reverse-geocode a map pin via OpenStreetMap Nominatim (no API key). Used only as a
+  /// FALLBACK when no curated Address Master locality is nearby. Field mapping is
+  /// deliberately conservative: a `road` is often a highway/flyover, so it seeds Lane 1
+  /// only as a last resort, and suburb/city are kept distinct (not duplicated).
   Future<GeoAddress> reverseGeocode(double lat, double lng) async {
     final uri = Uri.parse(
       'https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=$lat&lon=$lng&addressdetails=1',
@@ -42,15 +55,27 @@ class AddressRepository {
     }
     final json = jsonDecode(res.body) as Map<String, dynamic>;
     final a = (json['address'] as Map<String, dynamic>?) ?? {};
+
+    // OSM hierarchy (fine → coarse): neighbourhood/residential → suburb → city_district →
+    // city/town → state. Map each to a single, non-overlapping slot.
+    final neighbourhood = (a['neighbourhood'] ?? a['residential'] ?? a['quarter']) as String?;
+    final suburb = (a['suburb'] ?? a['city_district']) as String?;
+    final city = (a['city'] ?? a['town'] ?? a['municipality'] ?? a['village']) as String?;
+    final road = a['road'] as String?;
+    // Skip obvious through-roads/flyovers as a "lane" — they're rarely the user's lane.
+    final roadIsLane = road != null &&
+        !RegExp(r'flyover|highway|expressway|bridge|f\.?o\.?b', caseSensitive: false).hasMatch(road);
+
     return GeoAddress(
       latitude: lat,
       longitude: lng,
       fullAddress: json['display_name'] as String?,
-      lane1: a['road'] as String?,
-      locality: (a['neighbourhood'] ?? a['suburb'] ?? a['residential']) as String?,
-      area: (a['suburb'] ?? a['city_district']) as String?,
-      suburb: (a['city_district'] ?? a['suburb']) as String?,
-      city: (a['city'] ?? a['town'] ?? a['state_district'] ?? a['village']) as String?,
+      lane1: roadIsLane ? road : null,
+      locality: neighbourhood,
+      // Prefer a true neighbourhood as the "area"; fall back to the OSM suburb.
+      area: neighbourhood ?? suburb,
+      suburb: suburb != neighbourhood ? suburb : null,
+      city: city,
       state: a['state'] as String?,
       pincode: a['postcode'] as String?,
     );
@@ -66,6 +91,8 @@ class AddressRepository {
     String? suburb,
     String? lane1,
     String? lane2,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
       await _dio.post('/addresses', data: {
@@ -78,6 +105,10 @@ class AddressRepository {
         if (suburb != null && suburb.isNotEmpty) 'suburb': suburb,
         if (lane1 != null && lane1.isNotEmpty) 'lane1': lane1,
         if (lane2 != null && lane2.isNotEmpty) 'lane2': lane2,
+        // The user's chosen pin — stored privately AND used to give a new master
+        // locality its coordinates (so it works in 2 km autofill once approved).
+        'latitude': ?latitude,
+        'longitude': ?longitude,
       });
     } on DioException catch (e) {
       throw ApiException.fromDio(e);

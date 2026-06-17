@@ -20,9 +20,23 @@ class ServiceCategoryScreen extends ConsumerStatefulWidget {
 
 class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
   final Set<int> _selected = {};
+  // A single shared "Other" option shown at the bottom of the whole list.
+  bool _otherSelected = false;
+  final _otherCtrl = TextEditingController();
   String _query = '';
   bool _loading = false;
   String? _error;
+
+  @override
+  void dispose() {
+    _otherCtrl.dispose();
+    super.dispose();
+  }
+
+  bool _isOther(ServiceSubcategory s) {
+    final n = s.name.toLowerCase().trim();
+    return n == 'other' || n == 'others';
+  }
 
   IconData _iconFor(String name) {
     final n = name.toLowerCase();
@@ -42,21 +56,34 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
     if (n.contains('doctor') || n.contains('dentist') || n.contains('physio') || n.contains('health')) return Icons.medical_services_outlined;
     if (n.contains('web') || n.contains('app') || n.contains('ui')) return Icons.devices_outlined;
     if (n.contains('party') || n.contains('event') || n.contains('wedding')) return Icons.celebration_outlined;
-    if (n.contains('other')) return Icons.more_horiz;
     return Icons.handyman_outlined;
   }
 
   Future<void> _continue() async {
-    if (_selected.isEmpty) {
+    final ids = _selected.toList();
+    final customServices = <Map<String, dynamic>>[];
+
+    if (_otherSelected) {
+      final name = _otherCtrl.text.trim();
+      if (name.isEmpty) {
+        setState(() => _error = 'Please enter the name of your service');
+        return;
+      }
+      // No categoryId — the backend files it under a shared "Other" category for approval.
+      customServices.add({'name': name});
+    }
+
+    if (ids.isEmpty && customServices.isEmpty) {
       setState(() => _error = 'Select at least one service you offer');
       return;
     }
+
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      await ref.read(serviceProfileRepositoryProvider).saveServiceTypes(_selected.toList());
+      await ref.read(serviceProfileRepositoryProvider).saveServiceTypes(ids, customServices: customServices);
       await ref.read(authControllerProvider.notifier).refreshUser();
       if (mounted) context.go(Routes.verificationHold);
     } catch (e) {
@@ -65,6 +92,8 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  int get _selectionCount => _selected.length + (_otherSelected ? 1 : 0);
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +113,7 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
                 children: [
                   Text('What services do you offer?', style: theme.textTheme.headlineSmall),
                   const SizedBox(height: 8),
-                  Text('Select all that apply — you can change these anytime.',
+                  Text('Browse by category and select all that apply — you can change these anytime.',
                       style: theme.textTheme.bodyMedium),
                   const SizedBox(height: 16),
                   TextField(
@@ -101,37 +130,7 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
               child: categoriesAsync.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Center(child: Text('Failed to load services: $e')),
-                data: (categories) {
-                  final subs = <ServiceSubcategory>[
-                    for (final c in categories) ...c.subcategories,
-                  ].where((s) => s.name.toLowerCase().contains(_query)).toList();
-
-                  return ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                    itemCount: subs.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1, color: AppColors.border),
-                    itemBuilder: (_, i) {
-                      final s = subs[i];
-                      final selected = _selected.contains(s.id);
-                      return ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                        leading: Icon(_iconFor(s.name),
-                            color: selected ? AppColors.primary : AppColors.textSecondary),
-                        title: Text(s.name,
-                            style: TextStyle(
-                                fontWeight: FontWeight.w500,
-                                color: selected ? AppColors.primary : AppColors.textPrimary)),
-                        trailing: Icon(
-                          selected ? Icons.check_circle : Icons.circle_outlined,
-                          color: selected ? AppColors.primary : AppColors.divider,
-                        ),
-                        onTap: () => setState(() {
-                          selected ? _selected.remove(s.id) : _selected.add(s.id);
-                        }),
-                      );
-                    },
-                  );
-                },
+                data: (categories) => _buildGroupedList(categories),
               ),
             ),
             Padding(
@@ -140,7 +139,7 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
                 children: [
                   if (_error != null) ...[ErrorBanner(message: _error!), const SizedBox(height: 12)],
                   PrimaryButton(
-                    label: _selected.isEmpty ? 'Continue' : 'Continue (${_selected.length})',
+                    label: _selectionCount == 0 ? 'Continue' : 'Continue ($_selectionCount)',
                     loading: _loading,
                     onPressed: _continue,
                   ),
@@ -151,5 +150,97 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildGroupedList(List<ServiceCategory> categories) {
+    // Category → matching-subcategory sections, with per-category "Other" options removed —
+    // a single shared "Other" lives at the bottom of the whole list instead.
+    final sections = <Widget>[];
+    for (final cat in categories) {
+      final subs = cat.subcategories
+          .where((s) => !_isOther(s))
+          .where((s) => s.name.toLowerCase().contains(_query) || cat.name.toLowerCase().contains(_query))
+          .toList();
+      if (subs.isEmpty) continue;
+
+      sections.add(Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+        child: Text(
+          cat.name.toUpperCase(),
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, letterSpacing: 0.6, color: AppColors.textSecondary),
+        ),
+      ));
+
+      for (final s in subs) {
+        final selected = _selected.contains(s.id);
+        sections.add(Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            leading: Icon(_iconFor(s.name), color: selected ? AppColors.primary : AppColors.textSecondary),
+            title: Text(s.name,
+                style: TextStyle(fontWeight: FontWeight.w500, color: selected ? AppColors.primary : AppColors.textPrimary)),
+            trailing: Icon(
+              selected ? Icons.check_circle : Icons.circle_outlined,
+              color: selected ? AppColors.primary : AppColors.divider,
+            ),
+            onTap: () => setState(() {
+              selected ? _selected.remove(s.id) : _selected.add(s.id);
+            }),
+          ),
+        ));
+        sections.add(const Divider(height: 1, color: AppColors.border, indent: 20, endIndent: 20));
+      }
+    }
+
+    if (sections.isEmpty && _query.isNotEmpty) {
+      sections.add(const Padding(
+        padding: EdgeInsets.fromLTRB(20, 24, 20, 4),
+        child: Text("No matching services — add yours under “Other” below.",
+            style: TextStyle(color: AppColors.textSecondary)),
+      ));
+    }
+
+    // ── Single shared "Other" at the bottom ──
+    sections.add(const Padding(
+      padding: EdgeInsets.fromLTRB(20, 18, 20, 8),
+      child: Text('CAN’T FIND YOURS?',
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, letterSpacing: 0.6, color: AppColors.textSecondary)),
+    ));
+    sections.add(Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        children: [
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            leading: Icon(Icons.more_horiz, color: _otherSelected ? AppColors.primary : AppColors.textSecondary),
+            title: Text('Other (enter your service)',
+                style: TextStyle(fontWeight: FontWeight.w500, color: _otherSelected ? AppColors.primary : AppColors.textPrimary)),
+            trailing: Icon(
+              _otherSelected ? Icons.check_circle : Icons.circle_outlined,
+              color: _otherSelected ? AppColors.primary : AppColors.divider,
+            ),
+            onTap: () => setState(() => _otherSelected = !_otherSelected),
+          ),
+          if (_otherSelected)
+            Padding(
+              padding: const EdgeInsets.only(left: 4, right: 4, bottom: 8),
+              child: TextField(
+                controller: _otherCtrl,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  hintText: 'Name your service',
+                  prefixIcon: Icon(Icons.edit_outlined, color: AppColors.textMuted),
+                ),
+                onChanged: (_) {
+                  if (_error != null) setState(() => _error = null);
+                },
+              ),
+            ),
+        ],
+      ),
+    ));
+
+    return ListView(padding: const EdgeInsets.only(bottom: 12), children: sections);
   }
 }

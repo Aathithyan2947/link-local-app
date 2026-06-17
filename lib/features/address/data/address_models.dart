@@ -1,61 +1,68 @@
-/// A complex/building suggestion from the seeded directory.
-class ComplexSuggestion {
-  const ComplexSuggestion({
-    required this.apartment,
+/// A curated locality from the Address Master — powers both the autocomplete directory and
+/// the 2 km nearby-autofill. Holds lane/area/suburb/city only (never building/flat).
+class MasterSuggestion {
+  const MasterSuggestion({
+    this.masterId,
+    required this.cityId,
+    this.complex,
     this.lane1,
-    required this.locality,
-    required this.cityId,
-    this.pincode,
-    required this.city,
-  });
-  final String apartment;
-  final String? lane1;
-  final String locality;
-  final int cityId;
-  final String? pincode;
-  final String city;
-
-  factory ComplexSuggestion.fromJson(Map<String, dynamic> j) => ComplexSuggestion(
-        apartment: j['apartment'] as String,
-        lane1: j['lane1'] as String?,
-        locality: j['locality'] as String? ?? '',
-        cityId: j['cityId'] as int,
-        pincode: j['pincode'] as String?,
-        city: j['city'] as String? ?? '',
-      );
-}
-
-/// A locality (area) suggestion from the seeded directory.
-class LocalitySuggestion {
-  const LocalitySuggestion({
-    required this.areaId,
-    required this.cityId,
-    required this.areaName,
+    this.lane2,
+    this.area,
     this.suburb,
     this.pincode,
+    this.latitude,
+    this.longitude,
     required this.city,
+    this.state,
+    this.distanceKm,
   });
-  final int areaId;
+  final int? masterId;
   final int cityId;
-  final String areaName;
+  final String? complex; // building / complex name (search suggestions only)
+  final String? lane1;
+  final String? lane2;
+  final String? area;
   final String? suburb;
   final String? pincode;
+  final double? latitude;
+  final double? longitude;
   final String city;
+  final String? state;
+  final double? distanceKm;
 
-  factory LocalitySuggestion.fromJson(Map<String, dynamic> j) => LocalitySuggestion(
-        areaId: j['areaId'] as int,
+  factory MasterSuggestion.fromJson(Map<String, dynamic> j) => MasterSuggestion(
+        masterId: j['masterId'] as int?,
         cityId: j['cityId'] as int,
-        areaName: j['areaName'] as String,
+        complex: j['complex'] as String?,
+        lane1: j['lane1'] as String?,
+        lane2: j['lane2'] as String?,
+        area: j['area'] as String?,
         suburb: j['suburb'] as String?,
         pincode: j['pincode'] as String?,
+        latitude: (j['latitude'] as num?)?.toDouble(),
+        longitude: (j['longitude'] as num?)?.toDouble(),
         city: j['city'] as String? ?? '',
+        state: j['state'] as String?,
+        distanceKm: (j['distanceKm'] as num?)?.toDouble(),
       );
+
+  /// Primary label for a suggestion row: the building/complex name when present,
+  /// otherwise the lane line, falling back to area/suburb.
+  String get title {
+    if (complex != null && complex!.isNotEmpty) return complex!;
+    final lanes = [lane1, lane2].where((e) => e != null && e.isNotEmpty).join(', ');
+    if (lanes.isNotEmpty) return lanes;
+    return [area, suburb].where((e) => e != null && e.isNotEmpty).join(', ');
+  }
+
+  /// Secondary line (lane / area / suburb / city / pincode).
+  String get subtitle =>
+      [lane1, lane2, area, suburb, city, pincode].where((e) => e != null && e.toString().isNotEmpty).join(', ');
 }
 
 class DirectoryResults {
-  const DirectoryResults({required this.localities, required this.complexes});
-  final List<LocalitySuggestion> localities;
-  final List<ComplexSuggestion> complexes;
+  const DirectoryResults({required this.localities});
+  final List<MasterSuggestion> localities;
 }
 
 /// Current user's address + address-proof verification status.

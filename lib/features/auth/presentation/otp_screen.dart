@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/auth_header.dart';
 import '../../../core/widgets/error_banner.dart';
@@ -90,13 +92,28 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
           const AuthHeader(),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
               child: Column(
                 children: [
-                  const AuthHeading(
+                  // Let the user go back to fix a wrong phone number / email.
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _loading
+                          ? null
+                          : () => context.canPop() ? context.pop() : context.go(Routes.register),
+                      icon: const Icon(Icons.arrow_back, size: 18),
+                      label: Text('Change ${widget.args.email != null ? 'email' : 'number'}'),
+                      style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  AuthHeading(
                     title: 'Enter OTP to Continue',
                     highlight: 'OTP',
-                    subtitle: 'Enter 6 Digit OTP',
+                    subtitle: widget.args.mobile != null
+                        ? 'Enter the 6-digit code sent to ${widget.args.mobile}'
+                        : 'Enter 6 Digit OTP',
                   ),
                   const SizedBox(height: 28),
                   PillField(controller: _otp, hint: 'Enter OTP', icon: Icons.password, keyboardType: TextInputType.number),

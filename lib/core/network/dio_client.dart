@@ -11,8 +11,10 @@ final dioProvider = Provider<Dio>((ref) {
   final dio = Dio(
     BaseOptions(
       baseUrl: AppConfig.apiBaseUrl,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 20),
+      // Generous timeouts so the first request can ride out a hosted backend
+      // cold-start (free tiers can take ~30-60s to wake from idle).
+      connectTimeout: const Duration(seconds: 45),
+      receiveTimeout: const Duration(seconds: 60),
       contentType: 'application/json',
     ),
   );
@@ -27,6 +29,21 @@ final dioProvider = Provider<Dio>((ref) {
         handler.next(options);
       },
       onError: (error, handler) async {
+        // Cold-start tolerance: retry once on a connection/timeout error so the
+        // first request after the backend wakes from idle doesn't surface as a failure.
+        if ((error.type == DioExceptionType.connectionTimeout ||
+                error.type == DioExceptionType.receiveTimeout ||
+                error.type == DioExceptionType.connectionError) &&
+            error.requestOptions.extra['timeoutRetried'] != true) {
+          final req = error.requestOptions;
+          req.extra['timeoutRetried'] = true;
+          try {
+            final response = await dio.fetch(req);
+            return handler.resolve(response);
+          } catch (_) {
+            // fall through to surface the original error
+          }
+        }
         // Attempt a single refresh on 401, then retry the original request.
         if (error.response?.statusCode == 401 &&
             error.requestOptions.extra['retried'] != true) {
@@ -56,7 +73,11 @@ Future<bool> _tryRefresh(Dio dio, TokenStorage storage) async {
   final refresh = await storage.refreshToken;
   if (refresh == null || refresh.isEmpty) return false;
   try {
-    final raw = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+    final raw = Dio(BaseOptions(
+      baseUrl: AppConfig.apiBaseUrl,
+      connectTimeout: const Duration(seconds: 45),
+      receiveTimeout: const Duration(seconds: 60),
+    ));
     final res = await raw.post('/auth/refresh', data: {'refreshToken': refresh});
     final access = res.data['data']?['accessToken'] as String?;
     if (access != null) {

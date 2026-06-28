@@ -66,8 +66,38 @@ class ProfileRepository {
       _wrap(() => _dio.delete('/profiles/me/$section/$id'), (_) {});
 
   Future<List<IdName>> professions() => _wrap(
-        () => _dio.get('/masters/professions', queryParameters: {'pageSize': 100}),
+        () => _dio.get('/masters/professions', queryParameters: {'pageSize': 100, 'isActive': 'true'}),
         (d) => (d as List).map((e) => IdName(e['id'] as int, e['category'] as String)).toList(),
+      );
+
+  /// Case-insensitive distinct, non-empty values of [key] across master rows.
+  List<String> _distinctNames(List<dynamic> rows, String key) {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final e in rows) {
+      final v = (e[key] as String?)?.trim();
+      if (v == null || v.isEmpty) continue;
+      if (seen.add(v.toLowerCase())) out.add(v);
+    }
+    return out;
+  }
+
+  /// Approved degrees from the curated education catalog (deduped), for the picker.
+  Future<List<String>> educationDegrees() => _wrap(
+        () => _dio.get('/masters/education', queryParameters: {'pageSize': 100, 'isActive': 'true'}),
+        (d) => _distinctNames(d as List, 'degree'),
+      );
+
+  /// Approved schools from the curated catalog (deduped), for the picker.
+  Future<List<String>> schoolMasters() => _wrap(
+        () => _dio.get('/masters/schools', queryParameters: {'pageSize': 100, 'isActive': 'true'}),
+        (d) => _distinctNames(d as List, 'name'),
+      );
+
+  /// Approved colleges from the curated catalog (deduped), for the picker.
+  Future<List<String>> collegeMasters() => _wrap(
+        () => _dio.get('/masters/colleges', queryParameters: {'pageSize': 100, 'isActive': 'true'}),
+        (d) => _distinctNames(d as List, 'name'),
       );
 
   Future<List<IdName>> hobbies() => _wrap(
@@ -86,6 +116,18 @@ final myProfileProvider = FutureProvider<ProfileDetail>((ref) {
 
 final professionMasterProvider = FutureProvider<List<IdName>>((ref) {
   return ref.watch(profileRepositoryProvider).professions();
+});
+
+final educationDegreesProvider = FutureProvider<List<String>>((ref) {
+  return ref.watch(profileRepositoryProvider).educationDegrees();
+});
+
+final schoolMasterProvider = FutureProvider<List<String>>((ref) {
+  return ref.watch(profileRepositoryProvider).schoolMasters();
+});
+
+final collegeMasterProvider = FutureProvider<List<String>>((ref) {
+  return ref.watch(profileRepositoryProvider).collegeMasters();
 });
 
 final hobbyMasterProvider = FutureProvider<List<IdName>>((ref) {

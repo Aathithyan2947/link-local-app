@@ -62,6 +62,43 @@ class _SectionList extends ConsumerWidget {
 TextField _field(TextEditingController c, String hint, {TextInputType? type}) =>
     TextField(controller: c, keyboardType: type, decoration: InputDecoration(hintText: hint));
 
+const _otherOption = 'Other (specify)';
+
+/// A curated-master picker: a dropdown of approved [options] plus an "Other (specify)" choice
+/// that reveals a free-text field (queued for admin approval). Resolve the entered value with
+/// [pickedValue]. Pass [options] WITHOUT the "Other" entry — it's appended here.
+List<Widget> _masterPicker(
+  String hint,
+  List<String> options,
+  String selected,
+  TextEditingController custom,
+  ValueChanged<String> onChanged,
+) {
+  final all = [...options, _otherOption];
+  return [
+    DropdownButtonFormField<String>(
+      initialValue: all.contains(selected) ? selected : _otherOption,
+      isExpanded: true,
+      decoration: InputDecoration(hintText: hint),
+      items: all.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
+      onChanged: (v) => onChanged(v ?? _otherOption),
+    ),
+    if (selected == _otherOption) ...[
+      const SizedBox(height: 8),
+      _field(custom, 'Enter $hint'),
+      const Padding(
+        padding: EdgeInsets.only(top: 4),
+        child: Text('Sent for approval before others can pick it.',
+            style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+      ),
+    ],
+  ];
+}
+
+/// Resolves a picker's value: the typed custom text when "Other" is chosen, else the selection.
+String _pickedValue(String selected, TextEditingController custom) =>
+    selected == _otherOption ? custom.text.trim() : selected;
+
 // ── Education ────────────────────────────────────────────────
 class EducationScreen extends StatelessWidget {
   const EducationScreen({super.key});
@@ -73,23 +110,42 @@ class EducationScreen extends StatelessWidget {
         emptyMessage: 'Add your school, college or degree.',
         select: (p) => p.educations,
         onAdd: (ctx, ref) async {
-          final degree = TextEditingController();
-          final school = TextEditingController();
-          final college = TextEditingController();
+          // Degree, School and College are independent curated catalogs, each pickable on its own.
+          final degrees = await ref.read(educationDegreesProvider.future);
+          final schools = await ref.read(schoolMasterProvider.future);
+          final colleges = await ref.read(collegeMasterProvider.future);
+          if (!ctx.mounted) return;
+          String degreeSel = degrees.isNotEmpty ? degrees.first : _otherOption;
+          String schoolSel = schools.isNotEmpty ? schools.first : _otherOption;
+          String collegeSel = colleges.isNotEmpty ? colleges.first : _otherOption;
+          final degreeCustom = TextEditingController();
+          final schoolCustom = TextEditingController();
+          final collegeCustom = TextEditingController();
           await showFormSheet(ctx,
               title: 'Add Education',
-              fields: (_) => [
-                    _field(degree, 'Degree (e.g. B.Tech)'),
+              fields: (setSheet) => [
+                    ..._masterPicker('Degree', degrees, degreeSel, degreeCustom,
+                        (v) => setSheet(() => degreeSel = v)),
                     const SizedBox(height: 12),
-                    _field(school, 'School name'),
+                    ..._masterPicker('School', schools, schoolSel, schoolCustom,
+                        (v) => setSheet(() => schoolSel = v)),
                     const SizedBox(height: 12),
-                    _field(college, 'College name'),
+                    ..._masterPicker('College', colleges, collegeSel, collegeCustom,
+                        (v) => setSheet(() => collegeSel = v)),
                   ],
-              onSave: () => ref.read(profileRepositoryProvider).addEducation({
-                    'degree': degree.text.trim(),
-                    'schoolName': school.text.trim(),
-                    'collegeName': college.text.trim(),
-                  }));
+              onSave: () {
+                final degree = _pickedValue(degreeSel, degreeCustom);
+                final school = _pickedValue(schoolSel, schoolCustom);
+                final college = _pickedValue(collegeSel, collegeCustom);
+                if (degree.isEmpty && school.isEmpty && college.isEmpty) {
+                  throw 'Add at least a degree, school or college';
+                }
+                return ref.read(profileRepositoryProvider).addEducation({
+                  'degree': degree,
+                  'schoolName': school,
+                  'collegeName': college,
+                });
+              });
         },
       );
 }
@@ -108,7 +164,12 @@ class ProfessionScreen extends StatelessWidget {
           final masters = await ref.read(professionMasterProvider.future);
           if (!ctx.mounted) return;
           final company = TextEditingController();
-          IdName? selected = masters.isNotEmpty ? masters.first : null;
+          final customCategory = TextEditingController();
+          // A sentinel "Other" option lets members suggest a profession that isn't listed;
+          // it's queued for admin approval before appearing for everyone.
+          const other = IdName(-1, 'Other (specify)');
+          final options = [...masters, other];
+          IdName selected = options.first;
           await showFormSheet(ctx,
               title: 'Add Profession',
               fields: (setSheet) => [
@@ -116,18 +177,33 @@ class ProfessionScreen extends StatelessWidget {
                       initialValue: selected,
                       isExpanded: true,
                       decoration: const InputDecoration(hintText: 'Category'),
-                      items: masters
+                      items: options
                           .map((m) => DropdownMenuItem(value: m, child: Text(m.label)))
                           .toList(),
-                      onChanged: (v) => setSheet(() => selected = v),
+                      onChanged: (v) => setSheet(() => selected = v ?? other),
                     ),
+                    if (selected.id == -1) ...[
+                      const SizedBox(height: 12),
+                      _field(customCategory, 'Your profession'),
+                      const Padding(
+                        padding: EdgeInsets.only(top: 6),
+                        child: Text('Sent for approval before it appears for others.',
+                            style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     _field(company, 'Company / details'),
                   ],
-              onSave: () => ref.read(profileRepositoryProvider).addProfession({
-                    if (selected != null) 'professionMasterId': selected!.id,
-                    'companyOrDetail': company.text.trim(),
-                  }));
+              onSave: () {
+                final isOther = selected.id == -1;
+                final custom = customCategory.text.trim();
+                if (isOther && custom.isEmpty) throw 'Please enter your profession';
+                return ref.read(profileRepositoryProvider).addProfession({
+                  if (!isOther) 'professionMasterId': selected.id,
+                  if (isOther) 'category': custom,
+                  'companyOrDetail': company.text.trim(),
+                });
+              });
         },
       );
 }

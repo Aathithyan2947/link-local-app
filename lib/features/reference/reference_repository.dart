@@ -19,6 +19,12 @@ class ReferenceRepository {
     final list = (res.data['data'] as List).cast<Map<String, dynamic>>();
     return list.map(ServiceCategory.fromJson).toList();
   }
+
+  Future<List<ReferralSource>> referralSources() async {
+    final res = await _dio.get('/masters/referral-sources', queryParameters: {'pageSize': 100});
+    final list = (res.data['data'] as List).cast<Map<String, dynamic>>();
+    return list.map(ReferralSource.fromJson).toList();
+  }
 }
 
 final referenceRepositoryProvider = Provider<ReferenceRepository>((ref) {
@@ -31,4 +37,8 @@ final citiesProvider = FutureProvider<List<City>>((ref) {
 
 final serviceCategoriesProvider = FutureProvider<List<ServiceCategory>>((ref) {
   return ref.watch(referenceRepositoryProvider).serviceCategories();
+});
+
+final referralSourcesProvider = FutureProvider<List<ReferralSource>>((ref) {
+  return ref.watch(referenceRepositoryProvider).referralSources();
 });

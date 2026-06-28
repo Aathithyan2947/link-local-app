@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
 
 /// Green "Link Local" header band used across the auth/onboarding screens.
@@ -118,12 +119,16 @@ class PillField extends StatelessWidget {
     this.icon,
     this.obscure = false,
     this.keyboardType,
+    this.maxLength,
+    this.inputFormatters,
   });
   final TextEditingController controller;
   final String hint;
   final IconData? icon;
   final bool obscure;
   final TextInputType? keyboardType;
+  final int? maxLength;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) {
@@ -131,6 +136,11 @@ class PillField extends StatelessWidget {
       controller: controller,
       obscureText: obscure,
       keyboardType: keyboardType,
+      maxLength: maxLength,
+      inputFormatters: inputFormatters,
+      buildCounter: maxLength == null
+          ? null
+          : (_, {required currentLength, required isFocused, maxLength}) => null,
       decoration: InputDecoration(
         hintText: hint,
         prefixIcon: icon != null ? Icon(icon, color: AppColors.textSecondary) : null,

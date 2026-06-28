@@ -24,6 +24,13 @@ class _AddressProofScreenState extends ConsumerState<AddressProofScreen> {
   Uint8List? _fileBytes;
   bool _loading = false;
   String? _error;
+  final _descCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _descCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _pick(String docType) async {
     final doc = await pickProofDocument(context);
@@ -51,6 +58,7 @@ class _AddressProofScreenState extends ConsumerState<AddressProofScreen> {
             bytes: _fileBytes!,
             filename: _fileName!,
             docType: _docType,
+            description: _docType == 'other' ? _descCtrl.text : null,
           );
       ref.invalidate(myAddressProofProvider);
       await ref.read(authControllerProvider.notifier).refreshUser();
@@ -126,6 +134,19 @@ class _AddressProofScreenState extends ConsumerState<AddressProofScreen> {
                         const SizedBox(width: 10),
                         Expanded(child: Text(_fileName!, overflow: TextOverflow.ellipsis)),
                       ],
+                    ),
+                  ),
+                ],
+                // For "Other" proofs, let the member name the document so the admin knows
+                // what they're reviewing.
+                if (_docType == 'other' && _fileName != null) ...[
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _descCtrl,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: 'What is this document?',
+                      hintText: 'e.g. Gas connection bill, Society NOC',
                     ),
                   ),
                 ],

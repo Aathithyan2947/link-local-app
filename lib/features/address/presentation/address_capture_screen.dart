@@ -71,9 +71,16 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
   }
 
   City? _cityByName(String? name) {
-    if (name == null) return null;
+    final n = name?.trim().toLowerCase();
+    if (n == null || n.isEmpty) return null;
+    // Exact match first, then a loose contains match so geocoder variants like
+    // "Mumbai Suburban" / "Greater Mumbai" still resolve to the serviceable city.
     for (final c in _cities) {
-      if (c.name.toLowerCase() == name.toLowerCase()) return c;
+      if (c.name.toLowerCase() == n) return c;
+    }
+    for (final c in _cities) {
+      final cn = c.name.toLowerCase();
+      if (n.contains(cn) || cn.contains(n)) return c;
     }
     return null;
   }
@@ -226,17 +233,17 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
       // Endpoint optional/unavailable — fall through to map data.
     }
 
-    // 2) Identify the city: from the master hit, else from reverse-geocoded map data.
-    GeoAddress? geo;
-    City? city = hit != null ? (_cityById(hit.cityId) ?? _cityByName(hit.city)) : null;
-    if (city == null) {
-      geo = await repo.reverseGeocode(lat, lng);
-      city = _cityByName(geo.city);
-    }
+    // Reverse-geocode for prefill (lane/area/pincode) and, only if needed, city detection.
+    final geo = await repo.reverseGeocode(lat, lng);
 
-    // Only prefill when the detected city is one we actually serve.
+    // Prefer the city the user already chose; only auto-detect when none is selected — this
+    // avoids the false "couldn't find a Link Local city" after they picked a city manually.
+    final City? city = _city ??
+        (hit != null ? (_cityById(hit.cityId) ?? _cityByName(hit.city)) : null) ??
+        _cityByName(geo.city);
+
     if (city == null) {
-      final detected = geo?.city;
+      final detected = geo.city;
       setState(() => _error = (detected != null && detected.isNotEmpty)
           ? "Link Local isn't available in $detected yet. Please pick a city from the list."
           : "We couldn't find a Link Local city at your location. Please pick your city.");
@@ -244,23 +251,29 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
     }
 
     _city = city;
-    _state = city.state ?? geo?.state;
+    _state = city.state ?? geo.state ?? _state;
     _picked = LatLng(lat, lng);
     _prefill
       // GPS / map pin never fills the building — we can't know the exact complex.
       ..['building'] = ''
-      ..['lane1'] = hit?.lane1 ?? geo?.lane1 ?? ''
-      ..['lane2'] = hit?.lane2 ?? geo?.locality ?? ''
-      ..['area'] = hit?.area ?? geo?.area ?? geo?.locality ?? ''
-      ..['suburb'] = hit?.suburb ?? geo?.suburb ?? ''
-      ..['pincode'] = hit?.pincode ?? geo?.pincode ?? '';
+      ..['lane1'] = hit?.lane1 ?? geo.lane1 ?? ''
+      ..['lane2'] = hit?.lane2 ?? geo.locality ?? ''
+      ..['area'] = hit?.area ?? geo.area ?? geo.locality ?? ''
+      ..['suburb'] = hit?.suburb ?? geo.suburb ?? ''
+      ..['pincode'] = hit?.pincode ?? geo.pincode ?? '';
     await _loadFields();
     if (mounted) _openConfirmSheet();
   }
 
   Future<void> _pickOnMap() async {
+    // City is mandatory before a manual map pin (GPS path handles detection on its own).
+    if (_city == null) {
+      setState(() => _error = 'Select your city first, or tap "Use Current Location".');
+      return;
+    }
     final geo = await Navigator.of(context).push<GeoAddress>(
-      MaterialPageRoute(builder: (_) => const AddressMapScreen()),
+      // Reopen on the existing pin so a small correction doesn't restart the map.
+      MaterialPageRoute(builder: (_) => AddressMapScreen(initial: _picked)),
     );
     if (geo == null) return;
     setState(() => _error = null);
@@ -588,9 +601,12 @@ class _MapPreview extends StatelessWidget {
             children: [
               IgnorePointer(
                 child: FlutterMap(
+                  // Re-create the map when the pin changes so it re-centers on the picked
+                  // location (e.g. after choosing a search suggestion with coordinates).
+                  key: ValueKey(picked),
                   options: MapOptions(
                     initialCenter: center,
-                    initialZoom: 14,
+                    initialZoom: picked != null ? 16 : 14,
                     interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
                   ),
                   children: [

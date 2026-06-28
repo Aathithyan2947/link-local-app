@@ -141,13 +141,28 @@ class AddressRepository {
     required Uint8List bytes,
     required String filename,
     required String docType,
+    String? description,
   }) async {
     try {
       final form = FormData.fromMap({
         'docType': docType,
+        if (description != null && description.trim().isNotEmpty) 'description': description.trim(),
         'document': MultipartFile.fromBytes(bytes, filename: filename),
       });
       await _dio.post('/addresses/documents', data: form);
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
+    }
+  }
+
+  /// Records how the member heard about us + who referred them (member ID / referral code).
+  /// Throws with a clear message if the referral code is invalid.
+  Future<void> setReferral({String? referralCode, int? referralSourceId}) async {
+    try {
+      await _dio.patch('/profiles/me/referral', data: {
+        if (referralCode != null && referralCode.trim().isNotEmpty) 'referralCode': referralCode.trim(),
+        'referralSourceId': ?referralSourceId,
+      });
     } on DioException catch (e) {
       throw ApiException.fromDio(e);
     }

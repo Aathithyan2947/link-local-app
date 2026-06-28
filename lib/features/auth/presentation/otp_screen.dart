@@ -10,12 +10,22 @@ import '../../../core/widgets/primary_button.dart';
 import '../application/auth_controller.dart';
 
 class OtpArgs {
-  const OtpArgs({this.mobile, this.email, this.name, required this.purpose, this.devOtp});
+  const OtpArgs({
+    this.mobile,
+    this.email,
+    this.name,
+    required this.purpose,
+    this.devOtp,
+    this.referralCode,
+    this.referralSourceId,
+  });
   final String? mobile;
   final String? email;
   final String? name;
   final String purpose; // registration | login
   final String? devOtp;
+  final String? referralCode;
+  final int? referralSourceId;
 }
 
 class OtpScreen extends ConsumerStatefulWidget {
@@ -74,6 +84,8 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
             otp: _otp.text.trim(),
             purpose: widget.args.purpose,
             name: widget.args.name,
+            referralCode: widget.args.referralCode,
+            referralSourceId: widget.args.referralSourceId,
           );
       // Router redirect handles navigation once authenticated.
     } catch (e) {

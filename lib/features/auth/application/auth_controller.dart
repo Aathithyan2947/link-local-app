@@ -57,6 +57,7 @@ class AuthController extends Notifier<AuthState> {
     String? mobile,
     String userType = 'resident',
     String? referralCode,
+    int? referralSourceId,
   }) async {
     final result = await _repo.register(
       name: name,
@@ -65,6 +66,7 @@ class AuthController extends Notifier<AuthState> {
       mobile: mobile,
       userType: userType,
       referralCode: referralCode,
+      referralSourceId: referralSourceId,
     );
     await _tokens.save(accessToken: result.accessToken, refreshToken: result.refreshToken);
     state = AuthState(status: AuthStatus.authenticated, user: result.user);
@@ -85,6 +87,8 @@ class AuthController extends Notifier<AuthState> {
     required String otp,
     required String purpose,
     String? name,
+    String? referralCode,
+    int? referralSourceId,
   }) async {
     final result = await _repo.verifyOtp(
       mobile: mobile,
@@ -92,6 +96,8 @@ class AuthController extends Notifier<AuthState> {
       otp: otp,
       purpose: purpose,
       name: name,
+      referralCode: referralCode,
+      referralSourceId: referralSourceId,
     );
     await _tokens.save(accessToken: result.accessToken, refreshToken: result.refreshToken);
     final user = await _repo.me();

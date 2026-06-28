@@ -10,6 +10,22 @@ class City {
   String get label => state == null ? name : '$name, $state';
 }
 
+class ReferralSource {
+  const ReferralSource({required this.id, required this.source, required this.label});
+  final int id;
+  final String source; // e.g. social_media | friends_family | user_id | event_id | other
+  final String label;
+
+  factory ReferralSource.fromJson(Map<String, dynamic> j) => ReferralSource(
+        id: j['id'] as int,
+        source: j['source'] as String? ?? '',
+        label: j['label'] as String? ?? (j['source'] as String? ?? ''),
+      );
+
+  /// True for the "Referred by a user" source, which needs a member ID / referral code.
+  bool get needsMemberId => source == 'user_id';
+}
+
 class ServiceSubcategory {
   const ServiceSubcategory({required this.id, required this.name, required this.categoryId});
   final int id;

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../address/data/address_repository.dart';
+import '../../../address/presentation/address_proof_screen.dart';
 import '../../../auth/application/auth_controller.dart';
 import '../../../profile/data/profile_repository.dart';
 import '../../../profile/presentation/profile_completion_screen.dart';
@@ -13,6 +15,7 @@ class ProfileTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authControllerProvider).user;
+    final proof = ref.watch(myAddressProofProvider).asData?.value;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Profile')),
@@ -56,7 +59,16 @@ class ProfileTab extends ConsumerWidget {
           _Tile(
             icon: Icons.verified_user_outlined,
             title: 'Verification status',
-            subtitle: (user?.isVerified ?? false) ? 'Verified' : 'Pending review',
+            subtitle: proof?.statusLabel ?? ((user?.isVerified ?? false) ? 'Verified' : 'Not uploaded'),
+            // Tap to upload / re-upload address proof (unless already verified).
+            onTap: (proof?.isVerified ?? user?.isVerified ?? false)
+                ? null
+                : () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const AddressProofScreen()),
+                    );
+                    ref.invalidate(myAddressProofProvider);
+                  },
           ),
           if (user?.city != null)
             _Tile(icon: Icons.location_city_outlined, title: 'City', subtitle: user!.city!),
@@ -76,36 +88,44 @@ class ProfileTab extends ConsumerWidget {
 }
 
 class _Tile extends StatelessWidget {
-  const _Tile({required this.icon, required this.title, required this.subtitle});
+  const _Tile({required this.icon, required this.title, required this.subtitle, this.onTap});
   final IconData icon;
   final String title;
   final String subtitle;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.border),
       ),
-      child: Row(
-        children: [
-          Icon(icon, color: AppColors.primary),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 2),
-                Text(subtitle, style: Theme.of(context).textTheme.titleMedium),
-              ],
-            ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(icon, color: AppColors.primary),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.bodySmall),
+                    const SizedBox(height: 2),
+                    Text(subtitle, style: Theme.of(context).textTheme.titleMedium),
+                  ],
+                ),
+              ),
+              if (onTap != null) const Icon(Icons.chevron_right, color: AppColors.textMuted),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

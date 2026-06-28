@@ -11,6 +11,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/auth_header.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../reference/reference_models.dart';
+import '../../reference/reference_repository.dart';
 import '../data/address_repository.dart';
 
 class AddressVerifyScreen extends ConsumerStatefulWidget {
@@ -26,6 +28,31 @@ class _AddressVerifyScreenState extends ConsumerState<AddressVerifyScreen> {
   Uint8List? _fileBytes;
   bool _loading = false;
   String? _error;
+  final _descCtrl = TextEditingController();
+  final _refCode = TextEditingController();
+  ReferralSource? _refSource;
+
+  @override
+  void dispose() {
+    _descCtrl.dispose();
+    _refCode.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _refDecoration(String hint) => InputDecoration(
+        hintText: hint,
+        filled: true,
+        fillColor: AppColors.surface,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+      );
 
   /// Lets the user pick the source: camera capture or a file from the device.
   Future<void> _choose(String docType) async {
@@ -113,8 +140,9 @@ class _AddressVerifyScreenState extends ConsumerState<AddressVerifyScreen> {
   }
 
   Future<void> _submit() async {
-    if (_fileBytes == null) {
-      setState(() => _error = 'Please select a proof document, or skip for now');
+    final hasReferral = _refSource != null || _refCode.text.trim().isNotEmpty;
+    if (_fileBytes == null && !hasReferral) {
+      setState(() => _error = 'Add a proof or a referral, or skip for now');
       return;
     }
     setState(() {
@@ -122,11 +150,20 @@ class _AddressVerifyScreenState extends ConsumerState<AddressVerifyScreen> {
       _error = null;
     });
     try {
-      await ref.read(addressRepositoryProvider).uploadProof(
-            bytes: _fileBytes!,
-            filename: _fileName!,
-            docType: _docType,
-          );
+      if (_fileBytes != null) {
+        await ref.read(addressRepositoryProvider).uploadProof(
+              bytes: _fileBytes!,
+              filename: _fileName!,
+              docType: _docType,
+              description: _docType == 'other' ? _descCtrl.text : null,
+            );
+      }
+      if (hasReferral) {
+        await ref.read(addressRepositoryProvider).setReferral(
+              referralCode: _refCode.text.trim().isEmpty ? null : _refCode.text.trim(),
+              referralSourceId: _refSource?.id,
+            );
+      }
       _continueAfterAddress();
     } catch (e) {
       setState(() => _error = e.toString());
@@ -137,6 +174,7 @@ class _AddressVerifyScreenState extends ConsumerState<AddressVerifyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final sources = ref.watch(referralSourcesProvider).asData?.value ?? const <ReferralSource>[];
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
@@ -191,6 +229,55 @@ class _AddressVerifyScreenState extends ConsumerState<AddressVerifyScreen> {
                       ),
                     ),
                   ],
+                  // For "Other" proofs, let the member name the document so the admin knows
+                  // what they're reviewing.
+                  if (_docType == 'other' && _fileName != null) ...[
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _descCtrl,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: const InputDecoration(
+                        labelText: 'What is this document?',
+                        hintText: 'e.g. Gas connection bill, Society NOC',
+                      ),
+                    ),
+                  ],
+
+                  // ── Referral (moved here from sign-up) ──
+                  if (sources.isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    DropdownButtonFormField<ReferralSource>(
+                      initialValue: _refSource,
+                      isExpanded: true,
+                      decoration: _refDecoration('How did you hear about us? (optional)'),
+                      items: sources.map((s) => DropdownMenuItem(value: s, child: Text(s.label))).toList(),
+                      onChanged: (v) => setState(() => _refSource = v),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySurface,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Got a referral code?',
+                            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                        const SizedBox(height: 4),
+                        const Text('This will help us verify your profile faster',
+                            style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _refCode,
+                          decoration: _refDecoration('Enter Referral code'),
+                        ),
+                      ],
+                    ),
+                  ),
+
                   if (_error != null) ...[const SizedBox(height: 16), ErrorBanner(message: _error!)],
                   const SizedBox(height: 28),
                   PrimaryButton(label: 'Next', loading: _loading, onPressed: _submit),

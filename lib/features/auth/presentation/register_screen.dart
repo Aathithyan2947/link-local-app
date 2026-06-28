@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -38,8 +39,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   }
 
   Future<void> _sendOtp() async {
-    if (_name.text.trim().isEmpty || _phone.text.trim().isEmpty) {
+    final phone = _phone.text.trim();
+    if (_name.text.trim().isEmpty || phone.isEmpty) {
       setState(() => _error = 'Enter your name and phone number');
+      return;
+    }
+    if (!RegExp(r'^[0-9]{10}$').hasMatch(phone)) {
+      setState(() => _error = 'Enter a valid 10-digit mobile number');
       return;
     }
     setState(() {
@@ -48,13 +54,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     });
     try {
       final devOtp = await ref.read(authControllerProvider.notifier).requestOtp(
-            mobile: _phone.text.trim(),
+            mobile: phone,
             purpose: 'registration',
             name: _name.text.trim(),
           );
       if (mounted) {
         context.push(Routes.otp,
-            extra: OtpArgs(mobile: _phone.text.trim(), name: _name.text.trim(), purpose: 'registration', devOtp: devOtp));
+            extra: OtpArgs(mobile: phone, name: _name.text.trim(), purpose: 'registration', devOtp: devOtp));
       }
     } catch (e) {
       setState(() => _error = e.toString());
@@ -160,7 +166,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   List<Widget> _mobileForm() => [
         PillField(controller: _name, hint: 'Full Name', icon: Icons.person_outline),
         const SizedBox(height: 16),
-        PillField(controller: _phone, hint: 'Enter your Phone No.', icon: Icons.phone_outlined, keyboardType: TextInputType.phone),
+        PillField(
+          controller: _phone,
+          hint: 'Enter your 10-digit Phone No.',
+          icon: Icons.phone_outlined,
+          keyboardType: TextInputType.phone,
+          maxLength: 10,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        ),
       ];
 
   List<Widget> _emailForm() => [

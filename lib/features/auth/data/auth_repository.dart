@@ -81,6 +81,8 @@ class AuthRepository {
     required String otp,
     required String purpose,
     String? name,
+    String? referralCode,
+    int? referralSourceId,
   }) async {
     try {
       final res = await _dio.post('/auth/otp/verify', data: {
@@ -89,6 +91,8 @@ class AuthRepository {
         'otp': otp,
         'purpose': purpose,
         if (name != null && name.isNotEmpty) 'name': name,
+        if (referralCode != null && referralCode.isNotEmpty) 'referralCode': referralCode,
+        'referralSourceId': ?referralSourceId,
       });
       return AuthResult.fromJson(res.data['data'] as Map<String, dynamic>);
     } on DioException catch (e) {

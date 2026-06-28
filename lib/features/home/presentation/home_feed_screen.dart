@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../address/data/address_repository.dart';
+import '../../address/presentation/address_proof_screen.dart';
 import '../../auth/application/auth_controller.dart';
+import '../data/doc_reminder.dart';
 import '../data/home_models.dart';
 import '../data/home_repository.dart';
 import 'widgets/home_widgets.dart';
@@ -23,6 +26,14 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
     final feedAsync = ref.watch(homeFeedProvider);
     final user = ref.watch(authControllerProvider).user;
 
+    // Gentle, dismissible reminder to upload address proof (only when not yet submitted/approved).
+    final proof = ref.watch(myAddressProofProvider).asData?.value;
+    final reminderDismissed = ref.watch(docReminderDismissedProvider).asData?.value ?? true;
+    final showDocReminder = proof != null &&
+        proof.hasAddress &&
+        !reminderDismissed &&
+        (proof.status == 'none' || proof.status == 'rejected');
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: feedAsync.when(
@@ -41,6 +52,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                 onScope: (i) => setState(() => _scope = i),
               ),
               const SizedBox(height: 8),
+              if (showDocReminder) _DocReminderBanner(rejected: proof.status == 'rejected'),
               if (feed.serviceProviders.items.isNotEmpty) ...[
                 _SectionHeader('Service provider in', '${feed.city?.name ?? ''}(${feed.serviceProviders.total})'),
                 _ServiceCategoryRow(items: feed.serviceProviders.items),
@@ -557,6 +569,63 @@ class _ErrorView extends StatelessWidget {
             const SizedBox(height: 20),
             OutlinedButton(onPressed: onRetry, child: const Text('Retry')),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Dismissible "upload your address proof" reminder ─────────
+class _DocReminderBanner extends ConsumerWidget {
+  const _DocReminderBanner({required this.rejected});
+  final bool rejected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Material(
+        color: rejected ? const Color(0xFFFDECEC) : AppColors.primarySurface,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AddressProofScreen()),
+            );
+            ref.invalidate(myAddressProofProvider);
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Icon(rejected ? Icons.error_outline : Icons.verified_user_outlined,
+                    color: rejected ? AppColors.error : AppColors.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(rejected ? 'Address proof rejected' : 'Verify your address',
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 2),
+                      Text(
+                        rejected
+                            ? 'Re-upload a document to get verified.'
+                            : 'Upload a document to get verified.',
+                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18, color: AppColors.textMuted),
+                  tooltip: 'Skip',
+                  onPressed: () => dismissDocReminder(ref),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

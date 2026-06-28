@@ -69,9 +69,12 @@ class ProfileDetail {
       completionPercent: _asInt((j['completion'] as Map<String, dynamic>?)?['completionPercent']),
       educations: list('educations').map((e) {
         final m = e['educationMaster'] as Map<String, dynamic>?;
-        final label = [m?['degree'], m?['collegeName'], m?['schoolName']]
-            .whereType<String>()
-            .join(' · ');
+        // Prefer the member's own details; fall back to the catalog for legacy rows.
+        final label = [
+          e['degree'] ?? m?['degree'],
+          e['collegeName'] ?? m?['collegeName'],
+          e['schoolName'] ?? m?['schoolName'],
+        ].whereType<String>().join(' · ');
         return IdName(_asInt(e['id']), label.isEmpty ? 'Education' : label);
       }).toList(),
       professions: list('professions').map((e) {

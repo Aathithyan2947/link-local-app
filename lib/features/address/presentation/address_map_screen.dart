@@ -12,7 +12,11 @@ import '../data/address_repository.dart';
 /// Lets the user pin a location on a map; requests device location to start at
 /// the user's accurate position. Returns a reverse-geocoded [GeoAddress].
 class AddressMapScreen extends ConsumerStatefulWidget {
-  const AddressMapScreen({super.key});
+  const AddressMapScreen({super.key, this.initial});
+
+  /// When provided, the map opens on this pin (e.g. returning to fix a small mistake)
+  /// instead of resetting to the device's current location.
+  final LatLng? initial;
 
   @override
   ConsumerState<AddressMapScreen> createState() => _AddressMapScreenState();
@@ -29,7 +33,13 @@ class _AddressMapScreenState extends ConsumerState<AddressMapScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _goToCurrentLocation());
+    if (widget.initial != null) {
+      _center = widget.initial!;
+      _locating = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _controller.move(widget.initial!, 16));
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _goToCurrentLocation());
+    }
   }
 
   /// Requests permission and recenters the map on the device's location.

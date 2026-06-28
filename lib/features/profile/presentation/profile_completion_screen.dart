@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../address/data/address_repository.dart';
 import '../../address/presentation/address_proof_screen.dart';
 import '../../services/presentation/service_category_screen.dart';
+import '../../services/presentation/service_details_screen.dart';
 import '../data/profile_models.dart';
 import '../data/profile_repository.dart';
 import 'sections/basic_sections.dart';
@@ -80,6 +81,7 @@ class ProfileCompletionScreen extends ConsumerWidget {
     if (p.isServiceProvider) {
       base.addAll([
         _Section(Icons.handyman_outlined, 'Services', p.serviceTypes.isNotEmpty, p.serviceTypes.isNotEmpty ? '${p.serviceTypes.length} selected' : 'Pick services', () => const ServiceCategoryScreen()),
+        _Section(Icons.restaurant_menu_outlined, 'Service Details', false, 'Menu / rate cards & more', () => const ServiceDetailsScreen()),
         _Section(Icons.shopping_bag_outlined, 'Products / Menu', p.products.isNotEmpty, p.products.isNotEmpty ? '${p.products.length} items' : 'Add products', () => const ProductsScreen()),
         _Section(Icons.local_shipping_outlined, 'Delivery', p.hasDelivery, p.hasDelivery ? 'Configured' : 'Set delivery prefs', () => const DeliveryScreen()),
       ]);

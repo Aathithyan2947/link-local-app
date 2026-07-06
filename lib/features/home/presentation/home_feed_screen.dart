@@ -6,13 +6,18 @@ import '../../../core/theme/app_colors.dart';
 import '../../address/data/address_repository.dart';
 import '../../address/presentation/address_proof_screen.dart';
 import '../../auth/application/auth_controller.dart';
+import '../../discovery/presentation/service_provider_detail_screen.dart';
+import '../../discovery/presentation/widgets/discover_cards.dart';
 import '../data/doc_reminder.dart';
 import '../data/home_models.dart';
 import '../data/home_repository.dart';
 import 'widgets/home_widgets.dart';
 
 class HomeFeedScreen extends ConsumerStatefulWidget {
-  const HomeFeedScreen({super.key});
+  const HomeFeedScreen({super.key, this.onProfile});
+
+  /// Opens the profile screen (wired to the header avatar).
+  final VoidCallback? onProfile;
 
   @override
   ConsumerState<HomeFeedScreen> createState() => _HomeFeedScreenState();
@@ -50,11 +55,13 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                 userName: user?.name ?? 'there',
                 scope: _scope,
                 onScope: (i) => setState(() => _scope = i),
+                onProfile: widget.onProfile,
               ),
               const SizedBox(height: 8),
               if (showDocReminder) _DocReminderBanner(rejected: proof.status == 'rejected'),
               if (feed.serviceProviders.items.isNotEmpty) ...[
-                _SectionHeader('Service provider in', '${feed.city?.name ?? ''}(${feed.serviceProviders.total})'),
+                _SectionHeader('Service provider in', '${feed.city?.name ?? ''}(${feed.serviceProviders.total})',
+                    dropdown: true),
                 _ServiceCategoryRow(items: feed.serviceProviders.items),
                 ...feed.serviceProviders.items.take(3).map((sp) => _SpCard(sp: sp, city: feed.city?.name ?? '')),
               ],
@@ -66,11 +73,13 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
               ),
               ...feed.discussions.map((d) => _DiscussionCard(item: d)),
               if (feed.workshops.items.isNotEmpty) ...[
-                _SectionHeader('Workshops in', '${feed.city?.name ?? ''}(${feed.workshops.total})'),
+                _SectionHeader('Workshops in', '${feed.city?.name ?? ''}(${feed.workshops.total})',
+                    dropdown: true),
                 _WorkshopRow(items: feed.workshops.items),
               ],
               if (feed.groups.items.isNotEmpty) ...[
-                _SectionHeader('Groups in', '${feed.city?.name ?? ''}(${feed.groups.total})'),
+                _SectionHeader('Groups in', '${feed.city?.name ?? ''}(${feed.groups.total})',
+                    dropdown: true),
                 _GroupsWrap(items: feed.groups.items),
               ],
               _ReferralBanner(info: feed.referral),
@@ -85,11 +94,18 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
 
 // ── Green header ─────────────────────────────────────────────
 class _Header extends StatelessWidget {
-  const _Header({required this.feed, required this.userName, required this.scope, required this.onScope});
+  const _Header({
+    required this.feed,
+    required this.userName,
+    required this.scope,
+    required this.onScope,
+    this.onProfile,
+  });
   final HomeFeed feed;
   final String userName;
   final int scope;
   final ValueChanged<int> onScope;
+  final VoidCallback? onProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -114,8 +130,19 @@ class _Header extends StatelessWidget {
               Container(
                 height: 36,
                 width: 36,
+                margin: const EdgeInsets.only(right: 10),
                 decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
-                child: const Icon(Icons.person, color: Colors.white, size: 20),
+                child: const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 20),
+              ),
+              GestureDetector(
+                onTap: onProfile,
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  height: 36,
+                  width: 36,
+                  decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
+                  child: const Icon(Icons.person, color: Colors.white, size: 20),
+                ),
               ),
             ],
           ),
@@ -125,11 +152,11 @@ class _Header extends StatelessWidget {
           const SizedBox(height: 16),
           Row(
             children: [
-              _stat('${feed.stats.members}', 'Members'),
-              _divider(),
-              _stat('${feed.stats.serviceProviders}', 'Service Providers'),
-              _divider(),
-              _stat('${feed.stats.events}', 'Events'),
+              _statBox('${feed.stats.members}', 'Members'),
+              const SizedBox(width: 10),
+              _statBox('${feed.stats.serviceProviders}', 'Service Providers'),
+              const SizedBox(width: 10),
+              _statBox('${feed.stats.events}', 'Events'),
             ],
           ),
           const SizedBox(height: 16),
@@ -142,11 +169,18 @@ class _Header extends StatelessWidget {
                 SizedBox(width: 8),
                 Expanded(
                   child: TextField(
+                    cursorColor: AppColors.primary,
                     decoration: InputDecoration(
-                      hintText: 'Search people, services, events...',
-                      border: InputBorder.none,
+                      hintText: 'Just Moved in, need help with "Cleaning"',
+                      hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                      filled: false,
                       isDense: true,
                       contentPadding: EdgeInsets.symmetric(vertical: 14),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      errorBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
                     ),
                   ),
                 ),
@@ -184,38 +218,57 @@ class _Header extends StatelessWidget {
     );
   }
 
-  Widget _stat(String value, String label) => Expanded(
-        child: Column(
-          children: [
-            Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 20)),
-            const SizedBox(height: 2),
-            Text(label,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 11)),
-          ],
+  Widget _statBox(String value, String label) => Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white38),
+          ),
+          child: Column(
+            children: [
+              Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 20)),
+              const SizedBox(height: 2),
+              Text(label,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 10.5)),
+            ],
+          ),
         ),
       );
-
-  Widget _divider() => Container(height: 32, width: 1, color: Colors.white24);
 }
 
 // ── Section header ───────────────────────────────────────────
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.title, this.highlight);
+  const _SectionHeader(this.title, this.highlight, {this.dropdown = false});
   final String title;
   final String highlight;
+  final bool dropdown;
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-      child: RichText(
-        text: TextSpan(
-          style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 17),
-          children: [
-            TextSpan(text: '$title '),
-            TextSpan(text: highlight, style: const TextStyle(color: AppColors.primary)),
+      child: Row(
+        children: [
+          Flexible(
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 17),
+                children: [
+                  TextSpan(text: '$title '),
+                  TextSpan(text: highlight, style: const TextStyle(color: AppColors.primary)),
+                ],
+              ),
+            ),
+          ),
+          if (dropdown) ...[
+            const SizedBox(width: 4),
+            const Icon(Icons.keyboard_arrow_down, color: AppColors.primary, size: 22),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -277,7 +330,11 @@ class _SpCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: sp.id)),
+      ),
+      child: Container(
       margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -296,18 +353,7 @@ class _SpCard extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(child: Text(sp.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(6)),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.star, color: Colors.white, size: 11),
-                          const SizedBox(width: 2),
-                          Text(sp.ratingCount > 0 ? '${sp.ratingCount}' : 'New',
-                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
-                        ],
-                      ),
-                    ),
+                    RatingBadge(value: sp.ratingAvg, compact: true),
                   ],
                 ),
                 const SizedBox(height: 2),
@@ -323,10 +369,13 @@ class _SpCard extends StatelessWidget {
             ),
           ),
           TextButton(
-            onPressed: () {},
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: sp.id)),
+            ),
             child: const Text('View Profile', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 12)),
           ),
         ],
+      ),
       ),
     );
   }
@@ -389,7 +438,7 @@ class _WorkshopRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 210,
+      height: 246,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -398,8 +447,9 @@ class _WorkshopRow extends StatelessWidget {
         itemBuilder: (_, i) {
           final w = items[i];
           final date = w.date != null ? DateFormat('EEE, MMM d').format(w.date!) : '';
+          final time = eventTimeRange(w);
           return Container(
-            width: 200,
+            width: 212,
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(16),
@@ -410,47 +460,62 @@ class _WorkshopRow extends StatelessWidget {
               children: [
                 Stack(
                   children: [
-                    Container(
-                      height: 96,
+                    NetworkThumb(
+                      photoUrl: w.photoUrl,
+                      fallbackIcon: Icons.celebration_rounded,
                       width: double.infinity,
-                      decoration: const BoxDecoration(
-                        gradient: AppColors.brandGradient,
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                      ),
-                      child: const Icon(Icons.celebration_rounded, color: Colors.white, size: 40),
+                      height: 96,
+                      radius: const BorderRadius.vertical(top: Radius.circular(16)),
                     ),
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(6)),
-                        child: Text(w.isPaid ? 'Paid' : 'Free',
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primary)),
-                      ),
-                    ),
+                    Positioned(top: 8, right: 8, child: RatingBadge(value: w.ratingAvg, compact: true)),
                   ],
                 ),
                 Padding(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(w.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                      Text(w.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                       const SizedBox(height: 4),
                       Row(children: [
-                        const Icon(Icons.calendar_today, size: 12, color: AppColors.textMuted),
+                        const Icon(Icons.calendar_today, size: 11, color: AppColors.textMuted),
                         const SizedBox(width: 4),
-                        Expanded(child: Text(date, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: AppColors.textMuted))),
+                        Expanded(
+                          child: Text(time.isNotEmpty ? '$date | $time' : date,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                        ),
                       ]),
-                      if (w.location != null) ...[
-                        const SizedBox(height: 2),
+                      if (w.location != null && w.location!.isNotEmpty) ...[
+                        const SizedBox(height: 3),
                         Row(children: [
-                          const Icon(Icons.location_on_outlined, size: 12, color: AppColors.textMuted),
+                          const Icon(Icons.location_on_outlined, size: 11, color: AppColors.textMuted),
                           const SizedBox(width: 4),
-                          Expanded(child: Text(w.location!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: AppColors.textMuted))),
+                          Expanded(
+                              child: Text(w.location!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted))),
                         ]),
                       ],
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text('By : ${w.creatorName ?? 'Organizer'}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.textSecondary)),
+                          ),
+                          const SizedBox(width: 6),
+                          const JoinButton(),
+                        ],
+                      ),
                     ],
                   ),
                 ),

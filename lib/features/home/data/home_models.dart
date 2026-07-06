@@ -1,4 +1,5 @@
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
+double? _asDouble(dynamic v) => v == null ? null : (v is num ? v.toDouble() : double.tryParse('$v'));
 
 class HomeCity {
   const HomeCity({required this.name, this.state});
@@ -65,18 +66,27 @@ class DiscussionItem {
 }
 
 class GroupItem {
-  const GroupItem({required this.id, required this.title, required this.members, this.photoUrl});
+  const GroupItem({
+    required this.id,
+    required this.title,
+    required this.members,
+    this.photoUrl,
+    this.ownerName,
+  });
   final int id;
   final String title;
   final int members;
   final String? photoUrl;
+  final String? ownerName;
   factory GroupItem.fromJson(Map<String, dynamic> j) {
     final count = j['_count'] as Map<String, dynamic>?;
+    final profile = (j['creator'] as Map<String, dynamic>?)?['profile'] as Map<String, dynamic>?;
     return GroupItem(
       id: _asInt(j['id']),
       title: j['title'] as String? ?? '',
       members: _asInt(count?['members']),
       photoUrl: j['photoUrl'] as String?,
+      ownerName: profile?['name'] as String?,
     );
   }
 }
@@ -89,6 +99,11 @@ class WorkshopItem {
     required this.attendees,
     this.isPaid = false,
     this.location,
+    this.startTime,
+    this.durationMinutes,
+    this.photoUrl,
+    this.creatorName,
+    this.ratingAvg,
   });
   final int id;
   final String title;
@@ -96,9 +111,15 @@ class WorkshopItem {
   final int attendees;
   final bool isPaid;
   final String? location;
+  final DateTime? startTime;
+  final int? durationMinutes;
+  final String? photoUrl;
+  final String? creatorName;
+  final double? ratingAvg;
 
   factory WorkshopItem.fromJson(Map<String, dynamic> j) {
     final count = j['_count'] as Map<String, dynamic>?;
+    final profile = (j['creator'] as Map<String, dynamic>?)?['profile'] as Map<String, dynamic>?;
     return WorkshopItem(
       id: _asInt(j['id']),
       title: j['title'] as String? ?? '',
@@ -106,6 +127,11 @@ class WorkshopItem {
       attendees: _asInt(count?['attendees']),
       isPaid: j['isPaid'] as bool? ?? false,
       location: j['location'] as String?,
+      startTime: j['startTime'] != null ? DateTime.tryParse(j['startTime'] as String) : null,
+      durationMinutes: j['durationMinutes'] != null ? _asInt(j['durationMinutes']) : null,
+      photoUrl: j['photoUrl'] as String?,
+      creatorName: profile?['name'] as String?,
+      ratingAvg: _asDouble(j['ratingAvg']),
     );
   }
 }
@@ -116,27 +142,36 @@ class ServiceProviderItem {
     required this.name,
     this.photoUrl,
     this.service,
+    this.services = const [],
     required this.ratingCount,
+    this.ratingAvg,
   });
   final int id;
   final String name;
   final String? photoUrl;
-  final String? service;
+  final String? service; // primary service (shown on the card)
+  final List<String> services; // every service subcategory (used for search)
   final int ratingCount;
+  final double? ratingAvg;
+
+  /// Lower-cased haystack for search: provider name + every service/subcategory.
+  String get searchText => '$name ${services.join(' ')}'.toLowerCase();
 
   factory ServiceProviderItem.fromJson(Map<String, dynamic> j) {
     final serviceTypes = (j['serviceTypes'] as List?) ?? [];
-    String? service;
-    if (serviceTypes.isNotEmpty) {
-      service = serviceTypes.first['subcategory']?['name'] as String?;
-    }
+    final services = serviceTypes
+        .map((e) => (e as Map<String, dynamic>)['subcategory']?['name'] as String?)
+        .whereType<String>()
+        .toList();
     final count = j['_count'] as Map<String, dynamic>?;
     return ServiceProviderItem(
       id: _asInt(j['id']),
       name: j['name'] as String? ?? '',
       photoUrl: j['photoUrl'] as String?,
-      service: service,
+      service: services.isNotEmpty ? services.first : null,
+      services: services,
       ratingCount: _asInt(count?['ratings']),
+      ratingAvg: _asDouble(j['ratingAvg']),
     );
   }
 }

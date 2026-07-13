@@ -5,8 +5,12 @@ import 'package:intl/intl.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../business/data/product_models.dart';
 import '../../home/data/home_models.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
+import '../../messages/presentation/chat_screen.dart';
+import '../../orders/data/cart.dart';
+import '../../orders/presentation/cart_review_screen.dart';
 import '../data/sp_detail_models.dart';
 import '../discovery_repository.dart';
 import 'widgets/discover_cards.dart';
@@ -24,25 +28,31 @@ class ServiceProviderDetailScreen extends ConsumerWidget {
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
         error: (e, _) => _ErrorView(onRetry: () => ref.invalidate(serviceProviderDetailProvider(id))),
-        data: (sp) => RefreshIndicator(
-          color: AppColors.primary,
-          onRefresh: () async => ref.invalidate(serviceProviderDetailProvider(id)),
-          child: ListView(
-            padding: const EdgeInsets.only(bottom: 32),
-            children: [
-              _TopBar(),
-              _ProfileHeader(sp: sp),
-              _Band(child: _AboutBlock(sp: sp)),
-              if (sp.willingToTravel || sp.yearsOfExperience != null || sp.locationLabel != null)
-                _Band(color: AppColors.surface, child: _AvailabilityBlock(sp: sp)),
-              if (sp.gallery.isNotEmpty) _GalleryBlock(urls: sp.gallery),
-              _Band(child: _ReviewsBlock(sp: sp)),
-              _SubmitReview(id: id),
-              if (sp.events.isNotEmpty) _EventsBlock(events: sp.events),
-              if (sp.posts.isNotEmpty) _PostsBlock(posts: sp.posts),
-              if (sp.groups.isNotEmpty) _Band(child: _GroupsBlock(groups: sp.groups)),
-            ],
-          ),
+        data: (sp) => Stack(
+          children: [
+            RefreshIndicator(
+              color: AppColors.primary,
+              onRefresh: () async => ref.invalidate(serviceProviderDetailProvider(id)),
+              child: ListView(
+                padding: const EdgeInsets.only(bottom: 90),
+                children: [
+                  _TopBar(),
+                  _ProfileHeader(sp: sp),
+                  _Band(child: _AboutBlock(sp: sp)),
+                  if (sp.willingToTravel || sp.yearsOfExperience != null || sp.locationLabel != null)
+                    _Band(color: AppColors.surface, child: _AvailabilityBlock(sp: sp)),
+                  if (sp.products.isNotEmpty) _MenuBlock(products: sp.products, spId: sp.id, spName: sp.name),
+                  if (sp.gallery.isNotEmpty) _GalleryBlock(urls: sp.gallery),
+                  _Band(child: _ReviewsBlock(sp: sp)),
+                  _SubmitReview(id: id),
+                  if (sp.events.isNotEmpty) _EventsBlock(events: sp.events),
+                  if (sp.posts.isNotEmpty) _PostsBlock(posts: sp.posts),
+                  if (sp.groups.isNotEmpty) _Band(child: _GroupsBlock(groups: sp.groups)),
+                ],
+              ),
+            ),
+            _CartBar(spId: sp.id),
+          ],
         ),
       ),
     );
@@ -167,22 +177,31 @@ class _ProfileHeader extends StatelessWidget {
           const SizedBox(height: 18),
           Row(
             children: [
-              const Text('Contact here:',
+              const Text('For any inquiry, contact here:',
                   style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
               const Spacer(),
-              ElevatedButton(
-                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Ordering is coming soon')),
+              if (sp.userId != null)
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => ChatScreen(
+                      otherUserId: sp.userId!,
+                      otherName: sp.name,
+                      otherPhoto: sp.photoUrl,
+                      messageType: 'enquiry',
+                      entityType: 'sp_profile',
+                      entityId: sp.id,
+                    ),
+                  )),
+                  icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(120, 42),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  label: const Text('Message', style: TextStyle(fontWeight: FontWeight.w600)),
                 ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(110, 42),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                child: const Text('Order', style: TextStyle(fontWeight: FontWeight.w600)),
-              ),
             ],
           ),
         ],
@@ -283,6 +302,143 @@ class _AvailabilityBlock extends StatelessWidget {
 }
 
 // ── Work Gallery ─────────────────────────────────────────────
+// ── Menu / products (buyer view) ─────────────────────────────
+class _MenuBlock extends ConsumerWidget {
+  const _MenuBlock({required this.products, required this.spId, required this.spName});
+  final List<SpProduct> products;
+  final int spId;
+  final String spName;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cart = ref.watch(cartProvider);
+    final notifier = ref.read(cartProvider.notifier);
+    final matchesSp = cart.spProfileId == spId;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionTitle('Menu'),
+          ...products.map((p) {
+            final qty = matchesSp ? (cart.lines[p.id]?.qty ?? 0) : 0;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: (p.photoUrl != null && p.photoUrl!.isNotEmpty)
+                        ? CachedNetworkImage(
+                            imageUrl: AppConfig.assetUrl(p.photoUrl!),
+                            width: 56,
+                            height: 56,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, _, _) => _ph(),
+                          )
+                        : _ph(),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(p.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                        if (p.price != null)
+                          Text('₹${p.price!.toStringAsFixed(0)}${p.quantityLabel.isNotEmpty ? '  ·  ${p.quantityLabel}' : ''}',
+                              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                      ],
+                    ),
+                  ),
+                  if (qty == 0)
+                    OutlinedButton(
+                      onPressed: () => notifier.add(spId, spName, p),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.primary),
+                        minimumSize: const Size(70, 34),
+                        padding: EdgeInsets.zero,
+                      ),
+                      child: const Text('Add'),
+                    )
+                  else
+                    _stepper(qty, () => notifier.setQty(p.id, qty - 1), () => notifier.add(spId, spName, p)),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _stepper(int qty, VoidCallback minus, VoidCallback plus) => Container(
+        decoration: BoxDecoration(border: Border.all(color: AppColors.primary), borderRadius: BorderRadius.circular(8)),
+        child: Row(
+          children: [
+            InkWell(onTap: minus, child: const Padding(padding: EdgeInsets.all(6), child: Icon(Icons.remove, size: 16, color: AppColors.primary))),
+            SizedBox(width: 22, child: Text('$qty', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w700))),
+            InkWell(onTap: plus, child: const Padding(padding: EdgeInsets.all(6), child: Icon(Icons.add, size: 16, color: AppColors.primary))),
+          ],
+        ),
+      );
+
+  Widget _ph() => Container(
+        width: 56,
+        height: 56,
+        color: AppColors.primarySurface,
+        child: const Icon(Icons.bakery_dining_outlined, color: AppColors.primary),
+      );
+}
+
+// ── Sticky cart bar ──────────────────────────────────────────
+class _CartBar extends ConsumerWidget {
+  const _CartBar({required this.spId});
+  final int spId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cart = ref.watch(cartProvider);
+    if (cart.spProfileId != spId || cart.isEmpty) return const SizedBox.shrink();
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Material(
+            color: AppColors.primary,
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CartReviewScreen())),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                child: Row(
+                  children: [
+                    Text('${cart.count} item${cart.count == 1 ? '' : 's'}  ·  ₹${cart.subtotal.toStringAsFixed(0)}',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
+                    const Spacer(),
+                    const Text('View Cart', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
+                    const Icon(Icons.chevron_right, color: Colors.white),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _GalleryBlock extends StatelessWidget {
   const _GalleryBlock({required this.urls});
   final List<String> urls;

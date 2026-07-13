@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../discovery/discovery_repository.dart';
+import '../../discovery/presentation/create_event_screen.dart';
+import '../../discovery/presentation/create_group_screen.dart';
 import '../../discovery/presentation/discover_screen.dart';
+import '../../feed/presentation/create_post_screen.dart';
 import 'home_feed_screen.dart';
 import 'tabs/profile_tab.dart';
 
@@ -84,9 +87,18 @@ class _HomeShellState extends ConsumerState<HomeShell> {
               decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2)),
             ),
             const SizedBox(height: 8),
-            _createTile(ctx, Icons.post_add_rounded, 'Create a Post', 'Ask, offer help or share an update'),
-            _createTile(ctx, Icons.event_rounded, 'Host an Event', 'Organise a workshop or meetup'),
-            _createTile(ctx, Icons.groups_rounded, 'Start a Group', 'Bring neighbours together'),
+            _createTile(ctx, Icons.post_add_rounded, 'Create a Post', 'Ask, offer help or share an update',
+                onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const CreatePostScreen()),
+                    )),
+            _createTile(ctx, Icons.event_rounded, 'Host an Event', 'Organise a workshop or meetup',
+                onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const CreateEventScreen()),
+                    )),
+            _createTile(ctx, Icons.groups_rounded, 'Start a Group', 'Bring neighbours together',
+                onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const CreateGroupScreen()),
+                    )),
             const SizedBox(height: 8),
           ],
         ),
@@ -94,7 +106,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     );
   }
 
-  Widget _createTile(BuildContext ctx, IconData icon, String title, String subtitle) {
+  Widget _createTile(BuildContext ctx, IconData icon, String title, String subtitle, {VoidCallback? onTap}) {
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: AppColors.primarySurface,
@@ -104,9 +116,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       subtitle: Text(subtitle, style: const TextStyle(fontSize: 12.5)),
       onTap: () {
         Navigator.of(ctx).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('“$title” is coming soon')),
-        );
+        if (onTap != null) {
+          onTap();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('“$title” is coming soon')),
+          );
+        }
       },
     );
   }

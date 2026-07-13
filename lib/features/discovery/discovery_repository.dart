@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/network/dio_client.dart';
 import '../home/data/home_models.dart';
+import 'data/event_detail_models.dart';
+import 'data/group_detail_models.dart';
+import 'data/public_profile_models.dart';
 import 'data/sp_detail_models.dart';
 
 class DiscoveryRepository {
@@ -44,6 +47,75 @@ class DiscoveryRepository {
         .map((e) => GroupItem.fromJson(e as Map<String, dynamic>))
         .toList();
   }
+
+  // ── Events lifecycle ───────────────────────────────────────
+  Future<EventDetail> event(int id) async {
+    final res = await _dio.get('/events/$id');
+    return EventDetail.fromJson(res.data['data'] as Map<String, dynamic>);
+  }
+
+  Future<void> joinEvent(int id) async => _dio.post('/events/$id/join');
+  Future<void> withdrawEvent(int id) async => _dio.post('/events/$id/withdraw');
+
+  Future<void> payForEvent(int id, {String? couponCode}) async {
+    await _dio.post('/events/$id/pay', data: {if (couponCode != null && couponCode.isNotEmpty) 'couponCode': couponCode});
+  }
+
+  Future<void> rateEvent(int id, {required int rating, String? review}) async {
+    await _dio.post('/events/$id/ratings', data: {
+      'rating': rating,
+      if (review != null && review.trim().isNotEmpty) 'review': review.trim(),
+    });
+  }
+
+  /// Creates an event and returns its new id.
+  Future<int> createEvent(Map<String, dynamic> data) async {
+    final res = await _dio.post('/events', data: data);
+    return (res.data['data']['id'] as num).toInt();
+  }
+
+  /// Uploads an image to the shared media endpoint and returns its URL.
+  Future<String> uploadImage(String filePath) async {
+    final form = FormData.fromMap({'file': await MultipartFile.fromFile(filePath)});
+    final res = await _dio.post('/media', data: form);
+    return res.data['data']['url'] as String;
+  }
+
+  // ── Groups lifecycle ───────────────────────────────────────
+  Future<GroupDetail> group(int id) async {
+    final res = await _dio.get('/groups/$id');
+    return GroupDetail.fromJson(res.data['data'] as Map<String, dynamic>);
+  }
+
+  Future<void> joinGroup(int id) async => _dio.post('/groups/$id/join');
+  Future<void> leaveGroup(int id) async => _dio.post('/groups/$id/leave');
+
+  Future<void> payForGroup(int id, {String? couponCode}) async {
+    await _dio.post('/groups/$id/pay', data: {if (couponCode != null && couponCode.isNotEmpty) 'couponCode': couponCode});
+  }
+
+  Future<void> rateGroup(int id, {required int rating, String? review}) async {
+    await _dio.post('/groups/$id/ratings', data: {
+      'rating': rating,
+      if (review != null && review.trim().isNotEmpty) 'review': review.trim(),
+    });
+  }
+
+  Future<void> postToGroup(int id, {required String text}) async {
+    await _dio.post('/groups/$id/posts', data: {'textContent': text});
+  }
+
+  /// Creates a group and returns its new id.
+  Future<int> createGroup(Map<String, dynamic> data) async {
+    final res = await _dio.post('/groups', data: data);
+    return (res.data['data']['id'] as num).toInt();
+  }
+
+  /// Public profile of any member (resident or SP), keyed by profile id.
+  Future<PublicProfile> publicProfile(int id) async {
+    final res = await _dio.get('/profiles/$id');
+    return PublicProfile.fromJson(res.data['data'] as Map<String, dynamic>);
+  }
 }
 
 final discoveryRepositoryProvider = Provider<DiscoveryRepository>((ref) {
@@ -63,6 +135,18 @@ final groupsProvider =
 final serviceProviderDetailProvider =
     FutureProvider.family<ServiceProviderDetail, int>((ref, id) =>
         ref.watch(discoveryRepositoryProvider).serviceProvider(id));
+
+/// Full event detail, keyed by event id.
+final eventDetailProvider = FutureProvider.family<EventDetail, int>((ref, id) =>
+    ref.watch(discoveryRepositoryProvider).event(id));
+
+/// Full group detail, keyed by group id.
+final groupDetailProvider = FutureProvider.family<GroupDetail, int>((ref, id) =>
+    ref.watch(discoveryRepositoryProvider).group(id));
+
+/// A member's public profile, keyed by profile id.
+final publicProfileProvider = FutureProvider.family<PublicProfile, int>((ref, id) =>
+    ref.watch(discoveryRepositoryProvider).publicProfile(id));
 
 /// Shared search query for the Discover screen — lists are filtered client-side
 /// so tab counts and results update live as the user types.

@@ -5,12 +5,26 @@ import '../../../core/theme/app_colors.dart';
 import '../../home/data/home_models.dart';
 import '../../home/data/home_repository.dart';
 import '../discovery_repository.dart';
+import 'event_detail_screen.dart';
+import 'group_profile_screen.dart';
 import 'service_provider_detail_screen.dart';
 import 'widgets/discover_cards.dart';
 
 void openServiceProvider(BuildContext context, int id) {
   Navigator.of(context).push(
     MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: id)),
+  );
+}
+
+void openEvent(BuildContext context, int id) {
+  Navigator.of(context).push(
+    MaterialPageRoute(builder: (_) => EventDetailScreen(id: id)),
+  );
+}
+
+void openGroup(BuildContext context, int id) {
+  Navigator.of(context).push(
+    MaterialPageRoute(builder: (_) => GroupProfileScreen(id: id)),
   );
 }
 
@@ -403,7 +417,7 @@ class _EventsList extends ConsumerWidget {
           else
             ...events.map((e) => Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-                  child: EventCard(event: e),
+                  child: EventCard(event: e, onTap: () => openEvent(context, e.id)),
                 )),
         ],
       ),
@@ -457,7 +471,7 @@ class _GroupsList extends ConsumerWidget {
           else
             ...groups.map((g) => Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                  child: GroupCard(group: g),
+                  child: GroupCard(group: g, onTap: () => openGroup(context, g.id)),
                 )),
         ],
       ),
@@ -504,7 +518,7 @@ class _AllList extends StatelessWidget {
           _SectionHeader(prefix: 'Events in', city: city, count: events.length),
           ...events.take(2).map((e) => Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-                child: EventCard(event: e),
+                child: EventCard(event: e, onTap: () => openEvent(context, e.id)),
               )),
           if (events.length > 2) _SeeMore(onTap: () => onSeeMore(1)),
         ],
@@ -520,7 +534,7 @@ class _AllList extends StatelessWidget {
           _SectionHeader(prefix: 'Groups in', city: city, count: groups.length),
           ...groups.take(2).map((g) => Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                child: GroupCard(group: g),
+                child: GroupCard(group: g, onTap: () => openGroup(context, g.id)),
               )),
           if (groups.length > 2) _SeeMore(onTap: () => onSeeMore(3)),
         ],

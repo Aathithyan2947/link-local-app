@@ -10,7 +10,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <application
-        android:label="link_local"
+        android:label="Link Local"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

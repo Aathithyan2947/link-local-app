@@ -6,7 +6,11 @@ import '../../../core/theme/app_colors.dart';
 import '../../address/data/address_repository.dart';
 import '../../address/presentation/address_proof_screen.dart';
 import '../../auth/application/auth_controller.dart';
+import '../../discovery/presentation/event_detail_screen.dart';
+import '../../discovery/presentation/group_profile_screen.dart';
 import '../../discovery/presentation/service_provider_detail_screen.dart';
+import '../../feed/presentation/feed_screen.dart';
+import '../../feed/presentation/post_detail_screen.dart';
 import '../../discovery/presentation/widgets/discover_cards.dart';
 import '../data/doc_reminder.dart';
 import '../data/home_models.dart';
@@ -71,7 +75,23 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                 child: Text('Ask questions, share updates, and connect with your community',
                     style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
               ),
-              ...feed.discussions.map((d) => _DiscussionCard(item: d)),
+              ...feed.discussions.map((d) => _DiscussionCard(
+                    item: d,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => PostDetailScreen(id: d.id)),
+                    ),
+                  )),
+              if (feed.discussions.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                  child: GestureDetector(
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const FeedScreen()),
+                    ),
+                    child: const Text('See all discussions',
+                        style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 13)),
+                  ),
+                ),
               if (feed.workshops.items.isNotEmpty) ...[
                 _SectionHeader('Workshops in', '${feed.city?.name ?? ''}(${feed.workshops.total})',
                     dropdown: true),
@@ -382,12 +402,16 @@ class _SpCard extends StatelessWidget {
 }
 
 class _DiscussionCard extends StatelessWidget {
-  const _DiscussionCard({required this.item});
+  const _DiscussionCard({required this.item, this.onTap});
   final DiscussionItem item;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
       margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -427,6 +451,7 @@ class _DiscussionCard extends StatelessWidget {
           ),
         ],
       ),
+      ),
     );
   }
 }
@@ -444,11 +469,15 @@ class _WorkshopRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20),
         itemCount: items.length,
         separatorBuilder: (_, _) => const SizedBox(width: 12),
-        itemBuilder: (_, i) {
+        itemBuilder: (context, i) {
           final w = items[i];
           final date = w.date != null ? DateFormat('EEE, MMM d').format(w.date!) : '';
           final time = eventTimeRange(w);
-          return Container(
+          return GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => EventDetailScreen(id: w.id)),
+            ),
+            child: Container(
             width: 212,
             decoration: BoxDecoration(
               color: AppColors.surface,
@@ -521,6 +550,7 @@ class _WorkshopRow extends StatelessWidget {
                 ),
               ],
             ),
+          ),
           );
         },
       ),
@@ -540,7 +570,11 @@ class _GroupsWrap extends StatelessWidget {
         spacing: 12,
         runSpacing: 12,
         children: items.take(6).map((g) {
-          return Container(
+          return GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => GroupProfileScreen(id: g.id)),
+            ),
+            child: Container(
             width: (MediaQuery.of(context).size.width - 40 - 24) / 3,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -566,6 +600,7 @@ class _GroupsWrap extends StatelessWidget {
                 Text('${g.members} Members', style: const TextStyle(fontSize: 10, color: AppColors.textMuted)),
               ],
             ),
+          ),
           );
         }).toList(),
       ),

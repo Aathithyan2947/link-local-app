@@ -1,3 +1,4 @@
+import '../../business/data/product_models.dart';
 import '../../home/data/home_models.dart';
 
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
@@ -109,6 +110,7 @@ class ServiceProviderDetail {
     required this.ratingCount,
     this.willingToTravel = false,
     this.mobile,
+    this.userId,
     this.educations = const [],
     this.professions = const [],
     this.gallery = const [],
@@ -116,6 +118,7 @@ class ServiceProviderDetail {
     this.events = const [],
     this.posts = const [],
     this.groups = const [],
+    this.products = const [],
   });
 
   final int id;
@@ -130,6 +133,7 @@ class ServiceProviderDetail {
   final int ratingCount;
   final bool willingToTravel;
   final String? mobile;
+  final int? userId;
   final List<SpEducation> educations;
   final List<SpProfession> professions;
   final List<String> gallery;
@@ -137,6 +141,7 @@ class ServiceProviderDetail {
   final List<SpEvent> events;
   final List<DiscussionItem> posts;
   final List<SpGroup> groups;
+  final List<SpProduct> products;
 
   factory ServiceProviderDetail.fromJson(Map<String, dynamic> j) {
     final serviceTypes = (j['serviceTypes'] as List?) ?? [];
@@ -180,6 +185,9 @@ class ServiceProviderDetail {
       ratingCount: _asInt(j['ratingCount']),
       willingToTravel: (delivery?['offersHomeDelivery'] as bool?) ?? false,
       mobile: (j['user'] as Map<String, dynamic>?)?['mobile'] as String?,
+      userId: (j['user'] as Map<String, dynamic>?)?['id'] != null
+          ? _asInt((j['user'] as Map<String, dynamic>)['id'])
+          : null,
       educations: list('educations', SpEducation.fromJson),
       professions: list('professions', SpProfession.fromJson),
       gallery: gallery,
@@ -187,6 +195,7 @@ class ServiceProviderDetail {
       events: list('events', SpEvent.fromJson),
       posts: list('posts', DiscussionItem.fromJson),
       groups: list('groups', SpGroup.fromJson),
+      products: list('products', SpProduct.fromJson),
     );
   }
 }

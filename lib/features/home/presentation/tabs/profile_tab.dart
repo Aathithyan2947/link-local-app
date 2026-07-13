@@ -2,83 +2,119 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_colors.dart';
-import '../../../address/data/address_repository.dart';
-import '../../../address/presentation/address_proof_screen.dart';
 import '../../../auth/application/auth_controller.dart';
-import '../../../profile/data/profile_repository.dart';
+import '../../../business/presentation/sp_dashboard_screen.dart';
+import '../../../feed/presentation/feed_screen.dart';
+import '../../../messages/presentation/conversations_screen.dart';
+import '../../../orders/presentation/my_orders_screen.dart';
 import '../../../profile/presentation/profile_completion_screen.dart';
 import '../widgets/home_widgets.dart';
 
+/// The user's own profile — a settings hub (Profile Page frame): identity card
+/// + Edit, then Personal / Transaction / Privacy menu sections, and Log Out.
 class ProfileTab extends ConsumerWidget {
   const ProfileTab({super.key});
+
+  void _soon(BuildContext context, String label) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('“$label” is coming soon')));
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authControllerProvider).user;
-    final proof = ref.watch(myAddressProofProvider).asData?.value;
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Profile')),
       body: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.only(bottom: 32),
         children: [
-          Center(
+          _ProfileCard(
+            name: user?.name ?? 'Member',
+            address: user?.city,
+            email: user?.email,
+            phone: user?.mobile,
+            photoUrl: user?.photoUrl,
+            onEdit: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ProfileCompletionScreen()),
+            ),
+          ),
+          if (user?.isServiceProvider == true)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Material(
+                color: AppColors.primarySurface,
+                borderRadius: BorderRadius.circular(14),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SpDashboardScreen()),
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Icon(Icons.storefront_rounded, color: AppColors.primary),
+                        SizedBox(width: 14),
+                        Expanded(
+                          child: Text('My Shop',
+                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
+                        ),
+                        Icon(Icons.chevron_right, color: AppColors.primary),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+          _Section('Personal', [
+            _MenuItem(Icons.event_outlined, 'Events', () => _soon(context, 'Events')),
+            _MenuItem(Icons.groups_outlined, 'Groups', () => _soon(context, 'Groups')),
+            _MenuItem(Icons.star_border_rounded, 'Reviews', () => _soon(context, 'Reviews')),
+            _MenuItem(Icons.chat_bubble_outline, 'Posts',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FeedScreen()))),
+            _MenuItem(Icons.attach_money_rounded, 'Referrals', () => _soon(context, 'Referrals')),
+          ]),
+          _Section('Transaction History', [
+            _MenuItem(Icons.credit_card_outlined, 'Payments', () => _soon(context, 'Payments')),
+            _MenuItem(Icons.receipt_long_outlined, 'Orders / Bookings',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyOrdersScreen()))),
+            _MenuItem(Icons.forum_outlined, 'Messages',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ConversationsScreen()))),
+          ]),
+          _Section('Privacy', [
+            _MenuItem(Icons.visibility_outlined, 'Profile visibility', () => _soon(context, 'Profile visibility')),
+            _MenuItem(Icons.shield_outlined, 'Sign in & Security', () => _soon(context, 'Sign in & Security')),
+            _MenuItem(Icons.notifications_none_rounded, 'Notifications & Alerts', () => _soon(context, 'Notifications')),
+            _MenuItem(Icons.block_outlined, 'Blocked users', () => _soon(context, 'Blocked users')),
+          ]),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Column(
               children: [
-                Avatar(name: user?.name ?? '', photoUrl: user?.photoUrl, radius: 44),
-                const SizedBox(height: 14),
-                Text(user?.name ?? 'Member',
-                    style: Theme.of(context).textTheme.headlineSmall),
-                const SizedBox(height: 4),
-                Text(user?.email ?? user?.mobile ?? '',
-                    style: Theme.of(context).textTheme.bodyMedium),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: AppColors.primarySurface,
-                    borderRadius: BorderRadius.circular(20),
+                OutlinedButton.icon(
+                  onPressed: () => _soon(context, 'Customer Care'),
+                  icon: const Icon(Icons.headset_mic_outlined, color: AppColors.primary),
+                  label: const Text('Customer Care'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    minimumSize: const Size.fromHeight(50),
+                    side: const BorderSide(color: AppColors.primary),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: Text(
-                    user?.isServiceProvider == true ? 'Service Provider' : 'Resident',
-                    style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () => ref.read(authControllerProvider.notifier).logout(),
+                  icon: const Icon(Icons.logout, color: AppColors.error),
+                  label: const Text('Log Out', style: TextStyle(color: AppColors.error)),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50),
+                    side: const BorderSide(color: AppColors.error),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          _CompletionCard(),
-          const SizedBox(height: 12),
-          if (user?.referralCode != null)
-            _Tile(
-              icon: Icons.card_giftcard_outlined,
-              title: 'Your referral code',
-              subtitle: user!.referralCode!,
-            ),
-          _Tile(
-            icon: Icons.verified_user_outlined,
-            title: 'Verification status',
-            subtitle: proof?.statusLabel ?? ((user?.isVerified ?? false) ? 'Verified' : 'Not uploaded'),
-            // Tap to upload / re-upload address proof (unless already verified).
-            onTap: (proof?.isVerified ?? user?.isVerified ?? false)
-                ? null
-                : () async {
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const AddressProofScreen()),
-                    );
-                    ref.invalidate(myAddressProofProvider);
-                  },
-          ),
-          if (user?.city != null)
-            _Tile(icon: Icons.location_city_outlined, title: 'City', subtitle: user!.city!),
-          const SizedBox(height: 24),
-          OutlinedButton.icon(
-            onPressed: () => ref.read(authControllerProvider.notifier).logout(),
-            icon: const Icon(Icons.logout, color: AppColors.error),
-            label: const Text('Log out', style: TextStyle(color: AppColors.error)),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: AppColors.error),
             ),
           ),
         ],
@@ -87,92 +123,134 @@ class ProfileTab extends ConsumerWidget {
   }
 }
 
-class _Tile extends StatelessWidget {
-  const _Tile({required this.icon, required this.title, required this.subtitle, this.onTap});
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback? onTap;
+class _ProfileCard extends StatelessWidget {
+  const _ProfileCard({
+    required this.name,
+    this.address,
+    this.email,
+    this.phone,
+    this.photoUrl,
+    required this.onEdit,
+  });
+  final String name;
+  final String? address;
+  final String? email;
+  final String? phone;
+  final String? photoUrl;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
+    final topPad = MediaQuery.of(context).padding.top;
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Icon(icon, color: AppColors.primary),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: Theme.of(context).textTheme.bodySmall),
-                    const SizedBox(height: 2),
-                    Text(subtitle, style: Theme.of(context).textTheme.titleMedium),
-                  ],
-                ),
-              ),
-              if (onTap != null) const Icon(Icons.chevron_right, color: AppColors.textMuted),
-            ],
+      margin: EdgeInsets.fromLTRB(16, topPad + 12, 16, 0),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(18)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 34,
+            backgroundColor: Colors.white,
+            child: Avatar(name: name, photoUrl: photoUrl, radius: 32),
           ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 19)),
+                if (address != null && address!.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(address!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
+                ],
+                if (email != null) _iconLine(Icons.email_outlined, email!),
+                if (phone != null) _iconLine(Icons.phone_outlined, phone!),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.white),
+                  label: const Text('Edit', style: TextStyle(color: Colors.white)),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    minimumSize: const Size(0, 34),
+                    side: const BorderSide(color: Colors.white54),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _iconLine(IconData icon, String text) => Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          children: [
+            Icon(icon, size: 13, color: Colors.white70),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
+            ),
+          ],
         ),
+      );
+}
+
+class _Section extends StatelessWidget {
+  const _Section(this.title, this.items);
+  final String title;
+  final List<_MenuItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 17)),
+          const SizedBox(height: 6),
+          ...items,
+        ],
       ),
     );
   }
 }
 
-class _CompletionCard extends ConsumerWidget {
+class _MenuItem extends StatelessWidget {
+  const _MenuItem(this.icon, this.label, this.onTap);
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(myProfileProvider);
-    final percent = async.asData?.value.completionPercent ?? 0;
+  Widget build(BuildContext context) {
     return InkWell(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const ProfileCompletionScreen()),
-      ),
-      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: AppColors.brandGradient,
-          borderRadius: BorderRadius.circular(16),
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: AppColors.border)),
         ),
         child: Row(
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    percent >= 100 ? 'Profile complete 🎉' : 'Complete your profile',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: LinearProgressIndicator(
-                      value: percent / 100,
-                      minHeight: 6,
-                      backgroundColor: Colors.white24,
-                      valueColor: const AlwaysStoppedAnimation(Colors.white),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text('$percent% done', style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: Colors.white),
+            Icon(icon, color: AppColors.primary, size: 22),
+            const SizedBox(width: 14),
+            Expanded(child: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500))),
+            const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 22),
           ],
         ),
       ),

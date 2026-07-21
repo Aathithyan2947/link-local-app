@@ -6,6 +6,7 @@ import '../../../auth/application/auth_controller.dart';
 import '../../../business/presentation/sp_dashboard_screen.dart';
 import '../../../feed/presentation/feed_screen.dart';
 import '../../../messages/presentation/conversations_screen.dart';
+import '../../../notifications/presentation/notifications_screen.dart';
 import '../../../orders/presentation/my_orders_screen.dart';
 import '../../../profile/presentation/profile_completion_screen.dart';
 import '../widgets/home_widgets.dart';
@@ -84,7 +85,8 @@ class ProfileTab extends ConsumerWidget {
           _Section('Privacy', [
             _MenuItem(Icons.visibility_outlined, 'Profile visibility', () => _soon(context, 'Profile visibility')),
             _MenuItem(Icons.shield_outlined, 'Sign in & Security', () => _soon(context, 'Sign in & Security')),
-            _MenuItem(Icons.notifications_none_rounded, 'Notifications & Alerts', () => _soon(context, 'Notifications')),
+            _MenuItem(Icons.notifications_none_rounded, 'Notifications & Alerts',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationsScreen()))),
             _MenuItem(Icons.block_outlined, 'Blocked users', () => _soon(context, 'Blocked users')),
           ]),
           const SizedBox(height: 8),

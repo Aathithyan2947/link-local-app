@@ -1,4 +1,6 @@
+import '../../business/data/availability_models.dart';
 import '../../business/data/product_models.dart';
+import '../../business/data/rate_models.dart';
 import '../../home/data/home_models.dart';
 
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
@@ -111,6 +113,9 @@ class ServiceProviderDetail {
     this.willingToTravel = false,
     this.mobile,
     this.userId,
+    this.providerKind = 'product',
+    this.availability,
+    this.rates = const [],
     this.educations = const [],
     this.professions = const [],
     this.gallery = const [],
@@ -134,7 +139,12 @@ class ServiceProviderDetail {
   final bool willingToTravel;
   final String? mobile;
   final int? userId;
+  final String providerKind; // product (menu/cart) | service (charges/booking)
+  final SpAvailability? availability;
+  final List<SpRate> rates;
   final List<SpEducation> educations;
+
+  bool get isService => providerKind == 'service';
   final List<SpProfession> professions;
   final List<String> gallery;
   final List<SpReview> reviews;
@@ -183,11 +193,17 @@ class ServiceProviderDetail {
       locationLabel: locParts.isEmpty ? null : locParts.join(', '),
       ratingAvg: _asDouble(j['ratingAvg']),
       ratingCount: _asInt(j['ratingCount']),
-      willingToTravel: (delivery?['offersHomeDelivery'] as bool?) ?? false,
+      willingToTravel: (delivery?['offersHomeDelivery'] as bool?) ??
+          (j['availability'] as Map<String, dynamic>?)?['willingToTravel'] as bool? ??
+          false,
       mobile: (j['user'] as Map<String, dynamic>?)?['mobile'] as String?,
       userId: (j['user'] as Map<String, dynamic>?)?['id'] != null
           ? _asInt((j['user'] as Map<String, dynamic>)['id'])
           : null,
+      providerKind: j['providerKind'] as String? ?? 'product',
+      availability:
+          j['availability'] == null ? null : SpAvailability.fromJson(j['availability'] as Map<String, dynamic>),
+      rates: ((j['rates'] as List?) ?? []).map((e) => SpRate.fromJson(e as Map<String, dynamic>)).toList(),
       educations: list('educations', SpEducation.fromJson),
       professions: list('professions', SpProfession.fromJson),
       gallery: gallery,

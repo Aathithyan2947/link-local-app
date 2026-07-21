@@ -16,13 +16,41 @@ class IncomingOrdersScreen extends ConsumerWidget {
     ref.invalidate(incomingOrdersProvider);
   }
 
+  Future<void> _accept(WidgetRef ref, int id) async {
+    await ref.read(ordersRepositoryProvider).accept(id);
+    ref.invalidate(incomingOrdersProvider);
+  }
+
+  Future<void> _reject(WidgetRef ref, int id) async {
+    await ref.read(ordersRepositoryProvider).reject(id);
+    ref.invalidate(incomingOrdersProvider);
+  }
+
   Widget? _actions(WidgetRef ref, OrderModel o) {
+    // Booking flow: requested → accept/reject; the buyer then pays to confirm.
+    if (o.isBooking) {
+      switch (o.status) {
+        case 'requested':
+          return Row(children: [
+            Expanded(child: _btn('Accept', AppColors.primary, () => _accept(ref, o.id), filled: true)),
+            const SizedBox(width: 12),
+            Expanded(child: _btn('Reject', AppColors.error, () => _reject(ref, o.id))),
+          ]);
+        case 'accepted':
+          return _btn('Awaiting payment', AppColors.textMuted, () {}, full: true);
+        case 'confirmed':
+          return _btn('Mark completed', AppColors.primary, () => _act(ref, o.id, 'completed'), filled: true, full: true);
+        default:
+          return null;
+      }
+    }
+    // Product flow: placed → accept/reject → prepare → deliver → complete.
     switch (o.status) {
       case 'placed':
         return Row(children: [
-          Expanded(child: _btn('Accept', AppColors.primary, () => _act(ref, o.id, 'confirmed'), filled: true)),
+          Expanded(child: _btn('Accept', AppColors.primary, () => _accept(ref, o.id), filled: true)),
           const SizedBox(width: 12),
-          Expanded(child: _btn('Reject', AppColors.error, () => _act(ref, o.id, 'cancelled'))),
+          Expanded(child: _btn('Reject', AppColors.error, () => _reject(ref, o.id))),
         ]);
       case 'confirmed':
         return _btn('Start preparing', AppColors.primary, () => _act(ref, o.id, 'in_progress'), filled: true, full: true);

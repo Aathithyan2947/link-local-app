@@ -13,6 +13,22 @@ class OrdersRepository {
     return OrderModel.fromJson(res.data['data'] as Map<String, dynamic>);
   }
 
+  /// Sends a service booking request (free; SP accepts before the resident pays).
+  Future<OrderModel> placeBooking(Map<String, dynamic> data) async {
+    final res = await _dio.post('/orders/bookings', data: data);
+    return OrderModel.fromJson(res.data['data'] as Map<String, dynamic>);
+  }
+
+  /// Cart/booking fee breakdown + coupon preview (no persistence).
+  Future<OrderQuote> quote(Map<String, dynamic> data) async {
+    final res = await _dio.post('/orders/quote', data: data);
+    return OrderQuote.fromJson(res.data['data'] as Map<String, dynamic>);
+  }
+
+  Future<void> accept(int id) async => _dio.post('/orders/$id/accept');
+  Future<void> reject(int id, {String? reason}) async =>
+      _dio.post('/orders/$id/reject', data: {'reason': ?reason});
+
   Future<List<OrderModel>> myOrders() async {
     final res = await _dio.get('/orders/mine');
     return (res.data['data'] as List).map((e) => OrderModel.fromJson(e as Map<String, dynamic>)).toList();
@@ -32,7 +48,8 @@ class OrdersRepository {
     await _dio.patch('/orders/$id/status', data: {'status': status, 'reason': ?reason});
   }
 
-  Future<void> pay(int id) async => _dio.post('/orders/$id/pay', data: {'paymentType': 'advance'});
+  Future<void> pay(int id, {String paymentMethod = 'upi'}) async =>
+      _dio.post('/orders/$id/pay', data: {'paymentType': 'advance', 'paymentMethod': paymentMethod});
 }
 
 final ordersRepositoryProvider = Provider<OrdersRepository>((ref) => OrdersRepository(ref.watch(dioProvider)));
@@ -43,3 +60,7 @@ final myOrdersProvider = FutureProvider<List<OrderModel>>((ref) => ref.watch(ord
 /// Orders received by the current SP.
 final incomingOrdersProvider =
     FutureProvider<List<OrderModel>>((ref) => ref.watch(ordersRepositoryProvider).incoming());
+
+/// A single order/booking by id (for the tracking screen).
+final orderByIdProvider =
+    FutureProvider.family<OrderModel, int>((ref, id) => ref.watch(ordersRepositoryProvider).order(id));

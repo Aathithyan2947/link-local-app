@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/network/dio_client.dart';
+import '../business/data/availability_models.dart';
 import '../home/data/home_models.dart';
 import 'data/event_detail_models.dart';
 import 'data/group_detail_models.dart';
@@ -23,6 +24,12 @@ class DiscoveryRepository {
   Future<ServiceProviderDetail> serviceProvider(int id) async {
     final res = await _dio.get('/service-providers/$id');
     return ServiceProviderDetail.fromJson(res.data['data'] as Map<String, dynamic>);
+  }
+
+  /// Open, bookable time slots for an SP (from their published availability).
+  Future<List<OpenSlot>> serviceProviderSlots(int id, {int days = 14}) async {
+    final res = await _dio.get('/service-providers/$id/slots', queryParameters: {'days': days});
+    return (res.data['data'] as List).map((e) => OpenSlot.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   Future<void> submitReview(int id, {required int rating, String? review}) async {
@@ -135,6 +142,10 @@ final groupsProvider =
 final serviceProviderDetailProvider =
     FutureProvider.family<ServiceProviderDetail, int>((ref, id) =>
         ref.watch(discoveryRepositoryProvider).serviceProvider(id));
+
+/// Open bookable slots for an SP, keyed by profile id.
+final spSlotsProvider = FutureProvider.family<List<OpenSlot>, int>((ref, id) =>
+    ref.watch(discoveryRepositoryProvider).serviceProviderSlots(id));
 
 /// Full event detail, keyed by event id.
 final eventDetailProvider = FutureProvider.family<EventDetail, int>((ref, id) =>

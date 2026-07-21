@@ -5,10 +5,13 @@ import 'package:intl/intl.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../business/data/availability_models.dart';
 import '../../business/data/product_models.dart';
+import '../../business/data/rate_models.dart';
 import '../../home/data/home_models.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../../messages/presentation/chat_screen.dart';
+import '../../bookings/presentation/booking_request_screen.dart';
 import '../../orders/data/cart.dart';
 import '../../orders/presentation/cart_review_screen.dart';
 import '../data/sp_detail_models.dart';
@@ -39,9 +42,12 @@ class ServiceProviderDetailScreen extends ConsumerWidget {
                   _TopBar(),
                   _ProfileHeader(sp: sp),
                   _Band(child: _AboutBlock(sp: sp)),
-                  if (sp.willingToTravel || sp.yearsOfExperience != null || sp.locationLabel != null)
+                  if (sp.willingToTravel || sp.availability != null || sp.yearsOfExperience != null || sp.locationLabel != null)
                     _Band(color: AppColors.surface, child: _AvailabilityBlock(sp: sp)),
-                  if (sp.products.isNotEmpty) _MenuBlock(products: sp.products, spId: sp.id, spName: sp.name),
+                  // Service SPs (tutors, coaches…) show charges + a Book action; product SPs show a menu + cart.
+                  if (sp.isService && sp.rates.isNotEmpty) _Band(child: _ChargesBlock(rates: sp.rates)),
+                  if (!sp.isService && sp.products.isNotEmpty)
+                    _MenuBlock(products: sp.products, spId: sp.id, spName: sp.name),
                   if (sp.gallery.isNotEmpty) _GalleryBlock(urls: sp.gallery),
                   _Band(child: _ReviewsBlock(sp: sp)),
                   _SubmitReview(id: id),
@@ -51,7 +57,7 @@ class ServiceProviderDetailScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            _CartBar(spId: sp.id),
+            if (sp.isService) _BookBar(sp: sp) else _CartBar(spId: sp.id),
           ],
         ),
       ),
@@ -258,12 +264,18 @@ class _AvailabilityBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final a = sp.availability;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionTitle('Availability & Travel'),
         if (sp.willingToTravel) _check('Willing to Travel'),
+        if (a?.maxTravelKm != null) _check('Travels up to ${a!.maxTravelKm!.toStringAsFixed(0)} km'),
         if (sp.yearsOfExperience != null) _check('${sp.yearsOfExperience}+ years of experience'),
+        if (a != null) ...[
+          const SizedBox(height: 12),
+          _scheduleCard(context, a),
+        ],
         if (sp.locationLabel != null) ...[
           const SizedBox(height: 12),
           const Text('Service Area',
@@ -289,6 +301,42 @@ class _AvailabilityBlock extends StatelessWidget {
     );
   }
 
+  Widget _scheduleCard(BuildContext context, SpAvailability a) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.primarySurface,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.calendar_month_rounded, color: AppColors.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Schedule',
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.ink)),
+                  const SizedBox(height: 2),
+                  Text('${a.daysLabel} · ${a.timeLabel}',
+                      style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () => showModalBottomSheet(
+                context: context,
+                backgroundColor: AppColors.surface,
+                shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                builder: (_) => _SlotsSheet(spId: sp.id),
+              ),
+              child: const Text('View slots'),
+            ),
+          ],
+        ),
+      );
+
   Widget _check(String label) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Row(
@@ -299,6 +347,143 @@ class _AvailabilityBlock extends StatelessWidget {
           ],
         ),
       );
+}
+
+/// Bottom sheet listing an SP's open bookable slots (view-only; booking happens at checkout).
+class _SlotsSheet extends ConsumerWidget {
+  const _SlotsSheet({required this.spId});
+  final int spId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final slots = ref.watch(spSlotsProvider(spId));
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text('Available slots', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+            const SizedBox(height: 4),
+            const Text('Pick a slot at checkout after adding items to your cart.',
+                style: TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
+            const SizedBox(height: 14),
+            slots.when(
+              loading: () => const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
+              error: (_, _) => const Padding(padding: EdgeInsets.all(24), child: Text('Could not load slots')),
+              data: (list) {
+                if (list.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Text('No open slots right now.', style: TextStyle(color: AppColors.textSecondary)),
+                  );
+                }
+                final byDay = <String, List<OpenSlot>>{};
+                for (final s in list) {
+                  byDay.putIfAbsent(s.dayLabel, () => []).add(s);
+                }
+                return ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.5),
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: byDay.entries.map((e) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: 10, bottom: 6),
+                            child: Text(e.key, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                          ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: e.value
+                                .map((s) => Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primarySurface,
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(s.timeLabel,
+                                          style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 12.5)),
+                                    ))
+                                .toList(),
+                          ),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Charges (service SP, buyer view) ─────────────────────────
+class _ChargesBlock extends StatelessWidget {
+  const _ChargesBlock({required this.rates});
+  final List<SpRate> rates;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle('Charges'),
+        ...rates.map((r) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                children: [
+                  const Icon(Icons.payments_outlined, color: AppColors.primary, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(r.typeLabel, style: const TextStyle(fontSize: 14.5, color: AppColors.textPrimary))),
+                  Text('₹${r.amount.toStringAsFixed(0)}',
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                ],
+              ),
+            )),
+      ],
+    );
+  }
+}
+
+/// Sticky "Book" bar for service SPs → opens the booking request flow.
+class _BookBar extends StatelessWidget {
+  const _BookBar({required this.sp});
+  final ServiceProviderDetail sp;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: ElevatedButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => BookingRequestScreen(sp: sp)),
+            ),
+            child: const Text('Book a session'),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ── Work Gallery ─────────────────────────────────────────────

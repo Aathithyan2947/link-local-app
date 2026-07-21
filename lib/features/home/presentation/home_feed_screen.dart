@@ -12,6 +12,8 @@ import '../../discovery/presentation/service_provider_detail_screen.dart';
 import '../../feed/presentation/feed_screen.dart';
 import '../../feed/presentation/post_detail_screen.dart';
 import '../../discovery/presentation/widgets/discover_cards.dart';
+import '../../notifications/data/notifications_repository.dart';
+import '../../notifications/presentation/notifications_screen.dart';
 import '../data/doc_reminder.dart';
 import '../data/home_models.dart';
 import '../data/home_repository.dart';
@@ -147,12 +149,40 @@ class _Header extends StatelessWidget {
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
               const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 20),
               const Spacer(),
-              Container(
-                height: 36,
-                width: 36,
-                margin: const EdgeInsets.only(right: 10),
-                decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
-                child: const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 20),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationsScreen())),
+                child: Container(
+                  height: 36,
+                  width: 36,
+                  margin: const EdgeInsets.only(right: 10),
+                  decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
+                  child: Consumer(
+                    builder: (context, ref, _) {
+                      final unread = ref.watch(unreadCountProvider).asData?.value ?? 0;
+                      return Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 20),
+                          if (unread > 0)
+                            Positioned(
+                              top: 6,
+                              right: 7,
+                              child: Container(
+                                width: 9,
+                                height: 9,
+                                decoration: BoxDecoration(
+                                  color: AppColors.error,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: AppColors.primary, width: 1.5),
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
               ),
               GestureDetector(
                 onTap: onProfile,

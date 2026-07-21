@@ -6,6 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
+import 'order_tracking_screen.dart';
 
 /// The buyer's orders — status, items and totals.
 class MyOrdersScreen extends ConsumerWidget {
@@ -16,7 +17,7 @@ class MyOrdersScreen extends ConsumerWidget {
     final async = ref.watch(myOrdersProvider);
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('My Orders')),
+      appBar: AppBar(title: const Text('Orders & Bookings')),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
         error: (e, _) => Center(child: OutlinedButton(onPressed: () => ref.invalidate(myOrdersProvider), child: const Text('Retry'))),
@@ -29,7 +30,13 @@ class MyOrdersScreen extends ConsumerWidget {
               padding: const EdgeInsets.all(16),
               itemCount: orders.length,
               separatorBuilder: (_, _) => const SizedBox(height: 12),
-              itemBuilder: (_, i) => OrderCard(order: orders[i], showSeller: true),
+              itemBuilder: (_, i) => OrderCard(
+                order: orders[i],
+                showSeller: true,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: orders[i].id)),
+                ),
+              ),
             ),
           );
         },
@@ -40,15 +47,16 @@ class MyOrdersScreen extends ConsumerWidget {
 
 /// Shared order card used by buyer + SP order lists.
 class OrderCard extends StatelessWidget {
-  const OrderCard({super.key, required this.order, this.showSeller = false, this.trailing});
+  const OrderCard({super.key, required this.order, this.showSeller = false, this.trailing, this.onTap});
   final OrderModel order;
   final bool showSeller;
   final Widget? trailing;
+  final VoidCallback? onTap;
 
   static Color statusColor(String s) => switch (s) {
-        'placed' => AppColors.warning,
-        'cancelled' => AppColors.error,
-        'completed' || 'delivered' => AppColors.primary,
+        'placed' || 'requested' => AppColors.warning,
+        'cancelled' || 'rejected' => AppColors.error,
+        'completed' || 'delivered' || 'confirmed' || 'accepted' => AppColors.primary,
         _ => AppColors.textSecondary,
       };
 
@@ -56,7 +64,7 @@ class OrderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final who = showSeller ? order.spName : order.buyerName;
     final photo = showSeller ? order.spPhoto : order.buyerPhoto;
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -99,34 +107,57 @@ class OrderCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          ...order.items.map((it) => Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(child: Text(it.productName, style: const TextStyle(fontSize: 13.5, color: AppColors.textPrimary))),
-                    Text('x${it.quantity.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
-                  ],
-                ),
-              )),
-          Row(
-            children: [
-              Icon(order.isHomeDelivery ? Icons.delivery_dining : Icons.storefront,
-                  size: 15, color: AppColors.textMuted),
+          if (order.isBooking) ...[
+            Row(children: [
+              const Icon(Icons.school_outlined, size: 15, color: AppColors.textMuted),
               const SizedBox(width: 6),
-              Text(order.isHomeDelivery ? 'Home delivery' : 'Pickup',
-                  style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
-              if (order.paid) ...[
-                const SizedBox(width: 12),
-                const Icon(Icons.verified, size: 15, color: AppColors.primary),
-                const SizedBox(width: 4),
-                const Text('Paid', style: TextStyle(fontSize: 12.5, color: AppColors.primary)),
+              Text('${order.rateTypeLabel ?? 'Session'} · ₹${(order.rateAmount ?? order.totalAmount).toStringAsFixed(0)}',
+                  style: const TextStyle(fontSize: 13, color: AppColors.textPrimary)),
+            ]),
+            if (order.slot != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(children: [
+                  const Icon(Icons.event_outlined, size: 15, color: AppColors.textMuted),
+                  const SizedBox(width: 6),
+                  Text('${order.slot!.date} · ${order.slot!.startTime}–${order.slot!.endTime}',
+                      style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
+                ]),
+              ),
+          ] else ...[
+            ...order.items.map((it) => Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(child: Text(it.productName, style: const TextStyle(fontSize: 13.5, color: AppColors.textPrimary))),
+                      Text('x${it.quantity.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
+                    ],
+                  ),
+                )),
+            Row(
+              children: [
+                Icon(order.isHomeDelivery ? Icons.delivery_dining : Icons.storefront,
+                    size: 15, color: AppColors.textMuted),
+                const SizedBox(width: 6),
+                Text(order.isHomeDelivery ? 'Home delivery' : 'Pickup',
+                    style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
               ],
-            ],
-          ),
+            ),
+          ],
+          if (order.paid) ...[
+            const SizedBox(height: 4),
+            Row(children: const [
+              Icon(Icons.verified, size: 15, color: AppColors.primary),
+              SizedBox(width: 4),
+              Text('Paid', style: TextStyle(fontSize: 12.5, color: AppColors.primary)),
+            ]),
+          ],
           if (trailing != null) ...[const SizedBox(height: 12), trailing!],
         ],
       ),
     );
+    if (onTap == null) return card;
+    return InkWell(borderRadius: BorderRadius.circular(16), onTap: onTap, child: card);
   }
 }

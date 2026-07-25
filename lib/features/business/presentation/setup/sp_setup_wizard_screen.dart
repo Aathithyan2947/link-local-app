@@ -7,14 +7,21 @@ import '../../data/availability_models.dart';
 import '../../data/business_repository.dart';
 import '../../data/rate_models.dart';
 
-/// Three-step SP profile setup — the "Tutor profile Setup 1/2/3" frames:
-/// details (+charges for service SPs) → availability & timing → preview & confirm.
+/// Three-step SP profile setup:
+/// details (+charges if !hasMenu) → availability & timing (if hasDateBooking) → preview.
 class SpSetupWizardScreen extends ConsumerStatefulWidget {
-  const SpSetupWizardScreen({super.key, this.initialAvailability, this.initialName, this.isService = false});
+  const SpSetupWizardScreen({
+    super.key,
+    this.initialAvailability,
+    this.initialName,
+    this.hasMenu = false,
+    this.hasDateBooking = false,
+  });
 
   final SpAvailability? initialAvailability;
   final String? initialName;
-  final bool isService;
+  final bool hasMenu;
+  final bool hasDateBooking;
 
   @override
   ConsumerState<SpSetupWizardScreen> createState() => _SpSetupWizardScreenState();
@@ -42,7 +49,8 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
   bool _willingToTravel = true;
   bool _saving = false;
 
-  bool get _isService => widget.isService;
+  bool get _hasDateBooking => widget.hasDateBooking;
+  bool get _isService => !widget.hasMenu;
 
   @override
   void initState() {
@@ -59,7 +67,7 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
       _willingToTravel = a.willingToTravel;
       if (a.maxTravelKm != null) _maxDistance.text = a.maxTravelKm!.toStringAsFixed(0);
     }
-    if (_isService) _loadRates();
+    if (_isService) _loadRates(); // load charges for non-menu SPs
   }
 
   Future<void> _loadRates() async {
@@ -90,15 +98,21 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
   String _hhmm(TimeOfDay t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
   int _mins(TimeOfDay t) => t.hour * 60 + t.minute;
 
+  // Steps: 0=Details, 1=Availability (only if hasDateBooking), 2=Preview
+  // When !hasDateBooking the wizard jumps from 0 directly to 2.
   void _next() {
     if (_step == 0) {
       if (_name.text.trim().isEmpty) return _toast('Please enter your name');
+      setState(() => _step = _hasDateBooking ? 1 : 2);
+      return;
     } else if (_step == 1) {
       if (_days.isEmpty) return _toast('Pick at least one working day');
       if (_mins(_end) <= _mins(_start)) return _toast('End time must be after start time');
     }
     setState(() => _step++);
   }
+
+  void _backToEdit() => setState(() => _step = _hasDateBooking ? 1 : 0);
 
   void _back() {
     if (_step == 0) {
@@ -131,16 +145,18 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
           ref.invalidate(myRatesProvider);
         }
       }
-      await repo.setAvailability({
-        'workingDays': _days.toList()..sort(),
-        'startTime': _hhmm(_start),
-        'endTime': _hhmm(_end),
-        'slotMinutes': _slotMinutes,
-        'willingToTravel': _willingToTravel,
-        if (_willingToTravel && _maxDistance.text.trim().isNotEmpty)
-          'maxTravelKm': double.tryParse(_maxDistance.text.trim()),
-        'horizonDays': 14,
-      });
+      if (_hasDateBooking) {
+        await repo.setAvailability({
+          'workingDays': _days.toList()..sort(),
+          'startTime': _hhmm(_start),
+          'endTime': _hhmm(_end),
+          'slotMinutes': _slotMinutes,
+          'willingToTravel': _willingToTravel,
+          if (_willingToTravel && _maxDistance.text.trim().isNotEmpty)
+            'maxTravelKm': double.tryParse(_maxDistance.text.trim()),
+          'horizonDays': 14,
+        });
+      }
       if (!mounted) return;
       ref.invalidate(myAvailabilityProvider);
       await ref.read(authControllerProvider.notifier).refreshUser();
@@ -178,7 +194,7 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
                           ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                           : const Text('Confirm'),
                     ),
-                    TextButton(onPressed: _saving ? null : () => setState(() => _step = 0), child: const Text('Go back to edit profile')),
+                    TextButton(onPressed: _saving ? null : _backToEdit, child: const Text('Go back to edit profile')),
                   ],
                 ),
         ),
@@ -186,7 +202,11 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
       body: Column(
         children: [
           _progress(),
-          Expanded(child: switch (_step) { 0 => _stepDetails(), 1 => _stepAvailability(), _ => _stepPreview() }),
+          Expanded(child: switch (_step) {
+            0 => _stepDetails(),
+            1 when _hasDateBooking => _stepAvailability(),
+            _ => _stepPreview(),
+          }),
         ],
       ),
     );
@@ -322,12 +342,14 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
               if (_isService)
                 for (final t in _rateTypes)
                   if (_rates[t]!.text.trim().isNotEmpty) _preview(rateTypeLabels[t]!, '₹${_rates[t]!.text.trim()}'),
-              _preview('Working Days', days.isEmpty ? '—' : days),
-              _preview('Timings', '${formatHm(_hhmm(_start))} – ${formatHm(_hhmm(_end))}'),
-              _preview('Slot length', _slotMinutes == null ? 'Whole window' : '$_slotMinutes min'),
-              _preview('Availability', _willingToTravel
-                  ? 'Willing to travel${_maxDistance.text.trim().isNotEmpty ? ' · ${_maxDistance.text.trim()} km' : ''}'
-                  : 'At my location'),
+              if (_hasDateBooking) ...[
+                _preview('Working Days', days.isEmpty ? '—' : days),
+                _preview('Timings', '${formatHm(_hhmm(_start))} – ${formatHm(_hhmm(_end))}'),
+                _preview('Slot length', _slotMinutes == null ? 'Whole window' : '$_slotMinutes min'),
+                _preview('Availability', _willingToTravel
+                    ? 'Willing to travel${_maxDistance.text.trim().isNotEmpty ? ' · ${_maxDistance.text.trim()} km' : ''}'
+                    : 'At my location'),
+              ],
               if (_about.text.trim().isNotEmpty) ...[
                 const SizedBox(height: 8),
                 const Text('About Me', style: TextStyle(fontWeight: FontWeight.w700)),

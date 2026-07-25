@@ -74,7 +74,16 @@ class BusinessRepository {
   /// The current SP's provider kind (product | service), from GET /profiles/me.
   Future<String> myProviderKind() async {
     final res = await _dio.get('/profiles/me');
-    return (res.data['data'] as Map<String, dynamic>)['providerKind'] as String? ?? 'product';
+    return (res.data['data'] as Map<String, dynamic>)['providerKind'] as String? ?? 'service';
+  }
+
+  /// Returns {hasMenu, hasDateBooking} derived from the SP's subcategory types.
+  Future<({bool hasMenu, bool hasDateBooking})> myProviderFeatures() async {
+    final res = await _dio.get('/profiles/me');
+    final d = res.data['data'] as Map<String, dynamic>;
+    final hasMenu = d['hasMenu'] as bool? ?? false;
+    final hasDateBooking = d['hasDateBooking'] as bool? ?? false;
+    return (hasMenu: hasMenu, hasDateBooking: hasDateBooking);
   }
 }
 
@@ -94,3 +103,8 @@ final myRatesProvider = FutureProvider<List<SpRate>>((ref) => ref.watch(business
 
 /// The current SP's provider kind (product | service).
 final myProviderKindProvider = FutureProvider<String>((ref) => ref.watch(businessRepositoryProvider).myProviderKind());
+
+/// The current SP's feature flags: hasMenu + hasDateBooking.
+final myProviderFeaturesProvider = FutureProvider<({bool hasMenu, bool hasDateBooking})>(
+  (ref) => ref.watch(businessRepositoryProvider).myProviderFeatures(),
+);

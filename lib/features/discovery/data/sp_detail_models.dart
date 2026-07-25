@@ -114,6 +114,8 @@ class ServiceProviderDetail {
     this.mobile,
     this.userId,
     this.providerKind = 'product',
+    this.hasMenu = false,
+    this.hasDateBooking = false,
     this.availability,
     this.rates = const [],
     this.educations = const [],
@@ -140,11 +142,13 @@ class ServiceProviderDetail {
   final String? mobile;
   final int? userId;
   final String providerKind; // product (menu/cart) | service (charges/booking)
+  final bool hasMenu; // true when any subcategory type == 'menu'
+  final bool hasDateBooking; // true when any subcategory type == 'date'
   final SpAvailability? availability;
   final List<SpRate> rates;
   final List<SpEducation> educations;
 
-  bool get isService => providerKind == 'service';
+  bool get isService => !hasMenu;
   final List<SpProfession> professions;
   final List<String> gallery;
   final List<SpReview> reviews;
@@ -159,6 +163,18 @@ class ServiceProviderDetail {
         .map((e) => (e as Map<String, dynamic>)['subcategory']?['name'] as String?)
         .whereType<String>()
         .toList();
+    // Collect all feature signals: subcategory.type column + onboarding field types
+    final featureTypes = <String>{};
+    for (final e in serviceTypes) {
+      final sub = (e as Map<String, dynamic>)['subcategory'] as Map<String, dynamic>?;
+      final t = sub?['type'] as String?;
+      if (t != null) featureTypes.add(t);
+      final fields = (sub?['fields'] as List?) ?? [];
+      for (final f in fields) {
+        final ft = (f as Map<String, dynamic>)['fieldType'] as String?;
+        if (ft != null) featureTypes.add(ft);
+      }
+    }
 
     final address = j['address'] as Map<String, dynamic>?;
     final area = address?['area'] as Map<String, dynamic>?;
@@ -200,7 +216,9 @@ class ServiceProviderDetail {
       userId: (j['user'] as Map<String, dynamic>?)?['id'] != null
           ? _asInt((j['user'] as Map<String, dynamic>)['id'])
           : null,
-      providerKind: j['providerKind'] as String? ?? 'product',
+      providerKind: j['providerKind'] as String? ?? 'service',
+      hasMenu: j['hasMenu'] as bool? ?? featureTypes.contains('menu'),
+      hasDateBooking: j['hasDateBooking'] as bool? ?? featureTypes.contains('date'),
       availability:
           j['availability'] == null ? null : SpAvailability.fromJson(j['availability'] as Map<String, dynamic>),
       rates: ((j['rates'] as List?) ?? []).map((e) => SpRate.fromJson(e as Map<String, dynamic>)).toList(),

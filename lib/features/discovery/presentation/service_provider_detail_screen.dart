@@ -42,11 +42,12 @@ class ServiceProviderDetailScreen extends ConsumerWidget {
                   _TopBar(),
                   _ProfileHeader(sp: sp),
                   _Band(child: _AboutBlock(sp: sp)),
-                  if (sp.willingToTravel || sp.availability != null || sp.yearsOfExperience != null || sp.locationLabel != null)
+                  if (sp.willingToTravel || (sp.hasDateBooking && sp.availability != null) || sp.yearsOfExperience != null || sp.locationLabel != null)
                     _Band(color: AppColors.surface, child: _AvailabilityBlock(sp: sp)),
-                  // Service SPs (tutors, coaches…) show charges + a Book action; product SPs show a menu + cart.
-                  if (sp.isService && sp.rates.isNotEmpty) _Band(child: _ChargesBlock(rates: sp.rates)),
-                  if (!sp.isService && sp.products.isNotEmpty)
+                  // Charges — shown only for non-menu SPs that have published rates.
+                  if (!sp.hasMenu && sp.rates.isNotEmpty) _Band(child: _ChargesBlock(rates: sp.rates)),
+                  // Menu — shown only for SPs whose subcategory type == 'menu'.
+                  if (sp.hasMenu && sp.products.isNotEmpty)
                     _MenuBlock(products: sp.products, spId: sp.id, spName: sp.name),
                   if (sp.gallery.isNotEmpty) _GalleryBlock(urls: sp.gallery),
                   _Band(child: _ReviewsBlock(sp: sp)),
@@ -57,7 +58,8 @@ class ServiceProviderDetailScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            if (sp.isService) _BookBar(sp: sp) else _CartBar(spId: sp.id),
+            if (sp.hasDateBooking && !sp.hasMenu) _BookBar(sp: sp),
+            if (sp.hasMenu) _CartBar(spId: sp.id),
           ],
         ),
       ),
@@ -272,7 +274,7 @@ class _AvailabilityBlock extends StatelessWidget {
         if (sp.willingToTravel) _check('Willing to Travel'),
         if (a?.maxTravelKm != null) _check('Travels up to ${a!.maxTravelKm!.toStringAsFixed(0)} km'),
         if (sp.yearsOfExperience != null) _check('${sp.yearsOfExperience}+ years of experience'),
-        if (a != null) ...[
+        if (sp.hasDateBooking && a != null) ...[
           const SizedBox(height: 12),
           _scheduleCard(context, a),
         ],

@@ -14,25 +14,28 @@ import 'setup/sp_setup_wizard_screen.dart';
 import 'sp_products_screen.dart';
 import 'sp_rates_screen.dart';
 
-/// The SP's business hub — the "Bakery menu" frame. Branches by provider kind:
-/// product SPs manage products + delivery; service SPs manage charges (no cart).
+/// The SP's business hub. Sections shown depend on subcategory feature type:
+///  hasMenu         → Products + Delivery settings + Add Item button
+///  hasDateBooking  → Availability & Off-days
+///  !hasMenu        → Charges & Rates
 class SpDashboardScreen extends ConsumerWidget {
   const SpDashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authControllerProvider).user;
-    final kind = ref.watch(myProviderKindProvider).asData?.value ?? 'product';
-    final isService = kind == 'service';
+    final features = ref.watch(myProviderFeaturesProvider).asData?.value;
+    final hasMenu = features?.hasMenu ?? false;
+    final hasDateBooking = features?.hasDateBooking ?? false;
     final productCount = ref.watch(myProductsProvider).asData?.value.length;
     final rates = ref.watch(myRatesProvider).asData?.value ?? const <SpRate>[];
     final availability = ref.watch(myAvailabilityProvider).asData?.value.availability;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('My Shop')),
-      bottomNavigationBar: isService
-          ? null
-          : SafeArea(
+      bottomNavigationBar: hasMenu
+          ? SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: ElevatedButton(
@@ -43,7 +46,8 @@ class SpDashboardScreen extends ConsumerWidget {
                   child: const Text('+ Add Item(s)'),
                 ),
               ),
-            ),
+            )
+          : null,
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -58,15 +62,32 @@ class SpDashboardScreen extends ConsumerWidget {
                     Text(user?.name ?? 'My Shop',
                         style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 22)),
                     const SizedBox(height: 4),
-                    Text(isService ? 'Manage your charges, availability and bookings' : 'Manage your products, delivery and orders',
-                        style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
+                    Text(
+                      hasMenu
+                          ? 'Manage your products, delivery and orders'
+                          : 'Manage your charges, availability and bookings',
+                      style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary),
+                    ),
                   ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 24),
-          if (isService)
+
+          // Products — only for menu SPs
+          if (hasMenu) ...[
+            _card(
+              icon: Icons.grid_view_rounded,
+              title: 'Products',
+              subtitle: productCount != null ? '$productCount Items' : '…',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpProductsScreen())),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Charges — only for non-menu SPs
+          if (!hasMenu) ...[
             _card(
               icon: Icons.payments_outlined,
               title: 'Charges & rates',
@@ -77,54 +98,59 @@ class SpDashboardScreen extends ConsumerWidget {
                 await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpRatesScreen()));
                 ref.invalidate(myRatesProvider);
               },
-            )
-          else
-            _card(
-              icon: Icons.grid_view_rounded,
-              title: 'Products',
-              subtitle: productCount != null ? '$productCount Items' : '…',
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpProductsScreen())),
             ),
-          const SizedBox(height: 12),
-          _card(
-            icon: Icons.event_available_outlined,
-            title: 'Availability & schedule',
-            subtitle: availability != null
-                ? '${availability.daysLabel} · ${availability.timeLabel}'
-                : 'Set your working days & timings',
-            onTap: () async {
-              await Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => SpSetupWizardScreen(
-                  initialAvailability: availability,
-                  initialName: user?.name,
-                  isService: isService,
-                ),
-              ));
-              ref.invalidate(myAvailabilityProvider);
-            },
-          ),
-          const SizedBox(height: 12),
-          _card(
-            icon: Icons.event_busy_outlined,
-            title: 'Off days',
-            subtitle: 'Mark holidays and days you’re unavailable',
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BlackoutDatesScreen())),
-          ),
-          if (!isService) ...[
             const SizedBox(height: 12),
+          ],
+
+          // Availability — only for date-booking SPs
+          if (hasDateBooking) ...[
+            _card(
+              icon: Icons.event_available_outlined,
+              title: 'Availability & schedule',
+              subtitle: availability != null
+                  ? '${availability.daysLabel} · ${availability.timeLabel}'
+                  : 'Set your working days & timings',
+              onTap: () async {
+                await Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => SpSetupWizardScreen(
+                    initialAvailability: availability,
+                    initialName: user?.name,
+                    hasMenu: hasMenu,
+                    hasDateBooking: hasDateBooking,
+                  ),
+                ));
+                ref.invalidate(myAvailabilityProvider);
+              },
+            ),
+            const SizedBox(height: 12),
+            _card(
+              icon: Icons.event_busy_outlined,
+              title: 'Off days',
+              subtitle: "Mark holidays and days you're unavailable",
+              onTap: () =>
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BlackoutDatesScreen())),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Delivery — only for menu SPs
+          if (hasMenu) ...[
             _card(
               icon: Icons.delivery_dining_rounded,
               title: 'Delivery settings',
               subtitle: 'Manage delivery availability, charges, and service area.',
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DeliverySettingsScreen())),
+              onTap: () =>
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DeliverySettingsScreen())),
             ),
+            const SizedBox(height: 12),
           ],
-          const SizedBox(height: 12),
+
           _card(
             icon: Icons.assignment_outlined,
-            title: isService ? 'Bookings' : 'Active orders',
-            subtitle: isService ? 'View and manage booking requests' : 'View and manage incoming orders',
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const IncomingOrdersScreen())),
+            title: hasMenu ? 'Active orders' : 'Bookings',
+            subtitle: hasMenu ? 'View and manage incoming orders' : 'View and manage booking requests',
+            onTap: () =>
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const IncomingOrdersScreen())),
           ),
         ],
       ),
@@ -148,7 +174,8 @@ class SpDashboardScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: AppColors.ink)),
+                    Text(title,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: AppColors.ink)),
                     const SizedBox(height: 2),
                     Text(subtitle, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
                   ],

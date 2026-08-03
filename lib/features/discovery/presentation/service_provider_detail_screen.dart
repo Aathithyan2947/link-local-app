@@ -1,21 +1,39 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../auth/application/auth_controller.dart';
 import '../../business/data/availability_models.dart';
+import '../../business/data/business_repository.dart';
 import '../../business/data/product_models.dart';
 import '../../business/data/rate_models.dart';
 import '../../home/data/home_models.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../../messages/presentation/chat_screen.dart';
-import '../../bookings/presentation/booking_request_screen.dart';
+import '../../feed/presentation/create_post_screen.dart';
 import '../../orders/data/cart.dart';
+import '../../orders/data/order_models.dart';
+import '../../orders/data/orders_repository.dart';
 import '../../orders/presentation/cart_review_screen.dart';
+import '../../payments/presentation/payment_method_screen.dart';
+import '../../payments/presentation/payment_success_screen.dart';
+import '../../profile/data/profile_repository.dart';
+import '../../profile/presentation/sections/basic_sections.dart';
+import '../../business/presentation/setup/sp_setup_wizard_screen.dart';
+import '../../business/presentation/sp_products_screen.dart';
+import '../../services/data/service_profile_repository.dart';
+import '../../services/presentation/category_fields_form_screen.dart';
 import '../data/sp_detail_models.dart';
+import 'sp_menu_listing_screen.dart';
 import '../discovery_repository.dart';
+import 'discover_screen.dart';
 import 'widgets/discover_cards.dart';
 
 /// Full service-provider profile. Opened by tapping any SP card.
@@ -26,45 +44,100 @@ class ServiceProviderDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(serviceProviderDetailProvider(id));
+    final myUserId = ref.watch(authControllerProvider).user?.id;
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
         error: (e, _) => _ErrorView(onRetry: () => ref.invalidate(serviceProviderDetailProvider(id))),
-        data: (sp) => Stack(
-          children: [
-            RefreshIndicator(
-              color: AppColors.primary,
-              onRefresh: () async => ref.invalidate(serviceProviderDetailProvider(id)),
-              child: ListView(
-                padding: const EdgeInsets.only(bottom: 90),
-                children: [
-                  _TopBar(),
-                  _ProfileHeader(sp: sp),
-                  _Band(child: _AboutBlock(sp: sp)),
-                  if (sp.willingToTravel || (sp.hasDateBooking && sp.availability != null) || sp.yearsOfExperience != null || sp.locationLabel != null)
-                    _Band(color: AppColors.surface, child: _AvailabilityBlock(sp: sp)),
-                  // Charges — shown only for non-menu SPs that have published rates.
-                  if (!sp.hasMenu && sp.rates.isNotEmpty) _Band(child: _ChargesBlock(rates: sp.rates)),
-                  // Menu — shown only for SPs whose subcategory type == 'menu'.
-                  if (sp.hasMenu && sp.products.isNotEmpty)
-                    _MenuBlock(products: sp.products, spId: sp.id, spName: sp.name),
-                  if (sp.gallery.isNotEmpty) _GalleryBlock(urls: sp.gallery),
-                  _Band(child: _ReviewsBlock(sp: sp)),
-                  _SubmitReview(id: id),
-                  if (sp.events.isNotEmpty) _EventsBlock(events: sp.events),
-                  if (sp.posts.isNotEmpty) _PostsBlock(posts: sp.posts),
-                  if (sp.groups.isNotEmpty) _Band(child: _GroupsBlock(groups: sp.groups)),
-                ],
+        data: (sp) {
+          final isOwner = sp.userId != null && sp.userId == myUserId;
+          return Stack(
+            children: [
+              RefreshIndicator(
+                color: AppColors.primary,
+                onRefresh: () async => ref.invalidate(serviceProviderDetailProvider(id)),
+                child: ListView(
+                  padding: const EdgeInsets.only(bottom: 90),
+                  children: isOwner ? _ownerSections(sp) : _residentSections(sp),
+                ),
               ),
-            ),
-            if (sp.hasDateBooking && !sp.hasMenu) _BookBar(sp: sp),
-            if (sp.hasMenu) _CartBar(spId: sp.id),
-          ],
-        ),
+              if (!isOwner && sp.hasMenu) CartBar(spId: sp.id),
+            ],
+          );
+        },
       ),
     );
   }
+}
+
+// Category-field categories rendered generically. basic_details is absorbed into the
+// native-look About/Contact blocks (_BasicDetails), travel/service_type into Availability &
+// Travel (_TravelDetails), payment gets its own "Payment & Fee" band, and delivery gets its
+// own native-look "Delivery Settings" band (_DeliveryDetails/_DeliveryBlock) — none of those
+// four get a second, raw generic band.
+
+bool _hasAvailabilityContent(ServiceProviderDetail sp) {
+  final travel = _TravelDetails.fromFields(sp);
+  return travel.willingToTravel ||
+      travel.maxTravelKm != null ||
+      travel.schedule != null ||
+      travel.serviceAreas.isNotEmpty ||
+      travel.extra.isNotEmpty ||
+      (sp.hasDateBooking && sp.availability != null) ||
+      (sp.yearsOfExperience ?? _BasicDetails.fromFields(sp).yearsOfExperience) != null;
+}
+
+/// Owner order (matches Figma): Header → Contact info → About/Education/Profession →
+/// Work Gallery → Availability & Travel (+ any leftover category fields) → Payment & Fee
+/// (or Charges/Menu fallback) → Event(s) → Posts → Interest Groups. No Reviews.
+List<Widget> _ownerSections(ServiceProviderDetail sp) {
+  final hasPayment = sp.customFields.any((f) => f.category == 'payment');
+  return [
+    _TopBar(),
+    _ProfileHeader(sp: sp, isOwner: true),
+    _Band(child: _ContactInfoBlock(sp: sp)),
+    _Band(color: AppColors.surface, child: _AboutBlock(sp: sp, isOwner: true)),
+    if (sp.hasMenu && sp.products.isNotEmpty)
+      _MenuBlock(products: sp.products, spId: sp.id, spName: sp.name, isOwner: true),
+    _GalleryBlock(sp: sp, isOwner: true),
+    if (_hasAvailabilityContent(sp))
+      _Band(child: _AvailabilityBlock(sp: sp, isOwner: true)),
+    if (!_DeliveryDetails.fromFields(sp).isEmpty)
+      _Band(color: AppColors.surface, child: _DeliveryBlock(sp: sp, isOwner: true)),
+    if (hasPayment)
+      _Band(child: _CategoryFieldsBlock(sp: sp, isOwner: true, categories: const ['payment']))
+    else if (!sp.hasMenu && sp.rates.isNotEmpty)
+      _Band(child: _ChargesBlock(rates: sp.rates)),
+    _EventsBlock(events: sp.events),
+    _PostsBlock(posts: sp.posts),
+    _Band(color: AppColors.surface, child: _GroupsBlock(groups: sp.groups)),
+  ];
+}
+
+/// Resident order (matches Figma): Header w/ rating → "Contact here:" row (+ three-dot) →
+/// About/Education/Profession → Availability & Travel (+ leftover category fields) →
+/// Charges/Menu → Work Gallery → Verified Review + Submit → Event(s) → Posts → Groups.
+/// No Contact-info block, no Payment & Fee band.
+List<Widget> _residentSections(ServiceProviderDetail sp) {
+  return [
+    _TopBar(),
+    _ProfileHeader(sp: sp, isOwner: false),
+    _Band(color: AppColors.surface, child: _AboutBlock(sp: sp, isOwner: false)),
+    if (sp.hasMenu && sp.products.isNotEmpty)
+      _MenuBlock(products: sp.products, spId: sp.id, spName: sp.name, isOwner: false),
+    if (_hasAvailabilityContent(sp))
+      _Band(child: _AvailabilityBlock(sp: sp)),
+    if (!_DeliveryDetails.fromFields(sp).isEmpty)
+      _Band(color: AppColors.surface, child: _DeliveryBlock(sp: sp, isOwner: false)),
+    if (!sp.hasMenu && sp.rates.isNotEmpty) _Band(child: _ChargesBlock(rates: sp.rates)),
+    _GalleryBlock(sp: sp, isOwner: false),
+    _Band(color: AppColors.surface, child: _ReviewsBlock(sp: sp)),
+    _SubmitReview(id: sp.id),
+    _EventsBlock(events: sp.events),
+    _PostsBlock(posts: sp.posts),
+    _Band(child: _GroupsBlock(groups: sp.groups)),
+  ];
 }
 
 // ── Layout helpers ───────────────────────────────────────────
@@ -81,6 +154,21 @@ class _Band extends StatelessWidget {
       );
 }
 
+/// Plain muted edit-pencil icon (Figma's `mingcute:edit-fill` style — not a filled square).
+class _EditIconButton extends StatelessWidget {
+  const _EditIconButton({required this.onTap});
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: const Padding(
+          padding: EdgeInsets.all(4),
+          child: Icon(Icons.edit_outlined, size: 18, color: AppColors.textSecondary),
+        ),
+      );
+}
+
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.text, {this.trailing});
   final String text;
@@ -93,7 +181,7 @@ class _SectionTitle extends StatelessWidget {
           children: [
             Expanded(
               child: Text(text,
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 19, color: AppColors.ink)),
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: AppColors.ink)),
             ),
             ?trailing,
           ],
@@ -108,30 +196,59 @@ class _TopBar extends StatelessWidget {
     final topPad = MediaQuery.of(context).padding.top;
     return Padding(
       padding: EdgeInsets.fromLTRB(8, topPad + 6, 8, 0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left, size: 30, color: AppColors.ink),
-            onPressed: () => Navigator.of(context).maybePop(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.more_vert, color: AppColors.ink),
-            onPressed: () {},
-          ),
-        ],
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: IconButton(
+          icon: const Icon(Icons.chevron_left, size: 30, color: AppColors.ink),
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
       ),
     );
   }
 }
 
 // ── Profile header ───────────────────────────────────────────
-class _ProfileHeader extends StatelessWidget {
-  const _ProfileHeader({required this.sp});
+class _ProfileHeader extends ConsumerStatefulWidget {
+  const _ProfileHeader({required this.sp, required this.isOwner});
   final ServiceProviderDetail sp;
+  final bool isOwner;
+
+  @override
+  ConsumerState<_ProfileHeader> createState() => _ProfileHeaderState();
+}
+
+class _ProfileHeaderState extends ConsumerState<_ProfileHeader> {
+  bool _uploading = false;
+
+  Future<void> _changePhoto() async {
+    final img = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (img == null) return;
+    setState(() => _uploading = true);
+    try {
+      final bytes = await img.readAsBytes();
+      await ref.read(profileRepositoryProvider).uploadPhoto(bytes, img.name);
+      await ref.read(serviceProviderDetailProvider(widget.sp.id).future);
+      ref.invalidate(myProfileProvider);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not update photo')));
+      }
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  void _viewPhoto() {
+    if (widget.sp.photoUrl == null || widget.sp.photoUrl!.isEmpty) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => _ImageViewerScreen(url: widget.sp.photoUrl!, heroTag: 'sp-avatar-${widget.sp.id}'),
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
+    final sp = widget.sp;
+    final isOwner = widget.isOwner;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
       child: Column(
@@ -140,7 +257,49 @@ class _ProfileHeader extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Avatar(name: sp.name, photoUrl: sp.photoUrl, radius: 42),
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  GestureDetector(
+                    onTap: _viewPhoto,
+                    child: Hero(
+                      tag: 'sp-avatar-${sp.id}',
+                      child: Avatar(name: sp.name, photoUrl: sp.photoUrl, radius: 42),
+                    ),
+                  ),
+                  if (_uploading)
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: const BoxDecoration(color: Colors.black38, shape: BoxShape.circle),
+                        child: const Center(
+                          child: SizedBox(
+                            height: 22,
+                            width: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (isOwner)
+                    Positioned(
+                      right: -2,
+                      bottom: -2,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: _uploading ? null : _changePhoto,
+                        child: Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: AppColors.surface, width: 2),
+                          ),
+                          child: const Icon(Icons.camera_alt_rounded, size: 14, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -153,7 +312,7 @@ class _ProfileHeader extends StatelessWidget {
                               style: const TextStyle(
                                   fontWeight: FontWeight.w700, fontSize: 22, color: AppColors.ink)),
                         ),
-                        RatingBadge(value: sp.ratingAvg),
+                        if (!isOwner) RatingBadge(value: sp.ratingAvg),
                       ],
                     ),
                     if (sp.service != null) ...[
@@ -183,44 +342,153 @@ class _ProfileHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 18),
-          Row(
-            children: [
-              const Text('For any inquiry, contact here:',
-                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-              const Spacer(),
-              if (sp.userId != null)
-                ElevatedButton.icon(
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => ChatScreen(
-                      otherUserId: sp.userId!,
-                      otherName: sp.name,
-                      otherPhoto: sp.photoUrl,
-                      messageType: 'enquiry',
-                      entityType: 'sp_profile',
-                      entityId: sp.id,
-                    ),
-                  )),
-                  icon: const Icon(Icons.chat_bubble_outline, size: 16),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(120, 42),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  label: const Text('Message', style: TextStyle(fontWeight: FontWeight.w600)),
-                ),
-            ],
-          ),
+          if (isOwner) const _OwnerBanner() else _ContactRow(sp: sp),
         ],
       ),
     );
   }
 }
 
-// ── About / Education / Profession ───────────────────────────
-class _AboutBlock extends StatelessWidget {
-  const _AboutBlock({required this.sp});
+/// Resident view: Message (direct chat), Call (only if the SP enabled it), Enquire.
+class _ContactRow extends ConsumerWidget {
+  const _ContactRow({required this.sp});
+  final ServiceProviderDetail sp;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (sp.userId == null) return const SizedBox.shrink();
+    final showCall = sp.showCallButton && (sp.mobile?.isNotEmpty ?? false);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('For any inquiry, contact here:',
+            style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _iconButton(
+              icon: Icons.chat_bubble_outline,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => ChatScreen(
+                  otherUserId: sp.userId!,
+                  otherName: sp.name,
+                  otherPhoto: sp.photoUrl,
+                  messageType: 'direct',
+                  entityType: 'sp_profile',
+                  entityId: sp.id,
+                ),
+              )),
+            ),
+            if (showCall) ...[
+              const SizedBox(width: 10),
+              _iconButton(icon: Icons.call_outlined, onTap: () => launchUrl(Uri(scheme: 'tel', path: sp.mobile))),
+            ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: sp.hasMenu
+                  ? ElevatedButton.icon(
+                      onPressed: () => Navigator.of(context)
+                          .push(MaterialPageRoute(builder: (_) => SpMenuListingScreen(spId: sp.id))),
+                      icon: const Icon(Icons.shopping_cart_outlined, size: 16),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(0, 42),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      label: const Text('Order', style: TextStyle(fontWeight: FontWeight.w600)),
+                    )
+                  : ElevatedButton.icon(
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => ChatScreen(
+                          otherUserId: sp.userId!,
+                          otherName: sp.name,
+                          otherPhoto: sp.photoUrl,
+                          messageType: 'enquiry',
+                          entityType: 'sp_profile',
+                          entityId: sp.id,
+                        ),
+                      )),
+                      icon: const Icon(Icons.help_outline, size: 16),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(0, 42),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      label: const Text('Enquire', style: TextStyle(fontWeight: FontWeight.w600)),
+                    ),
+            ),
+            const SizedBox(width: 6),
+            Builder(
+              builder: (btnContext) => _iconButton(
+                icon: Icons.more_vert,
+                onTap: () => _showProfileActionsMenu(btnContext, ref, sp),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _iconButton({required IconData icon, required VoidCallback onTap}) => Material(
+        color: AppColors.primarySurface,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: SizedBox(height: 42, width: 42, child: Icon(icon, color: AppColors.primary, size: 20)),
+        ),
+      );
+}
+
+/// Owner view: replaces the contact row with a link into the profile-completion flow.
+class _OwnerBanner extends ConsumerWidget {
+  const _OwnerBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final fields = ref.watch(customFieldsProvider).asData?.value;
+    final complete = fields == null ||
+        fields.isEmpty ||
+        fields.every((f) => !f.isRequired || (f.value?.trim().isNotEmpty ?? false));
+    if (complete) return const SizedBox.shrink();
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () async {
+        var hasMenu = false;
+        try {
+          hasMenu = (await ref.read(businessRepositoryProvider).myProviderFeatures()).hasMenu;
+        } catch (_) {}
+        final cats = onboardingCategories(fields, hasMenu: hasMenu);
+        if (cats.isEmpty || !context.mounted) return;
+        await pushOnboardingStep(context, ref, cats, replace: false);
+      },
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(14)),
+        child: Row(
+          children: [
+            const Icon(Icons.info_outline, color: AppColors.primary),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text('Complete your profile with images and videos to get noticed.',
+                  style: TextStyle(fontSize: 13, color: AppColors.textPrimary)),
+            ),
+            const Icon(Icons.chevron_right, color: AppColors.primary),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Contact info (owner-only) ─────────────────────────────────
+class _ContactInfoBlock extends StatelessWidget {
+  const _ContactInfoBlock({required this.sp});
   final ServiceProviderDetail sp;
 
   @override
@@ -228,9 +496,317 @@ class _AboutBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle('About Me'),
+        const Text('Contact info:',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
+        const SizedBox(height: 10),
+        _line(context, 'Mobile: ${sp.mobile?.isNotEmpty == true ? sp.mobile : '—'}',
+            onEdit: () => _showMobileChangeDialog(context)),
+        const SizedBox(height: 6),
+        _line(context, 'Email: ${sp.email?.isNotEmpty == true ? sp.email : '—'}',
+            onEdit: () => showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: AppColors.surface,
+                  shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                  builder: (_) => _EmailEditSheet(sp: sp),
+                )),
+      ],
+    );
+  }
+
+  Widget _line(BuildContext context, String text, {required VoidCallback onEdit}) => Row(
+        children: [
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 13.5, color: AppColors.textPrimary))),
+          _EditIconButton(onTap: onEdit),
+        ],
+      );
+
+  void _showMobileChangeDialog(BuildContext context) => showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Change mobile number'),
+          content: const Text(
+              "Your mobile number is used to sign in, so it can't be changed here. Contact support to update it."),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+        ),
+      );
+}
+
+class _EmailEditSheet extends ConsumerStatefulWidget {
+  const _EmailEditSheet({required this.sp});
+  final ServiceProviderDetail sp;
+  @override
+  ConsumerState<_EmailEditSheet> createState() => _EmailEditSheetState();
+}
+
+class _EmailEditSheetState extends ConsumerState<_EmailEditSheet> {
+  late final _ctrl = TextEditingController(text: widget.sp.email ?? '');
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final email = _ctrl.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() => _error = 'Enter a valid email address');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await ref.read(profileRepositoryProvider).updateEmail(email);
+      ref.invalidate(serviceProviderDetailProvider(widget.sp.id));
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      setState(() => _error = 'Could not update email');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).viewInsets.bottom + 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          const Text('Edit email', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _ctrl,
+            keyboardType: TextInputType.emailAddress,
+            decoration: InputDecoration(
+              hintText: 'Email address',
+              errorText: _error,
+              filled: true,
+              fillColor: AppColors.background,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _saving ? null : _save,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(48),
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: _saving
+                  ? const SizedBox(
+                      height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Text('Save', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Lets the resident enter (and confirm) how much to pay a non-menu SP directly — services
+/// are priced by negotiation with the SP, so the "Payment & Fee" rate is only a prefill hint,
+/// not an authoritative charge.
+class _EnterAmountSheet extends ConsumerStatefulWidget {
+  const _EnterAmountSheet({required this.sp});
+  final ServiceProviderDetail sp;
+  @override
+  ConsumerState<_EnterAmountSheet> createState() => _EnterAmountSheetState();
+}
+
+class _EnterAmountSheetState extends ConsumerState<_EnterAmountSheet> {
+  late final _ctrl = TextEditingController(text: _suggestedAmount(widget.sp) ?? '');
+  bool _submitting = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _continue() async {
+    final amount = double.tryParse(_ctrl.text.trim());
+    if (amount == null || amount <= 0) {
+      setState(() => _error = 'Enter a valid amount');
+      return;
+    }
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      final order =
+          await ref.read(ordersRepositoryProvider).createDirectPayment(widget.sp.id, amount);
+      if (mounted) {
+        Navigator.pop(context);
+        _openPayment(context, order);
+      }
+    } on DioException catch (e) {
+      final message = (e.response?.data is Map ? (e.response!.data as Map)['message'] as String? : null) ??
+          'Could not start payment';
+      setState(() => _error = message);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).viewInsets.bottom + 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          Text('Pay ${widget.sp.name}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+          const SizedBox(height: 4),
+          const Text('Enter the amount you\'ve agreed with the provider.',
+              style: TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _ctrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              prefixText: '₹ ',
+              hintText: 'Amount',
+              errorText: _error,
+              filled: true,
+              fillColor: AppColors.background,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _submitting ? null : _continue,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(48),
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: _submitting
+                  ? const SizedBox(
+                      height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Text('Continue', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Basic Details mapping ──────────────────────────────────────
+/// Resolves About Me / Education / Profession / Years of experience from whichever source
+/// has data, native `Profile` columns first, falling back to the admin-configured
+/// `basic_details` category custom fields (a genuinely separate data store — see
+/// `backend/src/lib/customFields.ts`). Name/Phone/Email `basic_details` fields are
+/// deliberately suppressed: the native header name and Contact Info block are authoritative.
+/// Anything else unmatched is surfaced under "Additional Details" so nothing configured by
+/// the admin (for other subcategories with a different field set) is silently dropped.
+class _BasicDetails {
+  const _BasicDetails({this.aboutMe, this.education, this.profession, this.yearsOfExperience, this.extra = const []});
+  final String? aboutMe;
+  final String? education;
+  final String? profession;
+  final int? yearsOfExperience;
+  final List<CustomField> extra;
+
+  static final _namePat = RegExp('name', caseSensitive: false);
+  static final _phonePat = RegExp('phone|mobile', caseSensitive: false);
+  static final _emailPat = RegExp('email', caseSensitive: false);
+  static final _aboutPat = RegExp('about', caseSensitive: false);
+  static final _educationPat = RegExp('^education', caseSensitive: false);
+  static final _professionPat = RegExp('^profession', caseSensitive: false);
+  static final _experiencePat = RegExp('experience', caseSensitive: false);
+
+  factory _BasicDetails.fromFields(ServiceProviderDetail sp) {
+    final basicFields = sp.customFields.where((f) => f.category == 'basic_details').toList();
+    final matched = <int>{};
+    String? pick(RegExp pattern) {
+      String? found;
+      for (final f in basicFields) {
+        if (!pattern.hasMatch(f.fieldName)) continue;
+        matched.add(f.fieldId);
+        if (found == null && (f.value?.trim().isNotEmpty ?? false)) found = f.value!.trim();
+      }
+      return found;
+    }
+
+    pick(_namePat);
+    pick(_phonePat);
+    pick(_emailPat);
+    final aboutField = pick(_aboutPat);
+    final eduField = pick(_educationPat);
+    final profField = pick(_professionPat);
+    final expField = pick(_experiencePat);
+    final extra = basicFields.where((f) => !matched.contains(f.fieldId) && (f.value?.trim().isNotEmpty ?? false)).toList();
+
+    return _BasicDetails(
+      aboutMe: (sp.aboutMe?.trim().isNotEmpty ?? false) ? sp.aboutMe : aboutField,
+      education: sp.educations.isNotEmpty ? null : eduField,
+      profession: sp.professions.isNotEmpty ? null : profField,
+      yearsOfExperience: sp.yearsOfExperience ?? int.tryParse(expField ?? ''),
+      extra: extra,
+    );
+  }
+}
+
+// ── About / Education / Profession ───────────────────────────
+class _AboutBlock extends StatelessWidget {
+  const _AboutBlock({required this.sp, required this.isOwner});
+  final ServiceProviderDetail sp;
+  final bool isOwner;
+
+  @override
+  Widget build(BuildContext context) {
+    final basic = _BasicDetails.fromFields(sp);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle(
+          'About Me',
+          trailing: isOwner
+              ? _EditIconButton(
+                  onTap: () => Navigator.of(context)
+                      .push(MaterialPageRoute(builder: (_) => const BasicInfoScreen())))
+              : null,
+        ),
         Text(
-          sp.aboutMe?.isNotEmpty == true ? sp.aboutMe! : 'No description added yet.',
+          basic.aboutMe?.isNotEmpty == true ? basic.aboutMe! : 'No description added yet.',
           style: const TextStyle(fontSize: 13.5, height: 1.5, color: AppColors.textSecondary),
         ),
         if (sp.educations.isNotEmpty) ...[
@@ -244,6 +820,11 @@ class _AboutBlock extends StatelessWidget {
                   style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary),
                 ),
               )),
+        ] else if (basic.education != null) ...[
+          const SizedBox(height: 18),
+          const Text('Education', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
+          const SizedBox(height: 6),
+          Text(basic.education!, style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
         ],
         if (sp.professions.isNotEmpty) ...[
           const SizedBox(height: 18),
@@ -253,55 +834,170 @@ class _AboutBlock extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 2),
                 child: Text(p.label, style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
               )),
+        ] else if (basic.profession != null) ...[
+          const SizedBox(height: 18),
+          const Text('Profession', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
+          const SizedBox(height: 6),
+          Text(basic.profession!, style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
+        ],
+        if (basic.extra.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          const Text('Additional Details',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
+          const SizedBox(height: 6),
+          ...basic.extra.map((f) => Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Text('${f.fieldName}: ${f.value}',
+                    style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
+              )),
         ],
       ],
     );
   }
 }
 
+// ── Travel details mapping ─────────────────────────────────────
+/// Resolves Willing-to-travel / max distance / service areas / schedule from whichever
+/// source has data, native first, falling back to the admin-configured `travel` /
+/// `service_type` category custom fields — mirrors `_BasicDetails`. Matches Figma's single
+/// merged "Availability & Travel" section: there is no separate generic "Travel" band.
+class _TravelDetails {
+  const _TravelDetails({
+    required this.willingToTravel,
+    this.maxTravelKm,
+    this.serviceAreas = const [],
+    this.schedule,
+    this.extra = const [],
+  });
+  final bool willingToTravel;
+  final double? maxTravelKm;
+  final List<String> serviceAreas;
+  final String? schedule;
+  final List<CustomField> extra;
+
+  static final _travelPat = RegExp('travel', caseSensitive: false);
+  static final _distancePat = RegExp('distance', caseSensitive: false);
+  static final _schedulePat = RegExp('schedule', caseSensitive: false);
+
+  factory _TravelDetails.fromFields(ServiceProviderDetail sp) {
+    final fields = sp.customFields.where((f) => f.category == 'travel' || f.category == 'service_type').toList();
+    final matched = <int>{};
+
+    CustomField? pincodeField;
+    for (final f in fields) {
+      if (f.fieldType == 'pincode') {
+        matched.add(f.fieldId);
+        pincodeField ??= f;
+      }
+    }
+
+    String? pick(RegExp pattern) {
+      String? found;
+      for (final f in fields) {
+        if (f.fieldType == 'pincode' || !pattern.hasMatch(f.fieldName)) continue;
+        matched.add(f.fieldId);
+        if (found == null && (f.value?.trim().isNotEmpty ?? false)) found = f.value!.trim();
+      }
+      return found;
+    }
+
+    final willingField = pick(_travelPat);
+    final distanceField = pick(_distancePat);
+    final scheduleField = pick(_schedulePat);
+
+    final serviceAreas = (pincodeField?.resolvedAreas?.isNotEmpty ?? false)
+        ? pincodeField!.resolvedAreas!.map((a) => a.label).toList()
+        : (sp.locationLabel != null ? [sp.locationLabel!] : const <String>[]);
+
+    final extra = fields.where((f) => !matched.contains(f.fieldId) && (f.value?.trim().isNotEmpty ?? false)).toList();
+
+    return _TravelDetails(
+      willingToTravel: sp.willingToTravel || willingField?.toLowerCase() == 'yes',
+      maxTravelKm: sp.availability?.maxTravelKm ?? double.tryParse(distanceField ?? ''),
+      serviceAreas: serviceAreas,
+      schedule: scheduleField,
+      extra: extra,
+    );
+  }
+}
+
 // ── Availability & Travel ────────────────────────────────────
 class _AvailabilityBlock extends StatelessWidget {
-  const _AvailabilityBlock({required this.sp});
+  const _AvailabilityBlock({required this.sp, this.isOwner = false});
   final ServiceProviderDetail sp;
+  final bool isOwner;
 
   @override
   Widget build(BuildContext context) {
     final a = sp.availability;
+    final years = sp.yearsOfExperience ?? _BasicDetails.fromFields(sp).yearsOfExperience;
+    final travel = _TravelDetails.fromFields(sp);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle('Availability & Travel'),
-        if (sp.willingToTravel) _check('Willing to Travel'),
-        if (a?.maxTravelKm != null) _check('Travels up to ${a!.maxTravelKm!.toStringAsFixed(0)} km'),
-        if (sp.yearsOfExperience != null) _check('${sp.yearsOfExperience}+ years of experience'),
-        if (sp.hasDateBooking && a != null) ...[
+        _SectionTitle(
+          'Availability & Travel',
+          trailing: isOwner
+              ? _EditIconButton(
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => SpSetupWizardScreen(
+                      initialAvailability: sp.availability,
+                      initialName: sp.name,
+                      hasMenu: sp.hasMenu,
+                      hasDateBooking: sp.hasDateBooking,
+                    ),
+                  )),
+                )
+              : null,
+        ),
+        if (travel.willingToTravel) _check('Willing to Travel'),
+        if (travel.maxTravelKm != null) _check('Travels up to ${travel.maxTravelKm!.toStringAsFixed(0)} km'),
+        if (years != null) _check('$years+ years of experience'),
+        if (travel.schedule != null) ...[
+          const SizedBox(height: 12),
+          const Text('Schedule:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.ink)),
+          const SizedBox(height: 6),
+          Text(travel.schedule!,
+              style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary, height: 1.5)),
+        ] else if (sp.hasDateBooking && a != null) ...[
           const SizedBox(height: 12),
           _scheduleCard(context, a),
         ],
-        if (sp.locationLabel != null) ...[
+        if (travel.serviceAreas.isNotEmpty) ...[
           const SizedBox(height: 12),
-          const Text('Service Area',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
+          const Text('Service Areas:',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.ink)),
           const SizedBox(height: 8),
           Wrap(
-            spacing: 8,
+            spacing: 16,
             runSpacing: 8,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppColors.primarySurface,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(sp.locationLabel!,
-                    style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 12.5)),
-              ),
-            ],
+            children: travel.serviceAreas.map(_areaDot).toList(),
           ),
+        ],
+        if (travel.extra.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          ...travel.extra.map((f) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text('${f.fieldName}: ${f.value}',
+                    style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+              )),
         ],
       ],
     );
   }
+
+  Widget _areaDot(String label) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            margin: const EdgeInsets.only(right: 6),
+            decoration: const BoxDecoration(color: AppColors.textMuted, shape: BoxShape.circle),
+          ),
+          Text(label, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+        ],
+      );
 
   Widget _scheduleCard(BuildContext context, SpAvailability a) => Container(
         padding: const EdgeInsets.all(14),
@@ -462,104 +1158,364 @@ class _ChargesBlock extends StatelessWidget {
   }
 }
 
-/// Sticky "Book" bar for service SPs → opens the booking request flow.
-class _BookBar extends StatelessWidget {
-  const _BookBar({required this.sp});
+// ── Delivery Settings (native-look, sourced from the 'delivery' custom fields) ───────
+class _DeliveryDetails {
+  const _DeliveryDetails({
+    this.deliveryMethod,
+    this.orderTiming,
+    this.shippingCharges,
+    this.freeThreshold,
+    this.belowThreshold,
+    this.asPerActuals = false,
+    this.packagingCharge,
+    this.advanceType,
+    this.advancePercentage,
+  });
+  final String? deliveryMethod;
+  final String? orderTiming;
+  final String? shippingCharges;
+  final double? freeThreshold;
+  final double? belowThreshold;
+  final bool asPerActuals;
+  final double? packagingCharge;
+  final String? advanceType;
+  final double? advancePercentage;
+
+  bool get chargesShipping => shippingCharges?.toLowerCase() == 'yes';
+
+  bool get isEmpty =>
+      deliveryMethod == null &&
+      orderTiming == null &&
+      shippingCharges == null &&
+      freeThreshold == null &&
+      belowThreshold == null &&
+      packagingCharge == null &&
+      advanceType == null;
+
+  factory _DeliveryDetails.fromFields(ServiceProviderDetail sp) {
+    final fields = sp.customFields.where((f) => f.category == 'delivery').toList();
+    String? byName(String name) {
+      for (final f in fields) {
+        if (f.fieldName.trim().toLowerCase() == name.toLowerCase()) {
+          final v = f.value?.trim();
+          return (v != null && v.isNotEmpty) ? v : null;
+        }
+      }
+      return null;
+    }
+
+    double? numByName(String name) => double.tryParse(byName(name) ?? '');
+
+    return _DeliveryDetails(
+      deliveryMethod: byName('Delivery Method'),
+      orderTiming: byName('Order placement timing'),
+      shippingCharges: byName('Shipping Charges'),
+      freeThreshold: numByName('Free Delivery Threshold'),
+      belowThreshold: numByName('Below Threshold'),
+      asPerActuals: byName('As Per Actuals')?.toLowerCase() == 'true',
+      packagingCharge: numByName('Packaging charges'),
+      advanceType: byName('Advanced Payment Settings'),
+      advancePercentage: numByName('Advance percentage'),
+    );
+  }
+}
+
+class _DeliveryBlock extends StatelessWidget {
+  const _DeliveryBlock({required this.sp, required this.isOwner});
   final ServiceProviderDetail sp;
+  final bool isOwner;
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: ElevatedButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => BookingRequestScreen(sp: sp)),
-            ),
-            child: const Text('Book a session'),
+    final d = _DeliveryDetails.fromFields(sp);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle(
+          'Delivery Settings',
+          trailing: isOwner
+              ? _EditIconButton(
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const CategoryFieldsFormScreen(category: 'delivery', categoryLabel: 'Delivery Settings'),
+                  )),
+                )
+              : null,
+        ),
+        if (d.deliveryMethod != null) _kv('Delivery Method', d.deliveryMethod!),
+        if (d.orderTiming != null) _kv('Order Placement Timing', d.orderTiming!),
+        if (d.shippingCharges != null) _kv('Shipping Charges', d.shippingCharges!),
+        if (d.chargesShipping && d.freeThreshold != null)
+          _row('Free Delivery above order value', '₹${d.freeThreshold!.toStringAsFixed(0)}'),
+        if (d.chargesShipping && d.asPerActuals)
+          _kv('Delivery Charge', 'As per actuals')
+        else if (d.chargesShipping && d.belowThreshold != null)
+          _row('Delivery charge below threshold', '₹${d.belowThreshold!.toStringAsFixed(0)}'),
+        if (d.packagingCharge != null) _row('Packaging charges', '₹${d.packagingCharge!.toStringAsFixed(0)}'),
+        if (d.advanceType != null) _advanceLine(d),
+      ],
+    );
+  }
+
+  Widget _kv(String label, String value) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: RichText(
+          text: TextSpan(
+            children: [
+              TextSpan(text: '$label : ', style: const TextStyle(fontSize: 14, color: AppColors.textMuted)),
+              TextSpan(text: value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink)),
+            ],
           ),
         ),
+      );
+
+  Widget _row(String label, String value) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Row(
+          children: [
+            Expanded(child: Text(label, style: const TextStyle(fontSize: 14, color: AppColors.textMuted))),
+            const SizedBox(width: 10),
+            Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+          ],
+        ),
+      );
+
+  Widget _advanceLine(_DeliveryDetails d) {
+    final lower = d.advanceType!.toLowerCase();
+    final text = lower.contains('percentage') && d.advancePercentage != null
+        ? '${d.advancePercentage!.toStringAsFixed(0)}% Advance payment'
+        : lower.contains('no advance')
+            ? 'No advance payment required'
+            : d.advanceType!;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text(text, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink)),
+    );
+  }
+}
+
+// ── Category fields (Basic Details / Travel / Payment / Service Type / Delivery) ─────
+/// Renders the SP's answered onboarding fields grouped by admin-configured category. Owners
+/// get an edit-pencil per section that deep-links straight into that category's form.
+class _CategoryFieldsBlock extends StatelessWidget {
+  const _CategoryFieldsBlock({required this.sp, required this.isOwner, required this.categories});
+  final ServiceProviderDetail sp;
+  final bool isOwner;
+  /// Which categories (in `kCategoryOrder`) this instance renders — callers pass a subset
+  /// so "Payment & Fee" (inline text) and the leftover generic categories can be positioned
+  /// separately in the section order. `basic_details` is never passed here — it's absorbed
+  /// into the native-look About/Contact blocks (see `_BasicDetails`).
+  final List<String> categories;
+
+  @override
+  Widget build(BuildContext context) {
+    final byCategory = <String, List<CustomField>>{};
+    for (final f in sp.customFields) {
+      if (!categories.contains(f.category)) continue;
+      byCategory.putIfAbsent(f.category, () => []).add(f);
+    }
+    final present = kCategoryOrder.where(byCategory.containsKey).toList();
+    if (present.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (int i = 0; i < present.length; i++) ...[
+          if (i != 0) const SizedBox(height: 20),
+          _categorySection(context, present[i], byCategory[present[i]]!),
+        ],
+      ],
+    );
+  }
+
+  Widget _categorySection(BuildContext context, String category, List<CustomField> fields) {
+    final pencil = isOwner
+        ? _EditIconButton(
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => CategoryFieldsFormScreen(
+                category: category,
+                categoryLabel: kCategoryLabels[category] ?? category,
+              ),
+            )),
+          )
+        : null;
+
+    if (category == 'payment') {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionTitle(kCategoryLabels[category] ?? category, trailing: pencil),
+          ...fields.map((f) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text('${f.fieldName}: ${f.value ?? ''}',
+                    style: const TextStyle(fontSize: 13.5, color: AppColors.textPrimary)),
+              )),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle(kCategoryLabels[category] ?? category, trailing: pencil),
+        ...fields.map((f) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: Text(f.fieldName, style: const TextStyle(fontSize: 13, color: AppColors.textMuted)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 3,
+                    child: f.fieldType == 'pincode'
+                        ? Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: (f.resolvedAreas ?? [])
+                                .map((a) => Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primarySurface,
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: Text(a.label,
+                                          style: const TextStyle(
+                                              color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w600)),
+                                    ))
+                                .toList(),
+                          )
+                        : Text(f.value ?? '',
+                            style: const TextStyle(fontSize: 13.5, color: AppColors.textPrimary)),
+                  ),
+                ],
+              ),
+            )),
+      ],
+    );
+  }
+}
+
+/// Sticky "Book" bar for service SPs → opens the booking request flow.
+// ── Work Gallery ─────────────────────────────────────────────
+// ── Menu / products — horizontally-scrolling preview (mirrors Work Gallery). Read-only
+// for the owner (no cart controls on their own items); residents get Add/stepper + a
+// "Show All" link into the full listing screen.
+class _MenuBlock extends ConsumerWidget {
+  const _MenuBlock({required this.products, required this.spId, required this.spName, required this.isOwner});
+  final List<SpProduct> products;
+  final int spId;
+  final String spName;
+  final bool isOwner;
+
+  static const _previewCount = 4;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final preview = products.take(_previewCount).toList();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 18, 0, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(right: 20),
+            child: _SectionTitle(
+              'Item List (${products.length})',
+              trailing: isOwner
+                  ? _EditIconButton(
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpProductsScreen())),
+                    )
+                  : InkWell(
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => SpMenuListingScreen(spId: spId),
+                      )),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Show All', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 13)),
+                          Icon(Icons.chevron_right, size: 18, color: AppColors.primary),
+                        ],
+                      ),
+                    ),
+            ),
+          ),
+          SizedBox(
+            height: isOwner ? 168 : 224,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(right: 20),
+              itemCount: preview.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (_, i) => _MenuItemCard(product: preview[i], spId: spId, spName: spName, isOwner: isOwner),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-// ── Work Gallery ─────────────────────────────────────────────
-// ── Menu / products (buyer view) ─────────────────────────────
-class _MenuBlock extends ConsumerWidget {
-  const _MenuBlock({required this.products, required this.spId, required this.spName});
-  final List<SpProduct> products;
+class _MenuItemCard extends ConsumerWidget {
+  const _MenuItemCard({required this.product, required this.spId, required this.spName, required this.isOwner});
+  final SpProduct product;
   final int spId;
   final String spName;
+  final bool isOwner;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cart = ref.watch(cartProvider);
     final notifier = ref.read(cartProvider.notifier);
-    final matchesSp = cart.spProfileId == spId;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+    final qty = cart.spProfileId == spId ? (cart.lines[product.id]?.qty ?? 0) : 0;
+    return Container(
+      width: 150,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionTitle('Menu'),
-          ...products.map((p) {
-            final qty = matchesSp ? (cart.lines[p.id]?.qty ?? 0) : 0;
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: (p.photoUrl != null && p.photoUrl!.isNotEmpty)
-                        ? CachedNetworkImage(
-                            imageUrl: AppConfig.assetUrl(p.photoUrl!),
-                            width: 56,
-                            height: 56,
-                            fit: BoxFit.cover,
-                            errorWidget: (_, _, _) => _ph(),
-                          )
-                        : _ph(),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: (product.photoUrl != null && product.photoUrl!.isNotEmpty)
+                ? CachedNetworkImage(
+                    imageUrl: AppConfig.assetUrl(product.photoUrl!),
+                    width: 128,
+                    height: 90,
+                    fit: BoxFit.cover,
+                    errorWidget: (_, _, _) => _ph(),
+                  )
+                : _ph(),
+          ),
+          const SizedBox(height: 8),
+          Text(product.name,
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+          if (product.price != null)
+            Text('₹${product.price!.toStringAsFixed(0)}${product.quantityLabel.isNotEmpty ? '  ·  ${product.quantityLabel}' : ''}',
+                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+          if (!isOwner) ...[
+            const SizedBox(height: 8),
+            if (qty == 0)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => notifier.add(spId, spName, product),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
+                    minimumSize: const Size(0, 32),
+                    padding: EdgeInsets.zero,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(p.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                        if (p.price != null)
-                          Text('₹${p.price!.toStringAsFixed(0)}${p.quantityLabel.isNotEmpty ? '  ·  ${p.quantityLabel}' : ''}',
-                              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
-                      ],
-                    ),
-                  ),
-                  if (qty == 0)
-                    OutlinedButton(
-                      onPressed: () => notifier.add(spId, spName, p),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.primary,
-                        side: const BorderSide(color: AppColors.primary),
-                        minimumSize: const Size(70, 34),
-                        padding: EdgeInsets.zero,
-                      ),
-                      child: const Text('Add'),
-                    )
-                  else
-                    _stepper(qty, () => notifier.setQty(p.id, qty - 1), () => notifier.add(spId, spName, p)),
-                ],
-              ),
-            );
-          }),
+                  child: const Text('Add'),
+                ),
+              )
+            else
+              _stepper(qty, () => notifier.setQty(product.id, qty - 1), () => notifier.add(spId, spName, product)),
+          ],
         ],
       ),
     );
@@ -568,6 +1524,7 @@ class _MenuBlock extends ConsumerWidget {
   Widget _stepper(int qty, VoidCallback minus, VoidCallback plus) => Container(
         decoration: BoxDecoration(border: Border.all(color: AppColors.primary), borderRadius: BorderRadius.circular(8)),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             InkWell(onTap: minus, child: const Padding(padding: EdgeInsets.all(6), child: Icon(Icons.remove, size: 16, color: AppColors.primary))),
             SizedBox(width: 22, child: Text('$qty', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w700))),
@@ -577,16 +1534,16 @@ class _MenuBlock extends ConsumerWidget {
       );
 
   Widget _ph() => Container(
-        width: 56,
-        height: 56,
+        width: 128,
+        height: 90,
         color: AppColors.primarySurface,
         child: const Icon(Icons.bakery_dining_outlined, color: AppColors.primary),
       );
 }
 
-// ── Sticky cart bar ──────────────────────────────────────────
-class _CartBar extends ConsumerWidget {
-  const _CartBar({required this.spId});
+// ── Sticky cart bar (also reused standalone by SpMenuListingScreen) ──────────────────
+class CartBar extends ConsumerWidget {
+  const CartBar({super.key, required this.spId});
   final int spId;
 
   @override
@@ -626,12 +1583,15 @@ class _CartBar extends ConsumerWidget {
   }
 }
 
-class _GalleryBlock extends StatelessWidget {
-  const _GalleryBlock({required this.urls});
-  final List<String> urls;
+class _GalleryBlock extends ConsumerWidget {
+  const _GalleryBlock({required this.sp, required this.isOwner});
+  final ServiceProviderDetail sp;
+  final bool isOwner;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final items = sp.gallery;
+    if (items.isEmpty && !isOwner) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 0, 18),
       child: Column(
@@ -642,29 +1602,173 @@ class _GalleryBlock extends StatelessWidget {
             child: _SectionTitle('Work Gallery'),
           ),
           SizedBox(
-            height: 120,
+            height: 64,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: urls.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 12),
-              itemBuilder: (_, i) => ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: CachedNetworkImage(
-                  imageUrl: AppConfig.assetUrl(urls[i]),
-                  width: 170,
-                  height: 120,
-                  fit: BoxFit.cover,
-                  placeholder: (_, _) => Container(width: 170, color: AppColors.primarySurface),
-                  errorWidget: (_, _, _) => Container(
-                    width: 170,
-                    color: AppColors.primarySurface,
-                    child: const Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
-                  ),
-                ),
-              ),
+              itemCount: items.length + (isOwner ? 1 : 0),
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (_, i) {
+                if (isOwner && i == items.length) return _AddGalleryTile(spId: sp.id);
+                final item = items[i];
+                return _GalleryTile(
+                  item: item,
+                  isOwner: isOwner,
+                  onDelete: () async {
+                    await ref.read(profileRepositoryProvider).deleteMedia(item.id);
+                    ref.invalidate(serviceProviderDetailProvider(sp.id));
+                  },
+                );
+              },
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _GalleryTile extends StatelessWidget {
+  const _GalleryTile({required this.item, required this.isOwner, required this.onDelete});
+  final ProfileMediaItem item;
+  final bool isOwner;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        GestureDetector(
+          onTap: item.isVideo
+              ? null
+              : () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => _ImageViewerScreen(url: item.url, heroTag: 'gallery-${item.id}'),
+                  )),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: item.isVideo
+                ? Container(
+                    width: 114,
+                    height: 64,
+                    color: Colors.black87,
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 26),
+                  )
+                : Hero(
+                    tag: 'gallery-${item.id}',
+                    child: CachedNetworkImage(
+                      imageUrl: AppConfig.assetUrl(item.url),
+                      width: 114,
+                      height: 64,
+                      fit: BoxFit.cover,
+                      placeholder: (_, _) => Container(width: 114, height: 64, color: AppColors.primarySurface),
+                      errorWidget: (_, _, _) => Container(
+                        width: 114,
+                        height: 64,
+                        color: AppColors.primarySurface,
+                        child: const Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
+                      ),
+                    ),
+                  ),
+          ),
+        ),
+        if (isOwner)
+          Positioned(
+            top: -6,
+            right: -6,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: onDelete,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: const BoxDecoration(color: AppColors.ink, shape: BoxShape.circle),
+                child: const Icon(Icons.close, size: 12, color: Colors.white),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AddGalleryTile extends ConsumerStatefulWidget {
+  const _AddGalleryTile({required this.spId});
+  final int spId;
+  @override
+  ConsumerState<_AddGalleryTile> createState() => _AddGalleryTileState();
+}
+
+class _AddGalleryTileState extends ConsumerState<_AddGalleryTile> {
+  bool _busy = false;
+
+  Future<void> _pick(String mediaType) async {
+    final picker = ImagePicker();
+    final file = mediaType == 'video'
+        ? await picker.pickVideo(source: ImageSource.gallery)
+        : await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (file == null) return;
+    setState(() => _busy = true);
+    try {
+      final bytes = await file.readAsBytes();
+      await ref.read(profileRepositoryProvider).addMedia(bytes, file.name, mediaType);
+      await ref.read(serviceProviderDetailProvider(widget.spId).future);
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _showChoice() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.photo_outlined, color: AppColors.primary),
+              title: const Text('Add photo'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _pick('photo');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam_outlined, color: AppColors.primary),
+              title: const Text('Add video'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _pick('video');
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: _busy ? null : _showChoice,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: 114,
+        height: 64,
+        decoration: BoxDecoration(
+          color: AppColors.primarySurface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+        ),
+        alignment: Alignment.center,
+        child: _busy
+            ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.add, color: AppColors.primary),
       ),
     );
   }
@@ -869,12 +1973,47 @@ class _SubmitReviewState extends ConsumerState<_SubmitReview> {
 }
 
 // ── Event(s) ─────────────────────────────────────────────────
-class _EventsBlock extends StatelessWidget {
+/// Muted label + green tappable CTA, matching Figma's empty-state pattern
+/// (Events/Posts/Interest Groups when the SP has none yet).
+class _EmptyStateCta extends StatelessWidget {
+  const _EmptyStateCta({required this.label, required this.cta, required this.onTap});
+  final String label;
+  final String cta;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary)),
+        const SizedBox(height: 44),
+        Center(
+          child: InkWell(
+            onTap: onTap,
+            child: Text(cta,
+                style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 13.5)),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+void _openDiscoverTab(BuildContext context, WidgetRef ref, int tab) {
+  ref.read(discoverTabProvider.notifier).set(tab);
+  final navigator = Navigator.of(context);
+  navigator.push(MaterialPageRoute(
+    builder: (_) => DiscoverScreen(onBack: () => navigator.maybePop()),
+  ));
+}
+
+class _EventsBlock extends ConsumerWidget {
   const _EventsBlock({required this.events});
   final List<SpEvent> events;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 0, 18),
       child: Column(
@@ -884,15 +2023,25 @@ class _EventsBlock extends StatelessWidget {
             padding: EdgeInsets.only(right: 20),
             child: _SectionTitle('Event(s)'),
           ),
-          SizedBox(
-            height: 210,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: events.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 12),
-              itemBuilder: (_, i) => _SpEventCard(item: events[i]),
+          if (events.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 20),
+              child: _EmptyStateCta(
+                label: 'None',
+                cta: 'Explore Events near you',
+                onTap: () => _openDiscoverTab(context, ref, 1),
+              ),
+            )
+          else
+            SizedBox(
+              height: 210,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: events.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
+                itemBuilder: (_, i) => _SpEventCard(item: events[i]),
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -1006,6 +2155,13 @@ class _PostsBlock extends StatelessWidget {
           children: [
             const Text('Posts', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.ink)),
             const SizedBox(height: 10),
+            if (posts.isEmpty)
+              _EmptyStateCta(
+                label: 'No Post Found',
+                cta: 'Create a post now',
+                onTap: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => const CreatePostScreen())),
+              ),
             ...posts.take(2).map((p) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: Column(
@@ -1044,13 +2200,14 @@ class _PostsBlock extends StatelessWidget {
                     ],
                   ),
                 )),
-            Center(
-              child: TextButton(
-                onPressed: () {},
-                child: const Text('View More',
-                    style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
+            if (posts.isNotEmpty)
+              Center(
+                child: TextButton(
+                  onPressed: () {},
+                  child: const Text('View More',
+                      style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -1059,25 +2216,32 @@ class _PostsBlock extends StatelessWidget {
 }
 
 // ── Interest Groups ──────────────────────────────────────────
-class _GroupsBlock extends StatelessWidget {
+class _GroupsBlock extends ConsumerWidget {
   const _GroupsBlock({required this.groups});
   final List<SpGroup> groups;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final admin = groups.where((g) => g.role == 'admin').toList();
     final member = groups.where((g) => g.role == 'member').toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionTitle('Interest Groups'),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (admin.isNotEmpty) Expanded(child: _roleColumn('Admin', admin)),
-            if (member.isNotEmpty) Expanded(child: _roleColumn('Member', member)),
-          ],
-        ),
+        if (groups.isEmpty)
+          _EmptyStateCta(
+            label: 'No groups joined',
+            cta: 'Join your interest groups',
+            onTap: () => _openDiscoverTab(context, ref, 3),
+          )
+        else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (admin.isNotEmpty) Expanded(child: _roleColumn('Admin', admin)),
+              if (member.isNotEmpty) Expanded(child: _roleColumn('Member', member)),
+            ],
+          ),
       ],
     );
   }
@@ -1139,6 +2303,376 @@ class _GroupChip extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
         ],
+      ),
+    );
+  }
+}
+
+// ── Three-dot menu: Make Payment / Report Abuse / Share / Block ──────────────
+/// Small anchored popup matching Figma's 3-dot component exactly (`EL-41292289`: 91×191,
+/// white, 5px corner radius, 3 thin dividers) — not a full-width bottom sheet.
+Future<void> _showProfileActionsMenu(BuildContext anchorContext, WidgetRef ref, ServiceProviderDetail sp) async {
+  final box = anchorContext.findRenderObject() as RenderBox;
+  final overlay = Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+  final position = RelativeRect.fromRect(
+    Rect.fromPoints(
+      box.localToGlobal(box.size.bottomRight(Offset.zero), ancestor: overlay),
+      box.localToGlobal(Offset.zero, ancestor: overlay),
+    ),
+    Offset.zero & overlay.size,
+  );
+
+  const labelStyle = TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w500, fontSize: 12, color: AppColors.ink);
+
+  final action = await showMenu<String>(
+    context: anchorContext,
+    position: position,
+    color: AppColors.surface,
+    elevation: 4,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+    constraints: const BoxConstraints(minWidth: 110, maxWidth: 140),
+    items: [
+      PopupMenuItem<String>(
+        value: 'payment',
+        height: 58,
+        padding: EdgeInsets.zero,
+        child: const Center(
+          child: Text('Make\nPayment',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontFamily: 'Poppins', fontWeight: FontWeight.w500, fontSize: 12, color: AppColors.primary)),
+        ),
+      ),
+      const PopupMenuDivider(height: 1),
+      PopupMenuItem<String>(
+        value: 'report',
+        height: 52,
+        child: Row(
+          children: [
+            const Icon(Icons.flag_outlined, size: 20, color: AppColors.ink),
+            const SizedBox(width: 10),
+            const Text('Report\nAbuse', style: labelStyle),
+          ],
+        ),
+      ),
+      const PopupMenuDivider(height: 1),
+      PopupMenuItem<String>(
+        value: 'share',
+        height: 40,
+        child: Row(
+          children: [
+            const Icon(Icons.share_outlined, size: 20, color: AppColors.ink),
+            const SizedBox(width: 10),
+            const Text('Share', style: labelStyle),
+          ],
+        ),
+      ),
+      const PopupMenuDivider(height: 1),
+      PopupMenuItem<String>(
+        value: 'block',
+        height: 41,
+        child: Row(
+          children: [
+            const Icon(Icons.block, size: 20, color: AppColors.ink),
+            const SizedBox(width: 10),
+            Text(sp.isBlocked ? 'Unblock' : 'Block', style: labelStyle),
+          ],
+        ),
+      ),
+    ],
+  );
+
+  if (action == null || !anchorContext.mounted) return;
+  switch (action) {
+    case 'payment':
+      await _makePayment(anchorContext, ref, sp);
+    case 'report':
+      showModalBottomSheet<void>(
+        context: anchorContext,
+        isScrollControlled: true,
+        backgroundColor: AppColors.surface,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (_) => _ReportSheet(sp: sp),
+      );
+    case 'share':
+      await _shareProfile(anchorContext, ref, sp);
+    case 'block':
+      await _toggleBlockSp(anchorContext, ref, sp);
+  }
+}
+
+/// Best-effort prefill only (not authoritative — the resident can change it freely):
+/// prefer a `payment`-category field named like "charge/fee/amount/price", else the first
+/// numeric `payment` field. Mirrors the matching pattern used by `_BasicDetails`/`_TravelDetails`.
+String? _suggestedAmount(ServiceProviderDetail sp) {
+  final fields = sp.customFields.where((f) => f.category == 'payment').toList();
+  bool numeric(String? v) => v != null && v.trim().isNotEmpty && double.tryParse(v) != null;
+  final named = fields.where((f) => RegExp('charge|fee|amount|price', caseSensitive: false).hasMatch(f.fieldName));
+  for (final f in named) {
+    if (numeric(f.value)) return f.value;
+  }
+  for (final f in fields) {
+    if (numeric(f.value)) return f.value;
+  }
+  return null;
+}
+
+Future<void> _makePayment(BuildContext context, WidgetRef ref, ServiceProviderDetail sp) async {
+  // Menu/product SPs (bakers, food, delivery): payment always attaches to a real placed
+  // order — cart/quantities/delivery must exist before there's anything to pay for.
+  if (!sp.hasMenu) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _EnterAmountSheet(sp: sp),
+    );
+    return;
+  }
+
+  List<OrderModel> orders;
+  try {
+    orders = await ref.read(ordersRepositoryProvider).myOrders();
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not load orders')));
+    }
+    return;
+  }
+  final pending = orders.where((o) => o.spProfileId == sp.id && !o.paid && o.status == 'accepted').toList();
+  if (!context.mounted) return;
+  if (pending.isEmpty) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('No pending payment for this provider.')));
+    return;
+  }
+  if (pending.length == 1) {
+    _openPayment(context, pending.first);
+    return;
+  }
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: AppColors.surface,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (ctx) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Pending payments', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            ),
+          ),
+          for (final o in pending)
+            ListTile(
+              leading: const Icon(Icons.receipt_long_outlined, color: AppColors.primary),
+              title: Text(o.placedAt != null ? DateFormat('EEE, MMM d').format(o.placedAt!) : 'Order #${o.id}'),
+              trailing: Text('₹${o.totalAmount.toStringAsFixed(0)}',
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _openPayment(context, o);
+              },
+            ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    ),
+  );
+}
+
+void _openPayment(BuildContext context, OrderModel order) {
+  Navigator.of(context).push(MaterialPageRoute(
+    settings: const RouteSettings(name: kPaymentFlowRoute),
+    builder: (_) => PaymentMethodScreen(orderId: order.id, total: order.totalAmount),
+  ));
+}
+
+Future<void> _shareProfile(BuildContext context, WidgetRef ref, ServiceProviderDetail sp) async {
+  final parts = <String>[sp.name];
+  if (sp.service != null) parts.add(sp.service!);
+  if (sp.showCallButton && (sp.mobile?.isNotEmpty ?? false)) parts.add('Contact: ${sp.mobile}');
+  await SharePlus.instance.share(ShareParams(text: parts.join(' · ')));
+  try {
+    await ref.read(discoveryRepositoryProvider).shareProfile(sp.id);
+  } catch (_) {
+    // Non-blocking — the share sheet already completed.
+  }
+}
+
+Future<void> _toggleBlockSp(BuildContext context, WidgetRef ref, ServiceProviderDetail sp) async {
+  final userId = sp.userId;
+  if (userId == null) return;
+  if (sp.isBlocked) {
+    await ref.read(discoveryRepositoryProvider).unblockUser(userId);
+    ref.invalidate(serviceProviderDetailProvider(sp.id));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unblocked')));
+    }
+    return;
+  }
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('Block ${sp.name}?'),
+      content: const Text("You won't be able to message or call each other."),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Block', style: TextStyle(color: AppColors.error)),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true) return;
+  await ref.read(discoveryRepositoryProvider).blockUser(userId);
+  ref.invalidate(serviceProviderDetailProvider(sp.id));
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Blocked')));
+  }
+}
+
+class _ReportSheet extends ConsumerStatefulWidget {
+  const _ReportSheet({required this.sp});
+  final ServiceProviderDetail sp;
+  @override
+  ConsumerState<_ReportSheet> createState() => _ReportSheetState();
+}
+
+class _ReportSheetState extends ConsumerState<_ReportSheet> {
+  static const _reasons = ['Spam', 'Fake profile', 'Inappropriate content', 'Fraud/Scam', 'Other'];
+  String? _selected;
+  final _otherCtrl = TextEditingController();
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    _otherCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final reason = _selected == 'Other' ? _otherCtrl.text.trim() : _selected;
+    if (reason == null || reason.isEmpty) return;
+    setState(() => _submitting = true);
+    try {
+      await ref.read(discoveryRepositoryProvider).reportProfile(widget.sp.id, reason: reason);
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report submitted.')));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not submit report')));
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).viewInsets.bottom + 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          const Text('Report abuse', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+          const SizedBox(height: 10),
+          ..._reasons.map((r) => RadioListTile<String>(
+                contentPadding: EdgeInsets.zero,
+                value: r,
+                groupValue: _selected,
+                onChanged: (v) => setState(() => _selected = v),
+                title: Text(r),
+              )),
+          if (_selected == 'Other') ...[
+            const SizedBox(height: 4),
+            TextField(
+              controller: _otherCtrl,
+              decoration: InputDecoration(
+                hintText: 'Tell us more',
+                filled: true,
+                fillColor: AppColors.background,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _submitting || _selected == null ? null : _submit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(48),
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: _submitting
+                  ? const SizedBox(
+                      height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Text('Submit', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Full-screen tap-to-view image viewer (avatar / Work Gallery photos). Pinch-to-zoom via
+/// `InteractiveViewer`, `Hero`-animated in from the tapped thumbnail, tap to dismiss.
+class _ImageViewerScreen extends StatelessWidget {
+  const _ImageViewerScreen({required this.url, required this.heroTag});
+  final String url;
+  final String heroTag;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: GestureDetector(
+        onTap: () => Navigator.of(context).maybePop(),
+        child: Stack(
+          children: [
+            Center(
+              child: Hero(
+                tag: heroTag,
+                child: InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 4,
+                  child: CachedNetworkImage(
+                    imageUrl: AppConfig.assetUrl(url),
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              left: 8,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

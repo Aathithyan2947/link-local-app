@@ -1,6 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/token_storage.dart';
+import '../../address/data/address_repository.dart';
+import '../../business/data/business_repository.dart';
+import '../../home/data/doc_reminder.dart';
+import '../../home/data/home_repository.dart';
+import '../../home/data/profile_congrats.dart';
+import '../../messages/data/messages_repository.dart' as messages;
+import '../../notifications/data/notifications_repository.dart' as notifications;
+import '../../orders/data/orders_repository.dart';
+import '../../profile/data/profile_repository.dart';
+import '../../services/data/service_profile_repository.dart';
 import '../data/auth_models.dart';
 import '../data/auth_repository.dart';
 
@@ -20,6 +30,29 @@ class AuthState {
 class AuthController extends Notifier<AuthState> {
   AuthRepository get _repo => ref.read(authRepositoryProvider);
   TokenStorage get _tokens => ref.read(tokenStorageProvider);
+
+  /// Clears every cached user-scoped provider so a freshly-authenticated (or freshly
+  /// logged-out) session never renders stale data left over from a previous account —
+  /// these are plain (non-family, non-autoDispose) FutureProviders/Notifiers that Riverpod
+  /// otherwise keeps resolved for the whole ProviderContainer lifetime.
+  void _invalidateUserScopedProviders() {
+    ref.invalidate(homeFeedProvider);
+    ref.invalidate(homeScopeProvider);
+    ref.invalidate(spSectionAreaProvider);
+    ref.invalidate(workshopsSectionAreaProvider);
+    ref.invalidate(groupsSectionAreaProvider);
+    ref.invalidate(myProfileProvider);
+    ref.invalidate(myAddressProofProvider);
+    ref.invalidate(docReminderDismissedProvider);
+    ref.invalidate(profileCongratsShownProvider);
+    ref.invalidate(notifications.unreadCountProvider);
+    ref.invalidate(messages.unreadCountProvider);
+    ref.invalidate(myRatesProvider);
+    ref.invalidate(myProviderKindProvider);
+    ref.invalidate(myProviderFeaturesProvider);
+    ref.invalidate(myOrdersProvider);
+    ref.invalidate(customFieldsProvider);
+  }
 
   @override
   AuthState build() {
@@ -48,6 +81,7 @@ class AuthController extends Notifier<AuthState> {
     // Re-fetch full profile (so we know whether the address step is complete).
     final user = await _repo.me();
     state = AuthState(status: AuthStatus.authenticated, user: user);
+    _invalidateUserScopedProviders();
   }
 
   Future<void> register({
@@ -70,6 +104,7 @@ class AuthController extends Notifier<AuthState> {
     );
     await _tokens.save(accessToken: result.accessToken, refreshToken: result.refreshToken);
     state = AuthState(status: AuthStatus.authenticated, user: result.user);
+    _invalidateUserScopedProviders();
   }
 
   Future<String?> requestOtp({
@@ -102,6 +137,7 @@ class AuthController extends Notifier<AuthState> {
     await _tokens.save(accessToken: result.accessToken, refreshToken: result.refreshToken);
     final user = await _repo.me();
     state = AuthState(status: AuthStatus.authenticated, user: user);
+    _invalidateUserScopedProviders();
   }
 
   /// Sets resident vs service_provider (after address, per PRD) and refreshes.
@@ -121,6 +157,7 @@ class AuthController extends Notifier<AuthState> {
   Future<void> logout() async {
     await _tokens.clear();
     state = const AuthState(status: AuthStatus.unauthenticated);
+    _invalidateUserScopedProviders();
   }
 }
 

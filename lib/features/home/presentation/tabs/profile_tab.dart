@@ -7,7 +7,11 @@ import '../../../business/presentation/sp_dashboard_screen.dart';
 import '../../../feed/presentation/feed_screen.dart';
 import '../../../messages/presentation/conversations_screen.dart';
 import '../../../notifications/presentation/notifications_screen.dart';
+import '../../../discovery/presentation/service_provider_detail_screen.dart';
 import '../../../orders/presentation/my_orders_screen.dart';
+import '../../../orders/presentation/payments_screen.dart';
+import '../../../profile/data/profile_repository.dart';
+import '../../../profile/presentation/privacy_settings_screen.dart';
 import '../../../profile/presentation/profile_completion_screen.dart';
 import '../widgets/home_widgets.dart';
 
@@ -38,7 +42,7 @@ class ProfileTab extends ConsumerWidget {
               MaterialPageRoute(builder: (_) => const ProfileCompletionScreen()),
             ),
           ),
-          if (user?.isServiceProvider == true)
+          if (user?.isServiceProvider == true) ...[
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: Material(
@@ -66,6 +70,37 @@ class ProfileTab extends ConsumerWidget {
                 ),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: Material(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(14),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () {
+                    final myId = ref.read(myProfileProvider).asData?.value.id;
+                    if (myId == null) return;
+                    Navigator.of(context)
+                        .push(MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: myId)));
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Icon(Icons.visibility_outlined, color: AppColors.primary),
+                        SizedBox(width: 14),
+                        Expanded(
+                          child: Text('View My Profile',
+                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
+                        ),
+                        Icon(Icons.chevron_right, color: AppColors.textMuted),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           _Section('Personal', [
             _MenuItem(Icons.event_outlined, 'Events', () => _soon(context, 'Events')),
@@ -76,7 +111,8 @@ class ProfileTab extends ConsumerWidget {
             _MenuItem(Icons.attach_money_rounded, 'Referrals', () => _soon(context, 'Referrals')),
           ]),
           _Section('Transaction History', [
-            _MenuItem(Icons.credit_card_outlined, 'Payments', () => _soon(context, 'Payments')),
+            _MenuItem(Icons.credit_card_outlined, 'Payments',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PaymentsScreen()))),
             _MenuItem(Icons.receipt_long_outlined, 'Orders / Bookings',
                 () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyOrdersScreen()))),
             _MenuItem(Icons.forum_outlined, 'Messages',
@@ -84,6 +120,9 @@ class ProfileTab extends ConsumerWidget {
           ]),
           _Section('Privacy', [
             _MenuItem(Icons.visibility_outlined, 'Profile visibility', () => _soon(context, 'Profile visibility')),
+            if (user?.isServiceProvider == true)
+              _MenuItem(Icons.call_outlined, 'Call visibility',
+                  () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PrivacySettingsScreen()))),
             _MenuItem(Icons.shield_outlined, 'Sign in & Security', () => _soon(context, 'Sign in & Security')),
             _MenuItem(Icons.notifications_none_rounded, 'Notifications & Alerts',
                 () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationsScreen()))),
@@ -148,46 +187,62 @@ class _ProfileCard extends StatelessWidget {
       margin: EdgeInsets.fromLTRB(16, topPad + 12, 16, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(18)),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 34,
-            backgroundColor: Colors.white,
-            child: Avatar(name: name, photoUrl: photoUrl, radius: 32),
+          Row(
+            children: [
+              GestureDetector(
+                onTap: () => Navigator.of(context).maybePop(),
+                behavior: HitTestBehavior.opaque,
+                child: const Icon(Icons.chevron_left, color: Colors.white, size: 28),
+              ),
+              const Spacer(),
+            ],
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 19)),
-                if (address != null && address!.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(address!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
-                ],
-                if (email != null) _iconLine(Icons.email_outlined, email!),
-                if (phone != null) _iconLine(Icons.phone_outlined, phone!),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: onEdit,
-                  icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.white),
-                  label: const Text('Edit', style: TextStyle(color: Colors.white)),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    minimumSize: const Size(0, 34),
-                    side: const BorderSide(color: Colors.white54),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 34,
+                backgroundColor: Colors.white,
+                child: Avatar(name: name, photoUrl: photoUrl, radius: 32),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 19)),
+                    if (address != null && address!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(address!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
+                    ],
+                    if (email != null) _iconLine(Icons.email_outlined, email!),
+                    if (phone != null) _iconLine(Icons.phone_outlined, phone!),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: onEdit,
+                      icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.white),
+                      label: const Text('Edit', style: TextStyle(color: Colors.white)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        minimumSize: const Size(0, 34),
+                        side: const BorderSide(color: Colors.white54),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),

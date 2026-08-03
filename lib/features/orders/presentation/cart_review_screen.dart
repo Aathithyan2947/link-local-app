@@ -2,17 +2,17 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:dio/dio.dart';
-
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../business/data/availability_models.dart';
+import '../../business/data/product_models.dart';
+import '../../discovery/data/sp_detail_models.dart';
 import '../../discovery/discovery_repository.dart';
 import '../../payments/presentation/payment_method_screen.dart';
 import '../data/cart.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
 import 'order_success_screen.dart';
+import 'product_details_screen.dart';
 
 /// Reviews the cart and places the order — the "Cart Review" frame.
 class CartReviewScreen extends ConsumerStatefulWidget {
@@ -24,7 +24,7 @@ class CartReviewScreen extends ConsumerStatefulWidget {
 
 class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
   String _delivery = 'home_delivery';
-  OpenSlot? _selectedSlot;
+  String? _selectedWindow;
   bool _placing = false;
 
   final _coupon = TextEditingController();
@@ -77,29 +77,27 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
     }
   }
 
-  Future<void> _confirm(Cart cart, {required bool hasSlots}) async {
-    if (hasSlots && _selectedSlot == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please pick a time slot')));
+  Future<void> _confirm(Cart cart) async {
+    if (_selectedWindow == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please choose a delivery time')));
       return;
     }
     setState(() => _placing = true);
     try {
       final repo = ref.read(ordersRepositoryProvider);
-      final slot = _selectedSlot;
       final order = await repo.placeOrder({
         'spProfileId': cart.spProfileId,
         'items': cart.items
             .map((l) => {
                   'productId': l.product.id,
                   'quantity': l.qty,
-                  if (l.product.customizationNotes?.isNotEmpty == true)
-                    'customizationNotes': l.product.customizationNotes,
+                  if ((l.customizationSelection ?? l.product.customizationNotes)?.isNotEmpty == true)
+                    'customizationNotes': l.customizationSelection ?? l.product.customizationNotes,
                 })
             .toList(),
         'deliveryType': _delivery,
         if (_appliedCoupon != null) 'couponCode': _appliedCoupon,
-        if (slot != null) 'specialInstructions': 'Preferred slot: ${slot.dayLabel}, ${slot.timeLabel}',
-        if (slot != null) 'scheduledSlot': slot.toJson(),
+        'deliveryTimeWindow': _selectedWindow,
       });
       if (!mounted) return;
       // Route through the Payment method + UPI pages (mock gateway).
@@ -114,17 +112,6 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
           MaterialPageRoute(builder: (_) => OrderSuccessScreen(orderId: order.id, total: order.totalAmount)),
         );
       }
-    } on DioException catch (e) {
-      if (!mounted) return;
-      // The slot was booked by someone else between viewing and confirming.
-      if (e.response?.statusCode == 409) {
-        setState(() => _selectedSlot = null);
-        ref.invalidate(spSlotsProvider(cart.spProfileId!));
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('That slot was just taken. Please pick another.')));
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not place order')));
-      }
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not place order')));
@@ -133,16 +120,35 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
     }
   }
 
+  /// Fixed delivery windows for the earliest orderable day, derived from the SP's
+  /// admin-configured "Order placement timing" delivery setting — no SP-side setup needed.
+  static const _windowTimes = ['10:00 AM – 12:00 PM', '1:00 PM – 3:00 PM', '4:00 PM – 6:00 PM'];
+
+  List<String> _deliveryWindows(String? timing) {
+    final now = DateTime.now();
+    final tomorrow = timing == null
+        ? false
+        : timing.toLowerCase().contains('12 hours')
+            ? now.hour >= 12
+            : true;
+    final dayLabel = tomorrow ? 'Tomorrow' : 'Today';
+    return _windowTimes.map((t) => '$dayLabel, $t').toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     final cart = ref.watch(cartProvider);
     final notifier = ref.read(cartProvider.notifier);
-    final slotsAsync = cart.isEmpty ? null : ref.watch(spSlotsProvider(cart.spProfileId!));
-    final hasSlots = slotsAsync?.asData?.value.isNotEmpty ?? false;
+    final spAsync = cart.isEmpty ? null : ref.watch(serviceProviderDetailProvider(cart.spProfileId!));
+    final sp = spAsync?.asData?.value;
     final total = _quote?.total ?? cart.subtotal;
 
     // Re-price when the cart changes (qty edits, item removal) — outside of build.
     ref.listen<Cart>(cartProvider, (_, next) => _refreshQuote(next));
+
+    final timing = sp == null ? null : _orderTimingValue(sp);
+    final windows = _deliveryWindows(timing);
+    final crossSell = sp == null ? const <SpProduct>[] : sp.products.where((p) => !cart.lines.containsKey(p.id)).toList();
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -153,7 +159,7 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: ElevatedButton(
-                  onPressed: _placing ? null : () => _confirm(cart, hasSlots: hasSlots),
+                  onPressed: _placing ? null : () => _confirm(cart),
                   child: _placing
                       ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                       : Text('Confirm  ·  ₹${total.toStringAsFixed(0)}'),
@@ -179,14 +185,122 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
                 _couponField(),
                 const Divider(height: 28),
                 _feeBreakdown(cart),
+                if (crossSell.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  const Text('Products you can buy from this seller', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                  const SizedBox(height: 10),
+                  _crossSell(crossSell, cart, notifier),
+                ],
                 const SizedBox(height: 20),
-                const Text('Choose a time slot', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                const SizedBox(height: 6),
-                if (slotsAsync != null) _slotPicker(slotsAsync),
+                const Text('Choose delivery time', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                const Text('All orders are made fresh. Earliest delivery time is shown below.',
+                    style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                const SizedBox(height: 8),
+                _windowPicker(windows),
               ],
             ),
     );
   }
+
+  String? _orderTimingValue(ServiceProviderDetail sp) {
+    for (final f in sp.customFields) {
+      if (f.category == 'delivery' && f.fieldName.trim().toLowerCase() == 'order placement timing') {
+        final v = f.value?.trim();
+        if (v != null && v.isNotEmpty) return v;
+      }
+    }
+    return null;
+  }
+
+  Widget _windowPicker(List<String> windows) => Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: windows.map((w) {
+          final on = _selectedWindow == w;
+          return GestureDetector(
+            onTap: () => setState(() => _selectedWindow = w),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                color: on ? AppColors.primarySurface : AppColors.surface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: on ? AppColors.primary : AppColors.border),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(on ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                      size: 16, color: on ? AppColors.primary : AppColors.textMuted),
+                  const SizedBox(width: 8),
+                  Text(w,
+                      style: TextStyle(
+                          color: on ? AppColors.primary : AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13)),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      );
+
+  Widget _crossSell(List<SpProduct> products, Cart cart, CartNotifier notifier) => SizedBox(
+        height: 136,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: products.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 10),
+          itemBuilder: (_, i) {
+            final p = products[i];
+            final hasCustomization = p.customizationNotes?.trim().isNotEmpty == true;
+            return Container(
+              width: 120,
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: (p.photoUrl != null && p.photoUrl!.isNotEmpty)
+                            ? CachedNetworkImage(imageUrl: AppConfig.assetUrl(p.photoUrl!), width: 104, height: 70, fit: BoxFit.cover, errorWidget: (_, _, _) => _ph())
+                            : _ph(),
+                      ),
+                      Positioned(
+                        right: 2,
+                        bottom: 2,
+                        child: Material(
+                          color: AppColors.primary,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () => hasCustomization
+                                ? Navigator.of(context).push(MaterialPageRoute(
+                                    builder: (_) => ProductDetailsScreen(product: p, spId: cart.spProfileId!, spName: cart.spName ?? ''),
+                                  ))
+                                : notifier.add(cart.spProfileId!, cart.spName ?? '', p),
+                            child: const Padding(padding: EdgeInsets.all(4), child: Icon(Icons.add, color: Colors.white, size: 16)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5)),
+                  if (p.price != null) Text('₹${p.price!.toStringAsFixed(0)}', style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+                ],
+              ),
+            );
+          },
+        ),
+      );
 
   Widget _feeBreakdown(Cart cart) {
     final q = _quote;
@@ -262,65 +376,6 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
                   child: const Text('Remove'),
                 ),
         ],
-      );
-
-  Widget _slotPicker(AsyncValue<List<OpenSlot>> slotsAsync) => slotsAsync.when(
-        loading: () => const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
-            child: Center(child: SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2)))),
-        error: (_, _) => const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Text('Could not load time slots', style: TextStyle(color: AppColors.textMuted))),
-        data: (slots) {
-          if (slots.isEmpty) {
-            return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text('This provider hasn’t published time slots — your order will be scheduled after they confirm.',
-                  style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
-            );
-          }
-          final byDay = <String, List<OpenSlot>>{};
-          for (final s in slots) {
-            byDay.putIfAbsent(s.dayLabel, () => []).add(s);
-          }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: byDay.entries.map((e) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10, bottom: 6),
-                    child: Text(e.key, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.ink)),
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: e.value.map((s) {
-                      final on = _selectedSlot?.date == s.date && _selectedSlot?.startTime == s.startTime;
-                      return GestureDetector(
-                        onTap: () => setState(() => _selectedSlot = s),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                          decoration: BoxDecoration(
-                            color: on ? AppColors.primarySurface : AppColors.surface,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: on ? AppColors.primary : AppColors.border),
-                          ),
-                          child: Text(s.timeLabel,
-                              style: TextStyle(
-                                  color: on ? AppColors.primary : AppColors.textSecondary,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13)),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ],
-              );
-            }).toList(),
-          );
-        },
       );
 
   Widget _line(int id, String name, String? photo, double price, int qty, CartNotifier n) => Container(

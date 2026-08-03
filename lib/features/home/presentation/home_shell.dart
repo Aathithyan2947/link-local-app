@@ -54,7 +54,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       body: IndexedStack(
         index: _body,
         children: [
-          HomeFeedScreen(onProfile: _openProfile),
+          HomeFeedScreen(onProfile: _openProfile, onOpenDiscover: _openDiscover),
           DiscoverScreen(onBack: _goHome),
         ],
       ),

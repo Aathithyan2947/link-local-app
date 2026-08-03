@@ -19,6 +19,13 @@ class OrdersRepository {
     return OrderModel.fromJson(res.data['data'] as Map<String, dynamic>);
   }
 
+  /// Instant "pay this provider" for non-menu (service) SPs — no request/accept step.
+  /// The resident enters the amount themselves (negotiated directly with the SP).
+  Future<OrderModel> createDirectPayment(int spProfileId, double amount) async {
+    final res = await _dio.post('/orders/direct-payment', data: {'spProfileId': spProfileId, 'amount': amount});
+    return OrderModel.fromJson(res.data['data'] as Map<String, dynamic>);
+  }
+
   /// Cart/booking fee breakdown + coupon preview (no persistence).
   Future<OrderQuote> quote(Map<String, dynamic> data) async {
     final res = await _dio.post('/orders/quote', data: data);

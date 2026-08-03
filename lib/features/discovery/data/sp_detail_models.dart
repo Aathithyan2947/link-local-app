@@ -2,6 +2,7 @@ import '../../business/data/availability_models.dart';
 import '../../business/data/product_models.dart';
 import '../../business/data/rate_models.dart';
 import '../../home/data/home_models.dart';
+import '../../services/data/service_profile_repository.dart' show CustomField;
 
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 double? _asDouble(dynamic v) => v == null ? null : (v is num ? v.toDouble() : double.tryParse('$v'));
@@ -86,6 +87,20 @@ class SpEvent {
       );
 }
 
+/// One Work Gallery item (photo or video).
+class ProfileMediaItem {
+  const ProfileMediaItem({required this.id, required this.url, required this.mediaType});
+  final int id;
+  final String url;
+  final String mediaType; // photo | video
+  bool get isVideo => mediaType == 'video';
+  factory ProfileMediaItem.fromJson(Map<String, dynamic> j) => ProfileMediaItem(
+        id: _asInt(j['id']),
+        url: j['url'] as String? ?? '',
+        mediaType: j['mediaType'] as String? ?? 'photo',
+      );
+}
+
 /// An interest group the provider admins or is a member of.
 class SpGroup {
   const SpGroup({required this.group, required this.role});
@@ -112,10 +127,14 @@ class ServiceProviderDetail {
     required this.ratingCount,
     this.willingToTravel = false,
     this.mobile,
+    this.email,
     this.userId,
     this.providerKind = 'product',
     this.hasMenu = false,
     this.hasDateBooking = false,
+    this.showCallButton = false,
+    this.isBlocked = false,
+    this.customFields = const [],
     this.availability,
     this.rates = const [],
     this.educations = const [],
@@ -140,17 +159,21 @@ class ServiceProviderDetail {
   final int ratingCount;
   final bool willingToTravel;
   final String? mobile;
+  final String? email;
   final int? userId;
   final String providerKind; // product (menu/cart) | service (charges/booking)
   final bool hasMenu; // true when any subcategory type == 'menu'
   final bool hasDateBooking; // true when any subcategory type == 'date'
+  final bool showCallButton; // SP's privacy setting — gates the Call action
+  final bool isBlocked; // true when the caller has blocked this SP's user
+  final List<CustomField> customFields; // category-grouped onboarding-field answers
   final SpAvailability? availability;
   final List<SpRate> rates;
   final List<SpEducation> educations;
 
   bool get isService => !hasMenu;
   final List<SpProfession> professions;
-  final List<String> gallery;
+  final List<ProfileMediaItem> gallery;
   final List<SpReview> reviews;
   final List<SpEvent> events;
   final List<DiscussionItem> posts;
@@ -185,12 +208,12 @@ class ServiceProviderDetail {
     ];
 
     final gallery = ((j['media'] as List?) ?? [])
+        .map((m) => m as Map<String, dynamic>)
         .where((m) {
-          final t = (m as Map<String, dynamic>)['mediaType'] as String?;
-          return t == 'photo' || t == 'services_card' || t == 'menu_card';
+          final t = m['mediaType'] as String?;
+          return (t == 'photo' || t == 'video') && (m['url'] as String?)?.isNotEmpty == true;
         })
-        .map((m) => (m as Map<String, dynamic>)['url'] as String?)
-        .whereType<String>()
+        .map(ProfileMediaItem.fromJson)
         .toList();
 
     final delivery = j['delivery'] as Map<String, dynamic>?;
@@ -213,12 +236,18 @@ class ServiceProviderDetail {
           (j['availability'] as Map<String, dynamic>?)?['willingToTravel'] as bool? ??
           false,
       mobile: (j['user'] as Map<String, dynamic>?)?['mobile'] as String?,
+      email: (j['user'] as Map<String, dynamic>?)?['email'] as String?,
       userId: (j['user'] as Map<String, dynamic>?)?['id'] != null
           ? _asInt((j['user'] as Map<String, dynamic>)['id'])
           : null,
       providerKind: j['providerKind'] as String? ?? 'service',
       hasMenu: j['hasMenu'] as bool? ?? featureTypes.contains('menu'),
       hasDateBooking: j['hasDateBooking'] as bool? ?? featureTypes.contains('date'),
+      showCallButton: j['showCallButton'] as bool? ?? false,
+      isBlocked: j['isBlocked'] as bool? ?? false,
+      customFields: ((j['customFields'] as List?) ?? [])
+          .map((e) => CustomField.fromJson(e as Map<String, dynamic>))
+          .toList(),
       availability:
           j['availability'] == null ? null : SpAvailability.fromJson(j['availability'] as Map<String, dynamic>),
       rates: ((j['rates'] as List?) ?? []).map((e) => SpRate.fromJson(e as Map<String, dynamic>)).toList(),

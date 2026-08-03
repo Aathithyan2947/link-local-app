@@ -4,13 +4,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../services/presentation/category_fields_form_screen.dart';
 import '../data/business_repository.dart';
 import '../data/product_models.dart';
 import 'add_product_screen.dart';
 
-/// The SP's product manager — the "Your Items" frame. Edit / delete / add.
+/// The SP's product manager — the "Your Items" frame. Edit / delete / add. When
+/// [fromOnboarding], this is a step in a menu-type SP's "Complete your profile" chain, so an
+/// extra "Save & Proceed" button continues on to whatever's left in [nextCategories].
 class SpProductsScreen extends ConsumerWidget {
-  const SpProductsScreen({super.key});
+  const SpProductsScreen({super.key, this.fromOnboarding = false, this.nextCategories = const []});
+  final bool fromOnboarding;
+  final List<String> nextCategories;
 
   Future<void> _add(BuildContext context, WidgetRef ref) async {
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AddProductScreen()));
@@ -51,10 +56,22 @@ class SpProductsScreen extends ConsumerWidget {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: ElevatedButton(
-            onPressed: () => _add(context, ref),
-            child: const Text('+ Add Item(s)'),
-          ),
+          child: fromOnboarding
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    OutlinedButton(onPressed: () => _add(context, ref), child: const Text('+ Add Item(s)')),
+                    const SizedBox(height: 10),
+                    ElevatedButton(
+                      onPressed: () => pushOnboardingStep(context, ref, nextCategories, replace: true),
+                      child: const Text('Save & Proceed'),
+                    ),
+                  ],
+                )
+              : ElevatedButton(
+                  onPressed: () => _add(context, ref),
+                  child: const Text('+ Add Item(s)'),
+                ),
         ),
       ),
       body: async.when(

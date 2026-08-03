@@ -32,6 +32,21 @@ class ProfileRepository {
         (_) {},
       );
 
+  Future<void> updateEmail(String email) =>
+      _wrap(() => _dio.patch('/profiles/me/email', data: {'email': email}), (_) {});
+
+  /// mediaType: photo | video
+  Future<void> addMedia(Uint8List bytes, String filename, String mediaType) => _wrap(
+        () => _dio.post('/profiles/me/media',
+            data: FormData.fromMap({
+              'file': MultipartFile.fromBytes(bytes, filename: filename),
+              'mediaType': mediaType,
+            })),
+        (_) {},
+      );
+
+  Future<void> deleteMedia(int id) => _wrap(() => _dio.delete('/profiles/me/media/$id'), (_) {});
+
   Future<void> addEducation(Map<String, dynamic> data) =>
       _wrap(() => _dio.post('/profiles/me/education', data: data), (_) {});
 
@@ -104,6 +119,14 @@ class ProfileRepository {
         () => _dio.get('/masters/hobbies', queryParameters: {'pageSize': 100, 'isActive': 'true'}),
         (d) => (d as List).map((e) => IdName(e['id'] as int, e['name'] as String)).toList(),
       );
+
+  Future<bool> getShowCallButton() => _wrap(
+        () => _dio.get('/profiles/me/privacy'),
+        (d) => (d as Map<String, dynamic>)['showCallButton'] as bool? ?? false,
+      );
+
+  Future<void> setShowCallButton(bool value) =>
+      _wrap(() => _dio.put('/profiles/me/privacy', data: {'showCallButton': value}), (_) {});
 }
 
 final profileRepositoryProvider = Provider<ProfileRepository>((ref) {

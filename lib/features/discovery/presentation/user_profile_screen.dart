@@ -36,7 +36,7 @@ class UserProfileScreen extends ConsumerWidget {
           child: ListView(
             padding: const EdgeInsets.only(bottom: 32),
             children: [
-              _header(context, p),
+              _header(context, ref, p),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                 child: Column(
@@ -77,8 +77,39 @@ class UserProfileScreen extends ConsumerWidget {
     );
   }
 
+  Future<void> _toggleBlock(BuildContext context, WidgetRef ref, PublicProfile p) async {
+    final status = await ref.read(discoveryRepositoryProvider).blockStatus(p.userId);
+    if (!context.mounted) return;
+    if (status) {
+      await ref.read(discoveryRepositoryProvider).unblockUser(p.userId);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unblocked')));
+      }
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Block ${p.name}?'),
+        content: const Text("You won't be able to message or call each other."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Block', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ref.read(discoveryRepositoryProvider).blockUser(p.userId);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Blocked')));
+    }
+  }
+
   // ── Header ─────────────────────────────────────────────────
-  Widget _header(BuildContext context, PublicProfile p) {
+  Widget _header(BuildContext context, WidgetRef ref, PublicProfile p) {
     final topPad = MediaQuery.of(context).padding.top;
     return Container(
       width: double.infinity,
@@ -99,8 +130,7 @@ class UserProfileScreen extends ConsumerWidget {
               ),
               const Spacer(),
               TextButton(
-                onPressed: () => ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('Blocking coming soon'))),
+                onPressed: () => _toggleBlock(context, ref, p),
                 child: const Text('Block', style: TextStyle(color: Colors.white70)),
               ),
             ],

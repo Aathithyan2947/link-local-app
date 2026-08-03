@@ -3,10 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../orders/data/orders_repository.dart';
+import 'payment_failed_screen.dart';
+import 'payment_success_screen.dart';
 import 'payment_upi_screen.dart';
 
 /// Payment method selection — the "Payment - 1" frame. MOCK gateway: no real charge.
-/// Pops `true` when the (mock) payment succeeds.
 class PaymentMethodScreen extends ConsumerStatefulWidget {
   const PaymentMethodScreen({super.key, required this.orderId, required this.total});
   final int orderId;
@@ -28,20 +29,28 @@ class _PaymentMethodScreenState extends ConsumerState<PaymentMethodScreen> {
 
   Future<void> _next() async {
     if (_method == 'upi') {
-      final paid = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(builder: (_) => PaymentUpiScreen(orderId: widget.orderId, total: widget.total)),
-      );
-      if (paid == true && mounted) Navigator.of(context).pop(true);
+      Navigator.of(context).push(MaterialPageRoute(
+        settings: const RouteSettings(name: kPaymentFlowRoute),
+        builder: (_) => PaymentUpiScreen(orderId: widget.orderId, total: widget.total),
+      ));
       return;
     }
     // Card / net-banking → mock charge directly.
     setState(() => _paying = true);
     try {
       await ref.read(ordersRepositoryProvider).pay(widget.orderId, paymentMethod: _method);
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) {
+        Navigator.of(context).push(MaterialPageRoute(
+          settings: const RouteSettings(name: kPaymentFlowRoute),
+          builder: (_) => PaymentSuccessScreen(amount: widget.total),
+        ));
+      }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment failed. Please try again.')));
+        Navigator.of(context).push(MaterialPageRoute(
+          settings: const RouteSettings(name: kPaymentFlowRoute),
+          builder: (_) => PaymentFailedScreen(orderId: widget.orderId, amount: widget.total, paymentMethod: _method),
+        ));
       }
     } finally {
       if (mounted) setState(() => _paying = false);

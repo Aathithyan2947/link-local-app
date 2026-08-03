@@ -28,6 +28,7 @@ class ProfileDetail {
     required this.serviceTypes,
     required this.hasDelivery,
     required this.hasPaymentMethods,
+    this.cityId,
   });
 
   final int id;
@@ -39,6 +40,7 @@ class ProfileDetail {
   final String? aboutMe;
   final String? canOfferHelpWith;
   final int completionPercent;
+  final int? cityId; // from address.area.city.id — scopes the pincode field's area picker
 
   final List<IdName> educations;
   final List<IdName> professions;
@@ -105,6 +107,12 @@ class ProfileDetail {
       }).toList(),
       hasDelivery: j['delivery'] != null,
       hasPaymentMethods: ((j['paymentMethods'] as List?) ?? []).isNotEmpty,
+      cityId: (((j['address'] as Map<String, dynamic>?)?['area'] as Map<String, dynamic>?)?['city']
+              as Map<String, dynamic>?)?['id'] !=
+              null
+          ? _asInt((((j['address'] as Map<String, dynamic>)['area'] as Map<String, dynamic>)['city']
+              as Map<String, dynamic>)['id'])
+          : null,
     );
   }
 }

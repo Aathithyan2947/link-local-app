@@ -6,35 +6,69 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
 
+/// One serviceable area selected on a 'pincode' field — always displayed as "AreaName - Pincode".
+class SelectedArea {
+  const SelectedArea({required this.id, required this.areaName, this.pincode, this.cityName});
+
+  final int id;
+  final String areaName;
+  final String? pincode;
+  final String? cityName;
+
+  String get label => (pincode?.isNotEmpty ?? false) ? '$areaName - $pincode' : areaName;
+
+  factory SelectedArea.fromJson(Map<String, dynamic> j) => SelectedArea(
+        id: j['id'] as int,
+        areaName: j['areaName'] as String? ?? '',
+        pincode: j['pincode'] as String?,
+        cityName: j['cityName'] as String? ?? (j['city'] as Map<String, dynamic>?)?['name'] as String?,
+      );
+}
+
 /// A dynamic field configured for a service subcategory (admin-defined). `value` is the SP's
-/// current answer — plain text, or an uploaded file URL for the 'file' type (menu/rate card).
+/// current answer — plain text, an uploaded file/image URL for the 'file'/'image' types,
+/// or a JSON array of Area IDs for the 'pincode' type (see [resolvedAreas]).
 class CustomField {
   CustomField({
     required this.fieldId,
     required this.subcategoryName,
+    required this.category,
     required this.fieldName,
     required this.fieldType,
     required this.isRequired,
     this.fieldOptions,
     this.value,
+    this.resolvedAreas,
+    this.dependsOnFieldId,
+    this.dependsOnValue,
   });
 
   final int fieldId;
   final String subcategoryName;
+  final String category; // basic_details | travel | payment | service_type | delivery
   final String fieldName;
-  final String fieldType; // text | number | date | dropdown | boolean | file
+  final String fieldType; // text | number | date | dropdown | boolean | file | image | menu | pincode
   final bool isRequired;
   final String? fieldOptions; // JSON array string for dropdown
   String? value;
+  List<SelectedArea>? resolvedAreas;
+  final int? dependsOnFieldId;
+  final String? dependsOnValue;
 
   factory CustomField.fromJson(Map<String, dynamic> j) => CustomField(
         fieldId: j['fieldId'] as int,
         subcategoryName: j['subcategoryName'] as String? ?? '',
+        category: j['category'] as String? ?? 'basic_details',
         fieldName: j['fieldName'] as String? ?? '',
         fieldType: j['fieldType'] as String? ?? 'text',
         isRequired: j['isRequired'] as bool? ?? false,
         fieldOptions: j['fieldOptions'] as String?,
         value: j['value'] as String?,
+        resolvedAreas: (j['resolvedAreas'] as List?)
+            ?.map((e) => SelectedArea.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        dependsOnFieldId: j['dependsOnFieldId'] as int?,
+        dependsOnValue: j['dependsOnValue'] as String?,
       );
 }
 
@@ -84,6 +118,23 @@ class ServiceProfileRepository {
       final form = FormData.fromMap({'file': MultipartFile.fromBytes(bytes, filename: filename)});
       final res = await _dio.post('/profiles/me/custom-fields/upload', data: form);
       return res.data['data']['url'] as String;
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
+    }
+  }
+
+  /// Searches the Area master by area name or pincode (the backend unions both) for the
+  /// 'pincode' field type's area picker.
+  Future<List<SelectedArea>> searchAreas({String? q, int? cityId}) async {
+    try {
+      final res = await _dio.get('/masters/areas', queryParameters: {
+        'pageSize': 30,
+        if (q != null && q.isNotEmpty) 'q': q,
+        if (cityId != null) 'cityId': cityId,
+      });
+      return ((res.data['data'] as List?) ?? [])
+          .map((e) => SelectedArea.fromJson(e as Map<String, dynamic>))
+          .toList();
     } on DioException catch (e) {
       throw ApiException.fromDio(e);
     }

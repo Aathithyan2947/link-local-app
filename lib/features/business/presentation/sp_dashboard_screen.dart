@@ -5,11 +5,11 @@ import '../../../core/theme/app_colors.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../../orders/presentation/incoming_orders_screen.dart';
+import '../../services/presentation/category_fields_form_screen.dart';
 import '../data/business_repository.dart';
 import '../data/rate_models.dart';
 import 'add_product_screen.dart';
 import 'blackout_dates_screen.dart';
-import 'delivery_settings_screen.dart';
 import 'setup/sp_setup_wizard_screen.dart';
 import 'sp_products_screen.dart';
 import 'sp_rates_screen.dart';
@@ -139,8 +139,9 @@ class SpDashboardScreen extends ConsumerWidget {
               icon: Icons.delivery_dining_rounded,
               title: 'Delivery settings',
               subtitle: 'Manage delivery availability, charges, and service area.',
-              onTap: () =>
-                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DeliverySettingsScreen())),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const CategoryFieldsFormScreen(category: 'delivery', categoryLabel: 'Delivery Settings'),
+              )),
             ),
             const SizedBox(height: 12),
           ],

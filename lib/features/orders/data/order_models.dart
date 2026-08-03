@@ -112,6 +112,27 @@ class OrderSlot {
   }
 }
 
+/// One recorded charge attempt on an order (mock gateway — see `backend/src/lib/payments.ts`).
+class OrderPaymentModel {
+  const OrderPaymentModel({
+    required this.amount,
+    required this.paymentMethod,
+    required this.paymentStatus,
+    this.paidAt,
+  });
+  final double amount;
+  final String paymentMethod;
+  final String paymentStatus; // paid | failed | refunded
+  final DateTime? paidAt;
+
+  factory OrderPaymentModel.fromJson(Map<String, dynamic> j) => OrderPaymentModel(
+        amount: _asDouble(j['amount']),
+        paymentMethod: j['paymentMethod'] as String? ?? '',
+        paymentStatus: j['paymentStatus'] as String? ?? '',
+        paidAt: j['paidAt'] != null ? DateTime.tryParse(j['paidAt'] as String) : null,
+      );
+}
+
 class OrderModel {
   const OrderModel({
     required this.id,
@@ -127,6 +148,7 @@ class OrderModel {
     this.rateType,
     this.rateAmount,
     this.specialInstructions,
+    this.deliveryTimeWindow,
     this.placedAt,
     this.slot,
     required this.buyerName,
@@ -137,6 +159,7 @@ class OrderModel {
     required this.spUserId,
     this.items = const [],
     this.paid = false,
+    this.payments = const [],
   });
 
   final int id;
@@ -152,6 +175,7 @@ class OrderModel {
   final String? rateType;
   final double? rateAmount;
   final String? specialInstructions;
+  final String? deliveryTimeWindow;
   final DateTime? placedAt;
   final OrderSlot? slot;
   final String buyerName;
@@ -162,6 +186,7 @@ class OrderModel {
   final int spUserId;
   final List<OrderLine> items;
   final bool paid;
+  final List<OrderPaymentModel> payments;
 
   bool get isBooking => orderKind == 'booking';
   String get statusLabel =>
@@ -189,6 +214,7 @@ class OrderModel {
       rateType: j['rateType'] as String?,
       rateAmount: j['rateAmount'] != null ? _asDouble(j['rateAmount']) : null,
       specialInstructions: j['specialInstructions'] as String?,
+      deliveryTimeWindow: j['deliveryTimeWindow'] as String?,
       placedAt: j['placedAt'] != null ? DateTime.tryParse(j['placedAt'] as String) : null,
       slot: slot != null ? OrderSlot.fromJson(slot) : null,
       buyerName: buyerProfile?['name'] as String? ?? 'Customer',
@@ -199,6 +225,7 @@ class OrderModel {
       spUserId: _asInt(sp?['userId']),
       items: ((j['items'] as List?) ?? []).map((e) => OrderLine.fromJson(e as Map<String, dynamic>)).toList(),
       paid: payments.any((p) => (p as Map)['paymentStatus'] == 'paid'),
+      payments: payments.map((p) => OrderPaymentModel.fromJson(p as Map<String, dynamic>)).toList(),
     );
   }
 }

@@ -1,11 +1,13 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/input_formatters.dart';
 import '../discovery_repository.dart';
 import 'event_detail_screen.dart';
 
@@ -112,7 +114,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               Expanded(child: _timeField()),
             ]),
             const SizedBox(height: 12),
-            _field(_duration, 'Duration (minutes)', keyboard: TextInputType.number),
+            _field(_duration, 'Duration (minutes)', keyboard: TextInputType.number, formatters: kIntegerInput),
             const SizedBox(height: 16),
             _modeSelector(),
             const SizedBox(height: 12),
@@ -128,9 +130,9 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               value: _isPaid,
               onChanged: (v) => setState(() => _isPaid = v),
             ),
-            if (_isPaid) _field(_price, 'Price (₹)', keyboard: TextInputType.number),
+            if (_isPaid) _field(_price, 'Price (₹)', keyboard: kDecimalKeyboard, formatters: kDecimalInput),
             const SizedBox(height: 12),
-            _field(_maxAttendees, 'Max attendees (optional)', keyboard: TextInputType.number),
+            _field(_maxAttendees, 'Max attendees (optional)', keyboard: TextInputType.number, formatters: kIntegerInput),
             const SizedBox(height: 20),
             const Text('What to bring / Guidelines', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
             const SizedBox(height: 8),
@@ -181,11 +183,12 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
       );
 
   Widget _field(TextEditingController c, String label,
-      {bool required = false, int maxLines = 1, TextInputType? keyboard}) {
+      {bool required = false, int maxLines = 1, TextInputType? keyboard, List<TextInputFormatter>? formatters}) {
     return TextFormField(
       controller: c,
       maxLines: maxLines,
       keyboardType: keyboard,
+      inputFormatters: formatters,
       decoration: InputDecoration(labelText: label),
       validator: required ? (v) => (v == null || v.trim().isEmpty) ? 'Required' : null : null,
     );

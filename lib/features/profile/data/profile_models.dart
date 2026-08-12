@@ -1,10 +1,16 @@
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
 class IdName {
-  const IdName(this.id, this.label, {this.subtitle});
+  const IdName(this.id, this.label, {this.subtitle, this.masterId});
+
+  /// The join-row id (e.g. ProfileProfession.id) — what the DELETE endpoints take.
   final int id;
   final String label;
   final String? subtitle;
+
+  /// The catalog row id behind [label], where there is one. Lets a replace-all save send an
+  /// untouched entry by id instead of re-resolving its free text.
+  final int? masterId;
 }
 
 class ProfileDetail {
@@ -17,6 +23,8 @@ class ProfileDetail {
     this.gender,
     this.aboutMe,
     this.canOfferHelpWith,
+    this.yearsOfExperience,
+    this.onboardingCompletedAt,
     required this.completionPercent,
     required this.educations,
     required this.professions,
@@ -39,7 +47,14 @@ class ProfileDetail {
   final String? gender;
   final String? aboutMe;
   final String? canOfferHelpWith;
+  final int? yearsOfExperience;
+
+  /// Set when the SP pressed Confirm on the final onboarding step; null means they never
+  /// finished. Drives both home banners — completion is recorded, never inferred.
+  final String? onboardingCompletedAt;
   final int completionPercent;
+
+  bool get hasFinishedOnboarding => onboardingCompletedAt != null;
   final int? cityId; // from address.area.city.id — scopes the pincode field's area picker
 
   final List<IdName> educations;
@@ -68,6 +83,8 @@ class ProfileDetail {
       gender: j['gender'] as String?,
       aboutMe: j['aboutMe'] as String?,
       canOfferHelpWith: j['canOfferHelpWith'] as String?,
+      yearsOfExperience: j['yearsOfExperience'] != null ? _asInt(j['yearsOfExperience']) : null,
+      onboardingCompletedAt: j['onboardingCompletedAt'] as String?,
       completionPercent: _asInt((j['completion'] as Map<String, dynamic>?)?['completionPercent']),
       educations: list('educations').map((e) {
         final m = e['educationMaster'] as Map<String, dynamic>?;
@@ -80,8 +97,13 @@ class ProfileDetail {
         return IdName(_asInt(e['id']), label.isEmpty ? 'Education' : label);
       }).toList(),
       professions: list('professions').map((e) {
-        final cat = (e['professionMaster'] as Map<String, dynamic>?)?['category'] as String?;
-        return IdName(_asInt(e['id']), cat ?? 'Profession', subtitle: e['companyOrDetail'] as String?);
+        final master = e['professionMaster'] as Map<String, dynamic>?;
+        return IdName(
+          _asInt(e['id']),
+          master?['category'] as String? ?? 'Profession',
+          subtitle: e['companyOrDetail'] as String?,
+          masterId: master?['id'] != null ? _asInt(master!['id']) : null,
+        );
       }).toList(),
       hobbies: list('hobbies').map((e) {
         final m = (e['hobbyMaster'] as Map<String, dynamic>?)?['name'] as String?;

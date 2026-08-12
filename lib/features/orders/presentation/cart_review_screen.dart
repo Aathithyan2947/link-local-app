@@ -91,8 +91,11 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
             .map((l) => {
                   'productId': l.product.id,
                   'quantity': l.qty,
-                  if ((l.customizationSelection ?? l.product.customizationNotes)?.isNotEmpty == true)
-                    'customizationNotes': l.customizationSelection ?? l.product.customizationNotes,
+                  // Only what the resident actually chose. This used to fall back to the
+                  // product's own notes, which sent the SP's list of offers back as if it
+                  // were the resident's selection.
+                  if (l.customizationSelection?.trim().isNotEmpty == true)
+                    'customizationNotes': l.customizationSelection,
                 })
             .toList(),
         'deliveryType': _delivery,
@@ -106,10 +109,20 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
       );
       if (!mounted) return;
       if (paid == true) {
+        // Read the seller before clearing — the cart is where that lives.
+        final spProfileId = cart.spProfileId;
+        final spName = cart.spName;
         ref.read(cartProvider.notifier).clear();
         ref.invalidate(myOrdersProvider);
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => OrderSuccessScreen(orderId: order.id, total: order.totalAmount)),
+          MaterialPageRoute(
+            builder: (_) => OrderSuccessScreen(
+              orderId: order.id,
+              total: order.totalAmount,
+              spProfileId: spProfileId,
+              spName: spName,
+            ),
+          ),
         );
       }
     } catch (_) {
@@ -252,7 +265,7 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
           separatorBuilder: (_, _) => const SizedBox(width: 10),
           itemBuilder: (_, i) {
             final p = products[i];
-            final hasCustomization = p.customizationNotes?.trim().isNotEmpty == true;
+            final hasCustomization = p.hasCustomizations;
             return Container(
               width: 120,
               padding: const EdgeInsets.all(8),

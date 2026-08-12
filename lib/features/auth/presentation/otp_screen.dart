@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -69,7 +70,9 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   }
 
   Future<void> _submit() async {
-    if (_otp.text.trim().length < 6) {
+    // The backend takes exactly 6 digits; the field only admits digits, so this catches a
+    // short entry rather than letting it round-trip to a server-side validation error.
+    if (!RegExp(r'^[0-9]{6}$').hasMatch(_otp.text.trim())) {
       setState(() => _error = 'Enter the 6-digit OTP');
       return;
     }
@@ -128,7 +131,14 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                         : 'Enter 6 Digit OTP',
                   ),
                   const SizedBox(height: 28),
-                  PillField(controller: _otp, hint: 'Enter OTP', icon: Icons.password, keyboardType: TextInputType.number),
+                  PillField(
+                    controller: _otp,
+                    hint: 'Enter 6-digit OTP',
+                    icon: Icons.password,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  ),
                   if (_devOtp != null) ...[
                     const SizedBox(height: 8),
                     Text('Dev OTP: $_devOtp', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),

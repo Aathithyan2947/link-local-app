@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_client.dart';
+import '../../../core/auth/auth_scope.dart';
 import 'message_models.dart';
 
 class MessagesRepository {
@@ -45,11 +46,19 @@ final messagesRepositoryProvider =
 
 /// The current user's conversation list.
 final conversationsProvider =
-    FutureProvider<List<Conversation>>((ref) => ref.watch(messagesRepositoryProvider).conversations());
+    FutureProvider<List<Conversation>>((ref) {
+  ref.bindToAccount();
+  return ref.watch(messagesRepositoryProvider).conversations();
+});
 
 /// A chat thread with a specific user.
-final threadProvider =
-    FutureProvider.family<ChatThread, int>((ref, otherId) => ref.watch(messagesRepositoryProvider).thread(otherId));
+final threadProvider = FutureProvider.family<ChatThread, int>((ref, otherId) {
+  ref.bindToAccount();
+  return ref.watch(messagesRepositoryProvider).thread(otherId);
+});
 
 /// Total unread message count (for the badge).
-final unreadCountProvider = FutureProvider<int>((ref) => ref.watch(messagesRepositoryProvider).unreadCount());
+final unreadCountProvider = FutureProvider<int>((ref) {
+  ref.bindToAccount();
+  return ref.watch(messagesRepositoryProvider).unreadCount();
+});

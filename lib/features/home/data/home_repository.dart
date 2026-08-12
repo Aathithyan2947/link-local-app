@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/auth/auth_scope.dart';
 import 'home_models.dart';
 
 class HomeRepository {
@@ -38,7 +39,10 @@ class HomeScopeState {
 
 class HomeScopeNotifier extends Notifier<HomeScopeState> {
   @override
-  HomeScopeState build() => const HomeScopeState();
+  HomeScopeState build() {
+    ref.bindToAccount();
+    return const HomeScopeState();
+  }
 
   /// Chip tap — describes the member's OWN society/lane/area/city, so any explicit area
   /// override from the location picker is cleared.
@@ -53,6 +57,7 @@ class HomeScopeNotifier extends Notifier<HomeScopeState> {
 final homeScopeProvider = NotifierProvider<HomeScopeNotifier, HomeScopeState>(HomeScopeNotifier.new);
 
 final homeFeedProvider = FutureProvider<HomeFeed>((ref) {
+  ref.bindToAccount();
   final scope = ref.watch(homeScopeProvider);
   return ref.watch(homeRepositoryProvider).getHome(scope: scope.scope, areaId: scope.overrideAreaId);
 });
@@ -68,7 +73,10 @@ class SectionAreaOverride {
 
 class SectionAreaNotifier extends Notifier<SectionAreaOverride?> {
   @override
-  SectionAreaOverride? build() => null;
+  SectionAreaOverride? build() {
+    ref.bindToAccount();
+    return null;
+  }
   void set(int areaId, String label) => state = SectionAreaOverride(areaId: areaId, label: label);
 }
 

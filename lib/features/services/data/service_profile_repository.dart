@@ -1,3 +1,4 @@
+import '../../../core/auth/auth_scope.dart';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -146,5 +147,6 @@ final serviceProfileRepositoryProvider = Provider<ServiceProfileRepository>((ref
 });
 
 final customFieldsProvider = FutureProvider<List<CustomField>>((ref) {
+  ref.bindToAccount();
   return ref.watch(serviceProfileRepositoryProvider).getCustomFields();
 });

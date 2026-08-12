@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_client.dart';
+import '../../../core/auth/auth_scope.dart';
 import 'availability_models.dart';
 import 'product_models.dart';
 import 'rate_models.dart';
@@ -16,6 +17,15 @@ class BusinessRepository {
     final res = await _dio.get('/profiles/me/products');
     return (res.data['data'] as List)
         .map((e) => SpProduct.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Customization labels the SP already used on their other products — suggestions for the
+  /// add-product editor, so a baker doesn't retype "Eggless" on all thirty cakes.
+  Future<List<ProductCustomization>> myCustomizationLabels() async {
+    final res = await _dio.get('/profiles/me/product-customizations');
+    return ((res.data['data'] as List?) ?? [])
+        .map((e) => ProductCustomization.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
@@ -71,6 +81,11 @@ class BusinessRepository {
   Future<void> addProfession(String category) async =>
       _dio.post('/profiles/me/professions', data: {'category': category});
 
+  /// Replaces the profile's whole profession set. Used by the setup wizard, which owns a single
+  /// title field — POSTing it on every save would append a duplicate row each time.
+  Future<void> setProfessions(List<Map<String, dynamic>> professions) async =>
+      _dio.put('/profiles/me/professions', data: {'professions': professions});
+
   /// The current SP's provider kind (product | service), from GET /profiles/me.
   Future<String> myProviderKind() async {
     final res = await _dio.get('/profiles/me');
@@ -92,19 +107,38 @@ final businessRepositoryProvider =
 
 /// The current SP's own product list.
 final myProductsProvider =
-    FutureProvider<List<SpProduct>>((ref) => ref.watch(businessRepositoryProvider).myProducts());
+    FutureProvider<List<SpProduct>>((ref) {
+  ref.bindToAccount();
+  return ref.watch(businessRepositoryProvider).myProducts();
+});
 
 /// The current SP's availability template + blackout dates.
 final myAvailabilityProvider =
-    FutureProvider<AvailabilityData>((ref) => ref.watch(businessRepositoryProvider).availability());
+    FutureProvider<AvailabilityData>((ref) {
+  ref.bindToAccount();
+  return ref.watch(businessRepositoryProvider).availability();
+});
 
 /// The current SP's published service rates.
-final myRatesProvider = FutureProvider<List<SpRate>>((ref) => ref.watch(businessRepositoryProvider).myRates());
+final myRatesProvider = FutureProvider<List<SpRate>>((ref) {
+  ref.bindToAccount();
+  return ref.watch(businessRepositoryProvider).myRates();
+});
+
+/// Customization labels the SP already uses — suggestions in the add-product editor.
+final myCustomizationLabelsProvider = FutureProvider<List<ProductCustomization>>((ref) {
+  ref.bindToAccount();
+  return ref.watch(businessRepositoryProvider).myCustomizationLabels();
+});
 
 /// The current SP's provider kind (product | service).
-final myProviderKindProvider = FutureProvider<String>((ref) => ref.watch(businessRepositoryProvider).myProviderKind());
+final myProviderKindProvider = FutureProvider<String>((ref) {
+  ref.bindToAccount();
+  return ref.watch(businessRepositoryProvider).myProviderKind();
+});
 
 /// The current SP's feature flags: hasMenu + hasDateBooking.
-final myProviderFeaturesProvider = FutureProvider<({bool hasMenu, bool hasDateBooking})>(
-  (ref) => ref.watch(businessRepositoryProvider).myProviderFeatures(),
-);
+final myProviderFeaturesProvider = FutureProvider<({bool hasMenu, bool hasDateBooking})>((ref) {
+  ref.bindToAccount();
+  return ref.watch(businessRepositoryProvider).myProviderFeatures();
+});

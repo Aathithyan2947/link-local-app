@@ -27,31 +27,34 @@ class _PaymentMethodScreenState extends ConsumerState<PaymentMethodScreen> {
     ('net_banking', 'Net Banking', 'All major banks supported', Icons.account_balance_outlined),
   ];
 
+  /// Pops `true` once a payment completes, whichever path was taken — the caller (cart review,
+  /// or the SP profile's pay-a-booking action) uses that to know the charge went through.
   Future<void> _next() async {
     if (_method == 'upi') {
-      Navigator.of(context).push(MaterialPageRoute(
-        settings: const RouteSettings(name: kPaymentFlowRoute),
-        builder: (_) => PaymentUpiScreen(orderId: widget.orderId, total: widget.total),
-      ));
+      final paid = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => PaymentUpiScreen(orderId: widget.orderId, total: widget.total)),
+      );
+      if (mounted && paid == true) Navigator.of(context).pop(true);
       return;
     }
     // Card / net-banking → mock charge directly.
     setState(() => _paying = true);
     try {
       await ref.read(ordersRepositoryProvider).pay(widget.orderId, paymentMethod: _method);
-      if (mounted) {
-        Navigator.of(context).push(MaterialPageRoute(
-          settings: const RouteSettings(name: kPaymentFlowRoute),
-          builder: (_) => PaymentSuccessScreen(amount: widget.total),
-        ));
-      }
+      if (!mounted) return;
+      final done = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => PaymentSuccessScreen(amount: widget.total)),
+      );
+      if (mounted) Navigator.of(context).pop(done ?? true);
     } catch (_) {
-      if (mounted) {
-        Navigator.of(context).push(MaterialPageRoute(
-          settings: const RouteSettings(name: kPaymentFlowRoute),
-          builder: (_) => PaymentFailedScreen(orderId: widget.orderId, amount: widget.total, paymentMethod: _method),
-        ));
-      }
+      if (!mounted) return;
+      final retried = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) =>
+              PaymentFailedScreen(orderId: widget.orderId, amount: widget.total, paymentMethod: _method),
+        ),
+      );
+      if (mounted && retried == true) Navigator.of(context).pop(true);
     } finally {
       if (mounted) setState(() => _paying = false);
     }

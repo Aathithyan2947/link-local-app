@@ -3,11 +3,11 @@
 abstract class AppConfig {
   static const String _override = String.fromEnvironment('API_BASE_URL');
 
+  /// Hosted backend (Render) by default. For a local backend, override at build time:
+  ///   flutter run --dart-define=API_BASE_URL=http://localhost:4000/api/v1
+  ///   (Android emulator reaches the host via 10.0.2.2 instead of localhost.)
   static String get apiBaseUrl {
     if (_override.isNotEmpty) return _override;
-    // Hosted backend (Render) by default. For a local backend, override at build time:
-    //   flutter run --dart-define=API_BASE_URL=http://localhost:4000/api/v1
-    //   (Android emulator reaches the host via 10.0.2.2 instead of localhost.)
     return 'https://link-local-backend.onrender.com/api/v1';
   }
 

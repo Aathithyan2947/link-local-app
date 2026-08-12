@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/widgets/app_text_field.dart';
+import '../../../../core/widgets/input_formatters.dart';
 import '../../../../core/widgets/primary_button.dart';
 import '../../data/profile_repository.dart';
 import '../widgets/section_widgets.dart';
@@ -27,7 +28,11 @@ class ProductsScreen extends ConsumerWidget {
                   const SizedBox(height: 12),
                   TextField(controller: desc, decoration: const InputDecoration(hintText: 'Description')),
                   const SizedBox(height: 12),
-                  TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(hintText: 'Price (₹)')),
+                  TextField(
+                      controller: price,
+                      keyboardType: kDecimalKeyboard,
+                      inputFormatters: kDecimalInput,
+                      decoration: const InputDecoration(hintText: 'Price (₹)')),
                   const SizedBox(height: 12),
                   TextField(controller: unit, decoration: const InputDecoration(hintText: 'Unit (per piece, per kg...)')),
                 ],
@@ -127,11 +132,11 @@ class _DeliveryScreenState extends ConsumerState<DeliveryScreen> {
             contentPadding: EdgeInsets.zero,
           ),
           const SizedBox(height: 8),
-          AppTextField(controller: _charge, label: 'Delivery charge (₹)', keyboardType: TextInputType.number, hint: '0 = free'),
+          AppTextField(controller: _charge, label: 'Delivery charge (₹)', keyboardType: kDecimalKeyboard, inputFormatters: kDecimalInput, hint: '0 = free'),
           const SizedBox(height: 16),
-          AppTextField(controller: _minOrder, label: 'Minimum order amount (₹)', keyboardType: TextInputType.number),
+          AppTextField(controller: _minOrder, label: 'Minimum order amount (₹)', keyboardType: kDecimalKeyboard, inputFormatters: kDecimalInput),
           const SizedBox(height: 16),
-          AppTextField(controller: _radius, label: 'Delivery radius (km)', keyboardType: TextInputType.number),
+          AppTextField(controller: _radius, label: 'Delivery radius (km)', keyboardType: kDecimalKeyboard, inputFormatters: kDecimalInput),
           const SizedBox(height: 16),
           Text('Delivery timing', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),

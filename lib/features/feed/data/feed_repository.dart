@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_client.dart';
+import '../../../core/auth/auth_scope.dart';
 import 'post_models.dart';
 
 class FeedRepository {
@@ -53,8 +54,13 @@ class FeedRepository {
 final feedRepositoryProvider = Provider<FeedRepository>((ref) => FeedRepository(ref.watch(dioProvider)));
 
 /// The community feed (all post types).
-final feedProvider = FutureProvider<List<PostItem>>((ref) => ref.watch(feedRepositoryProvider).posts());
+final feedProvider = FutureProvider<List<PostItem>>((ref) {
+  ref.bindToAccount();
+  return ref.watch(feedRepositoryProvider).posts();
+});
 
 /// A single post with its comments, keyed by post id.
-final postDetailProvider =
-    FutureProvider.family<PostItem, int>((ref, id) => ref.watch(feedRepositoryProvider).post(id));
+final postDetailProvider = FutureProvider.family<PostItem, int>((ref, id) {
+  ref.bindToAccount();
+  return ref.watch(feedRepositoryProvider).post(id);
+});

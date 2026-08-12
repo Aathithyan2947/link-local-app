@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_client.dart';
+import '../../../core/auth/auth_scope.dart';
 import 'notification_models.dart';
 
 class NotificationsRepository {
@@ -26,7 +27,13 @@ final notificationsRepositoryProvider =
     Provider<NotificationsRepository>((ref) => NotificationsRepository(ref.watch(dioProvider)));
 
 final notificationsProvider =
-    FutureProvider<List<AppNotification>>((ref) => ref.watch(notificationsRepositoryProvider).list());
+    FutureProvider<List<AppNotification>>((ref) {
+  ref.bindToAccount();
+  return ref.watch(notificationsRepositoryProvider).list();
+});
 
 final unreadCountProvider =
-    FutureProvider<int>((ref) => ref.watch(notificationsRepositoryProvider).unreadCount());
+    FutureProvider<int>((ref) {
+  ref.bindToAccount();
+  return ref.watch(notificationsRepositoryProvider).unreadCount();
+});

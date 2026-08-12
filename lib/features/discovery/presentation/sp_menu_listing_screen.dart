@@ -222,7 +222,7 @@ class _ListingItem extends ConsumerWidget {
   final int spId;
   final String spName;
 
-  bool get _hasCustomization => product.customizationNotes?.trim().isNotEmpty == true;
+  bool get _hasCustomization => product.hasCustomizations;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

@@ -21,12 +21,14 @@ class ProductDetailsScreen extends ConsumerStatefulWidget {
 
 class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
   late int _qty;
-  bool _eggless = false;
-  bool _customMessage = false;
-  final _messageCtrl = TextEditingController();
 
-  bool get _offersEggless => widget.product.customizationNotes?.contains('Eggless') == true;
-  bool get _offersCustomMessage => widget.product.customizationNotes?.contains('Custom message') == true;
+  /// Selections keyed by the option's label — the product defines the options, so nothing
+  /// here is hard-coded to a particular trade.
+  final _selected = <String, bool>{};
+  final _notes = <String, TextEditingController>{};
+  String? _error;
+
+  List<ProductCustomization> get _options => widget.product.customizations;
 
   @override
   void initState() {
@@ -34,18 +36,38 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
     final cart = ref.read(cartProvider);
     final existing = cart.spProfileId == widget.spId ? cart.lines[widget.product.id] : null;
     _qty = existing != null && existing.qty > 0 ? existing.qty : 1;
+    for (final o in _options) {
+      _selected[o.label] = false;
+      if (o.wantsText) _notes[o.label] = TextEditingController();
+    }
   }
 
   @override
   void dispose() {
-    _messageCtrl.dispose();
+    for (final c in _notes.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
   void _confirm() {
+    // A required option has to be answered — and one that takes a note needs the note.
+    for (final o in _options.where((o) => o.isRequired)) {
+      final on = _selected[o.label] ?? false;
+      if (!on || (o.wantsText && _notes[o.label]!.text.trim().isEmpty)) {
+        setState(() => _error = '${o.label} is required');
+        return;
+      }
+    }
+    // Rendered into one string: it's what the SP reads on the order, and what
+    // OrderItem.customizationNotes has always stored.
     final parts = <String>[
-      if (_eggless) 'Eggless',
-      if (_customMessage) 'Custom message: ${_messageCtrl.text.trim()}',
+      for (final o in _options)
+        if (_selected[o.label] ?? false)
+          if (o.wantsText && _notes[o.label]!.text.trim().isNotEmpty)
+            '${o.label}: ${_notes[o.label]!.text.trim()}'
+          else
+            o.label,
     ];
     ref.read(cartProvider.notifier).addWithCustomization(
           widget.spId,
@@ -60,7 +82,7 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     final p = widget.product;
-    final showCustomization = _offersEggless || _offersCustomMessage;
+    final showCustomization = _options.isNotEmpty;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Product details')),
@@ -130,29 +152,23 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
                   const Text('Customization options', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                   const SizedBox(height: 2),
                   const Text('Make it truly yours!', style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
-                  if (_offersEggless)
+                  for (final o in _options) ...[
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
                       controlAffinity: ListTileControlAffinity.leading,
                       activeColor: AppColors.primary,
-                      title: const Text('Eggless'),
-                      value: _eggless,
-                      onChanged: (v) => setState(() => _eggless = v ?? false),
+                      title: Text(o.isRequired ? '${o.label} *' : o.label),
+                      value: _selected[o.label] ?? false,
+                      onChanged: (v) => setState(() {
+                        _selected[o.label] = v ?? false;
+                        _error = null;
+                      }),
                     ),
-                  if (_offersCustomMessage) ...[
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      activeColor: AppColors.primary,
-                      title: const Text('Custom message'),
-                      value: _customMessage,
-                      onChanged: (v) => setState(() => _customMessage = v ?? false),
-                    ),
-                    if (_customMessage)
+                    if (o.wantsText && (_selected[o.label] ?? false))
                       Padding(
-                        padding: const EdgeInsets.only(top: 4),
+                        padding: const EdgeInsets.only(top: 4, bottom: 4),
                         child: TextField(
-                          controller: _messageCtrl,
+                          controller: _notes[o.label],
                           maxLines: 3,
                           decoration: const InputDecoration(
                             hintText: 'Explain your request here…',
@@ -162,6 +178,8 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
                         ),
                       ),
                   ],
+                  if (_error != null)
+                    Text(_error!, style: const TextStyle(color: AppColors.error, fontSize: 13)),
                 ],
               ),
             ),

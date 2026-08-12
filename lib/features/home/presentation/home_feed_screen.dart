@@ -28,15 +28,12 @@ import '../data/home_repository.dart';
 import 'widgets/area_picker_sheet.dart';
 import 'widgets/home_widgets.dart';
 
-/// "Is the SP's home-banner-relevant profile complete?" — Basic Details + Travel +
-/// (menu SPs only) Service Type + Delivery admin-configured fields, EXCLUDING Payment and
-/// anything else (gallery/education/profession/contacts/address verification). Deliberately
-/// stricter-scoped than the backend's completionPercent, which this does not replace.
-bool _isPrimaryProfileComplete(List<CustomField> fields, {required bool hasMenu}) {
-  final cats = onboardingCategories(fields, hasMenu: hasMenu).where((c) => c != 'payment').toSet();
-  final relevant = fields.where((f) => cats.contains(f.category));
-  return relevant.every((f) => !f.isRequired || (f.value?.trim().isNotEmpty ?? false));
-}
+/// The SP's home-banner-relevant fields — Basic Details + Travel + (menu SPs only) Service
+/// Type + Delivery, EXCLUDING Payment and anything else (gallery/education/profession/
+/// contacts/address verification). Deliberately stricter-scoped than the backend's
+/// completionPercent, which this does not replace. Judged by [isOnboardingComplete].
+List<CustomField> _bannerFields(List<CustomField> fields, {required bool hasMenu}) =>
+    onboardingRelevantFields(fields, hasMenu: hasMenu, excluding: const {'payment'});
 
 class HomeFeedScreen extends ConsumerStatefulWidget {
   const HomeFeedScreen({super.key, this.onProfile, this.onOpenDiscover});
@@ -123,10 +120,20 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
     // yet; once complete, a one-time congrats banner takes its place (see profile_congrats.dart).
     final customFields = ref.watch(customFieldsProvider).asData?.value;
     final hasMenu = ref.watch(myProviderFeaturesProvider).asData?.value.hasMenu ?? false;
-    final isComplete = customFields != null && _isPrimaryProfileComplete(customFields, hasMenu: hasMenu);
+    final myProfile = ref.watch(myProfileProvider).asData?.value;
+    final bannerFields = customFields == null ? null : _bannerFields(customFields, hasMenu: hasMenu);
+    // Completion is what the SP actually did — pressing Confirm on the last onboarding step —
+    // not a guess from which fields are filled. Inference couldn't see the Products step at
+    // all (it has no admin fields), so a menu SP who never added an item read as finished.
+    final finishedOnboarding = myProfile?.hasFinishedOnboarding ?? false;
+    // Still nag if a required field is unanswered — an admin can add one after the fact.
+    final missingRequired = bannerFields != null && hasUnansweredRequiredField(bannerFields);
     final congratsShown = ref.watch(profileCongratsShownProvider).asData?.value ?? true;
-    final showProfileBanner = user?.isServiceProvider == true && customFields != null && !isComplete;
-    final showCongratsBanner = user?.isServiceProvider == true && isComplete && !congratsShown;
+
+    final isSp = user?.isServiceProvider == true;
+    final showProfileBanner = isSp && myProfile != null && (!finishedOnboarding || missingRequired);
+    // One-time, and only once they've been all the way through.
+    final showCongratsBanner = isSp && finishedOnboarding && !missingRequired && !congratsShown;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -840,7 +847,7 @@ class _ProfileCompletionBanner extends ConsumerWidget {
         } catch (_) {}
         final cats = onboardingCategories(fields, hasMenu: hasMenu);
         if (cats.isEmpty || !context.mounted) return;
-        await pushOnboardingStep(context, ref, cats, replace: false);
+        await pushOnboardingStep(context, ref, cats);
       },
       child: Container(
         margin: const EdgeInsets.fromLTRB(20, 0, 20, 8),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/network/dio_client.dart';
 import '../business/data/availability_models.dart';
+import '../../core/auth/auth_scope.dart';
 import '../home/data/home_models.dart';
 import 'data/event_detail_models.dart';
 import 'data/group_detail_models.dart';
@@ -185,51 +186,75 @@ final discoveryRepositoryProvider = Provider<DiscoveryRepository>((ref) {
   return DiscoveryRepository(ref.watch(dioProvider));
 });
 
-final serviceProvidersProvider =
-    FutureProvider<List<ServiceProviderItem>>((ref) => ref.watch(discoveryRepositoryProvider).serviceProviders());
+final serviceProvidersProvider = FutureProvider<List<ServiceProviderItem>>((ref) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).serviceProviders();
+});
 
-final eventsProvider =
-    FutureProvider<List<WorkshopItem>>((ref) => ref.watch(discoveryRepositoryProvider).events());
+final eventsProvider = FutureProvider<List<WorkshopItem>>((ref) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).events();
+});
 
-final groupsProvider =
-    FutureProvider<List<GroupItem>>((ref) => ref.watch(discoveryRepositoryProvider).groups());
+final groupsProvider = FutureProvider<List<GroupItem>>((ref) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).groups();
+});
 
 /// Full service-provider profile, keyed by profile id.
-final serviceProviderDetailProvider =
-    FutureProvider.family<ServiceProviderDetail, int>((ref, id) =>
-        ref.watch(discoveryRepositoryProvider).serviceProvider(id));
+final serviceProviderDetailProvider = FutureProvider.family<ServiceProviderDetail, int>((ref, id) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).serviceProvider(id);
+});
 
 /// Open bookable slots for an SP, keyed by profile id.
-final spSlotsProvider = FutureProvider.family<List<OpenSlot>, int>((ref, id) =>
-    ref.watch(discoveryRepositoryProvider).serviceProviderSlots(id));
+final spSlotsProvider = FutureProvider.family<List<OpenSlot>, int>((ref, id) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).serviceProviderSlots(id);
+});
 
 /// Service providers/events/groups for a single picked area, keyed by areaId — backs the
 /// Home feed's per-section area overrides (see `home/data/home_repository.dart`'s
 /// `SectionAreaOverride` providers).
-final spSectionScopedProvider = FutureProvider.family<Section<ServiceProviderItem>, int>(
-    (ref, areaId) => ref.watch(discoveryRepositoryProvider).serviceProvidersScoped(areaId));
-final workshopsSectionScopedProvider = FutureProvider.family<Section<WorkshopItem>, int>(
-    (ref, areaId) => ref.watch(discoveryRepositoryProvider).eventsScoped(areaId));
-final groupsSectionScopedProvider = FutureProvider.family<Section<GroupItem>, int>(
-    (ref, areaId) => ref.watch(discoveryRepositoryProvider).groupsScoped(areaId));
+final spSectionScopedProvider = FutureProvider.family<Section<ServiceProviderItem>, int>((ref, areaId) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).serviceProvidersScoped(areaId);
+});
+final workshopsSectionScopedProvider = FutureProvider.family<Section<WorkshopItem>, int>((ref, areaId) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).eventsScoped(areaId);
+});
+final groupsSectionScopedProvider = FutureProvider.family<Section<GroupItem>, int>((ref, areaId) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).groupsScoped(areaId);
+});
 
 /// Full event detail, keyed by event id.
-final eventDetailProvider = FutureProvider.family<EventDetail, int>((ref, id) =>
-    ref.watch(discoveryRepositoryProvider).event(id));
+final eventDetailProvider = FutureProvider.family<EventDetail, int>((ref, id) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).event(id);
+});
 
 /// Full group detail, keyed by group id.
-final groupDetailProvider = FutureProvider.family<GroupDetail, int>((ref, id) =>
-    ref.watch(discoveryRepositoryProvider).group(id));
+final groupDetailProvider = FutureProvider.family<GroupDetail, int>((ref, id) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).group(id);
+});
 
 /// A member's public profile, keyed by profile id.
-final publicProfileProvider = FutureProvider.family<PublicProfile, int>((ref, id) =>
-    ref.watch(discoveryRepositoryProvider).publicProfile(id));
+final publicProfileProvider = FutureProvider.family<PublicProfile, int>((ref, id) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).publicProfile(id);
+});
 
 /// Shared search query for the Discover screen — lists are filtered client-side
 /// so tab counts and results update live as the user types.
 class DiscoverQuery extends Notifier<String> {
   @override
-  String build() => '';
+  String build() {
+    ref.bindToAccount();
+    return '';
+  }
   void set(String value) => state = value;
 }
 
@@ -240,7 +265,10 @@ final discoverQueryProvider = NotifierProvider<DiscoverQuery, String>(DiscoverQu
 /// stay in sync.
 class DiscoverTab extends Notifier<int> {
   @override
-  int build() => 0;
+  int build() {
+    ref.bindToAccount();
+    return 0;
+  }
   void set(int value) => state = value;
 }
 

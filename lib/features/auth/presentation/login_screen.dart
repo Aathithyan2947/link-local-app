@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -34,8 +35,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _sendOtp() async {
-    if (_phone.text.trim().isEmpty) {
+    final phone = _phone.text.trim();
+    if (phone.isEmpty) {
       setState(() => _error = 'Enter your phone number');
+      return;
+    }
+    // Mirrors the register screen: the field only admits digits, so this catches a short entry.
+    if (!RegExp(r'^[0-9]{10}$').hasMatch(phone)) {
+      setState(() => _error = 'Enter a valid 10-digit mobile number');
       return;
     }
     setState(() {
@@ -100,7 +107,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 22),
                   if (_tab == 0)
-                    PillField(controller: _phone, hint: 'Enter your Phone No.', icon: Icons.phone_outlined, keyboardType: TextInputType.phone)
+                    PillField(
+                      controller: _phone,
+                      hint: 'Enter your 10-digit Phone No.',
+                      icon: Icons.phone_outlined,
+                      keyboardType: TextInputType.phone,
+                      maxLength: 10,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    )
                   else ...[
                     PillField(controller: _email, hint: 'Enter your Email', icon: Icons.mail_outline, keyboardType: TextInputType.emailAddress),
                     const SizedBox(height: 16),

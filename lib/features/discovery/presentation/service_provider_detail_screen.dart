@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../business/data/availability_models.dart';
@@ -23,11 +24,11 @@ import '../../orders/data/order_models.dart';
 import '../../orders/data/orders_repository.dart';
 import '../../orders/presentation/cart_review_screen.dart';
 import '../../payments/presentation/payment_method_screen.dart';
-import '../../payments/presentation/payment_success_screen.dart';
 import '../../profile/data/profile_repository.dart';
 import '../../profile/presentation/sections/basic_sections.dart';
 import '../../business/presentation/setup/sp_setup_wizard_screen.dart';
 import '../../business/presentation/sp_products_screen.dart';
+import '../../services/data/basic_details_fields.dart';
 import '../../services/data/service_profile_repository.dart';
 import '../../services/presentation/category_fields_form_screen.dart';
 import '../data/sp_detail_models.dart';
@@ -37,26 +38,69 @@ import 'discover_screen.dart';
 import 'widgets/discover_cards.dart';
 
 /// Full service-provider profile. Opened by tapping any SP card.
-class ServiceProviderDetailScreen extends ConsumerWidget {
+class ServiceProviderDetailScreen extends ConsumerStatefulWidget {
   const ServiceProviderDetailScreen({super.key, required this.id});
   final int id;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(serviceProviderDetailProvider(id));
+  ConsumerState<ServiceProviderDetailScreen> createState() => _ServiceProviderDetailScreenState();
+}
+
+class _ServiceProviderDetailScreenState extends ConsumerState<ServiceProviderDetailScreen> with RouteAware {
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) appRouteObserver.subscribe(this, route);
+  }
+
+  @override
+  void dispose() {
+    appRouteObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  /// An editor pushed from here has just closed — refetch, since it may have changed anything
+  /// on this page. Doing it here rather than at each edit site means a new section or pencil
+  /// can't forget to, and it survives the editor's own widget being disposed mid-save.
+  @override
+  void didPopNext() {
+    ref.invalidate(serviceProviderDetailProvider(widget.id));
+    ref.invalidate(customFieldsProvider);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final async = ref.watch(serviceProviderDetailProvider(widget.id));
     final myUserId = ref.watch(authControllerProvider).user?.id;
+    // A restored cart carries only a saved display snapshot, so refresh it against the live
+    // catalogue the moment it arrives — prices are re-read and anything the SP has since
+    // withdrawn is dropped rather than silently carried to checkout.
+    ref.listen<AsyncValue<ServiceProviderDetail>>(serviceProviderDetailProvider(widget.id), (_, next) {
+      final sp = next.asData?.value;
+      if (sp == null || ref.read(cartProvider).spProfileId != sp.id) return;
+      final dropped = ref.read(cartProvider.notifier).reconcileWith(sp.products);
+      if (dropped.isEmpty || !context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${dropped.join(', ')} ${dropped.length == 1 ? 'is' : 'are'} no longer available'),
+      ));
+    });
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: async.when(
+        // Keep showing the current page while a refetch runs. Swapping to a spinner disposed
+        // this subtree — and with it the `ref` any open editor was holding, so the refresh it
+        // requested on close silently did nothing. Also kills the full-screen flash on refresh.
+        skipLoadingOnReload: true,
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
-        error: (e, _) => _ErrorView(onRetry: () => ref.invalidate(serviceProviderDetailProvider(id))),
+        error: (e, _) => _ErrorView(onRetry: () => ref.invalidate(serviceProviderDetailProvider(widget.id))),
         data: (sp) {
           final isOwner = sp.userId != null && sp.userId == myUserId;
           return Stack(
             children: [
               RefreshIndicator(
                 color: AppColors.primary,
-                onRefresh: () async => ref.invalidate(serviceProviderDetailProvider(id)),
+                onRefresh: () async => ref.invalidate(serviceProviderDetailProvider(widget.id)),
                 child: ListView(
                   padding: const EdgeInsets.only(bottom: 90),
                   children: isOwner ? _ownerSections(sp) : _residentSections(sp),
@@ -98,8 +142,10 @@ List<Widget> _ownerSections(ServiceProviderDetail sp) {
     _ProfileHeader(sp: sp, isOwner: true),
     _Band(child: _ContactInfoBlock(sp: sp)),
     _Band(color: AppColors.surface, child: _AboutBlock(sp: sp, isOwner: true)),
-    if (sp.hasMenu && sp.products.isNotEmpty)
-      _MenuBlock(products: sp.products, spId: sp.id, spName: sp.name, isOwner: true),
+    // Owners see this even when empty: the block carries the only route into the item editor,
+    // so hiding it until items exist left a menu SP with no way to add their first one.
+    if (sp.hasMenu)
+      _MenuBlock(products: sp.products, spId: sp.id, isOwner: true),
     _GalleryBlock(sp: sp, isOwner: true),
     if (_hasAvailabilityContent(sp))
       _Band(child: _AvailabilityBlock(sp: sp, isOwner: true)),
@@ -125,7 +171,7 @@ List<Widget> _residentSections(ServiceProviderDetail sp) {
     _ProfileHeader(sp: sp, isOwner: false),
     _Band(color: AppColors.surface, child: _AboutBlock(sp: sp, isOwner: false)),
     if (sp.hasMenu && sp.products.isNotEmpty)
-      _MenuBlock(products: sp.products, spId: sp.id, spName: sp.name, isOwner: false),
+      _MenuBlock(products: sp.products, spId: sp.id, isOwner: false),
     if (_hasAvailabilityContent(sp))
       _Band(child: _AvailabilityBlock(sp: sp)),
     if (!_DeliveryDetails.fromFields(sp).isEmpty)
@@ -357,7 +403,7 @@ class _ContactRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (sp.userId == null) return const SizedBox.shrink();
-    final showCall = sp.showCallButton && (sp.mobile?.isNotEmpty ?? false);
+    final showCall = sp.showCallButton && (sp.publishedPhone?.isNotEmpty ?? false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -381,7 +427,7 @@ class _ContactRow extends ConsumerWidget {
             ),
             if (showCall) ...[
               const SizedBox(width: 10),
-              _iconButton(icon: Icons.call_outlined, onTap: () => launchUrl(Uri(scheme: 'tel', path: sp.mobile))),
+              _iconButton(icon: Icons.call_outlined, onTap: () => launchUrl(Uri(scheme: 'tel', path: sp.publishedPhone))),
             ],
             const SizedBox(width: 10),
             Expanded(
@@ -452,10 +498,13 @@ class _OwnerBanner extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final fields = ref.watch(customFieldsProvider).asData?.value;
-    final complete = fields == null ||
-        fields.isEmpty ||
-        fields.every((f) => !f.isRequired || (f.value?.trim().isNotEmpty ?? false));
-    if (complete) return const SizedBox.shrink();
+    final finished = ref.watch(myProfileProvider).asData?.value.hasFinishedOnboarding ?? false;
+    // Same rule as the home banner: prompt until they've actually been through the chain, and
+    // again if a required field is left blank. Every category counts here (the home banner
+    // drops payment).
+    if (fields == null || (finished && !hasUnansweredRequiredField(fields))) {
+      return const SizedBox.shrink();
+    }
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: () async {
@@ -465,7 +514,7 @@ class _OwnerBanner extends ConsumerWidget {
         } catch (_) {}
         final cats = onboardingCategories(fields, hasMenu: hasMenu);
         if (cats.isEmpty || !context.mounted) return;
-        await pushOnboardingStep(context, ref, cats, replace: false);
+        await pushOnboardingStep(context, ref, cats);
       },
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -486,31 +535,81 @@ class _OwnerBanner extends ConsumerWidget {
   }
 }
 
+/// Opens the item editor, then refreshes the profile so added items show without a reload.
+Future<void> _editProducts(BuildContext context) async {
+  await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpProductsScreen()));
+}
+
+/// Opens the onboarding step a section's content was collected in, then refreshes the profile.
+///
+/// Every one of these sections is rendered from admin-configured category fields, so the form
+/// that owns them is [CategoryFieldsFormScreen] for that category — the same screen the SP
+/// filled during onboarding. Pencils used to open unrelated screens (About Me → the name/DOB
+/// form, Contact info → a bespoke sheet), which couldn't edit most of what was on display.
+///
+/// The await-then-invalidate is what makes a save show up. The editors refresh
+/// `customFieldsProvider` / `myProfileProvider`, but this screen renders
+/// `serviceProviderDetailProvider`, which nothing was refreshing — so edits only appeared
+/// after a hot reload rebuilt the container. Invalidating the whole family avoids threading
+/// the profile id through every call site; other SPs simply refetch when next viewed.
+///
+/// Falls back to the native editor when the SP's subcategory configures no fields for the
+/// category, so the pencil is never a dead end: `travel` → the availability wizard (where a
+/// date-booking SP's working days really live), anything else → the profile's Basic Info.
+Future<void> _editSection(
+  BuildContext context,
+  WidgetRef ref,
+  ServiceProviderDetail sp,
+  String category,
+) async {
+  final hasFields = sp.customFields.any((f) => f.category == category);
+  final Widget screen = hasFields
+      ? CategoryFieldsFormScreen(
+          category: category,
+          categoryLabel: kCategoryLabels[category] ?? category,
+        )
+      : category == 'travel'
+          ? SpSetupWizardScreen(
+              initialAvailability: sp.availability,
+              initialName: sp.name,
+              hasMenu: sp.hasMenu,
+              hasDateBooking: sp.hasDateBooking,
+            )
+          : const BasicInfoScreen();
+  await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  // No invalidate here: ServiceProviderDetailScreen refreshes itself in didPopNext(), which
+  // works even if this widget's ref was disposed while the editor was open.
+}
+
 // ── Contact info (owner-only) ─────────────────────────────────
-class _ContactInfoBlock extends StatelessWidget {
+/// What the SP publishes, and where they change it. These are NOT the sign-in credentials:
+/// editing here never touches the number or address used to log in, so an SP can keep a
+/// private number for access and show a business one here. Using the same value for both is
+/// perfectly fine — that's the SP's call.
+class _ContactInfoBlock extends ConsumerWidget {
   const _ContactInfoBlock({required this.sp});
   final ServiceProviderDetail sp;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final phone = sp.servicePhone?.isNotEmpty == true ? sp.servicePhone : sp.mobile;
+    final email = sp.serviceEmail?.isNotEmpty == true ? sp.serviceEmail : sp.email;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('Contact info:',
             style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
+        const SizedBox(height: 2),
+        const Text('Shown to neighbours. Your sign-in details stay private.',
+            style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
         const SizedBox(height: 10),
-        _line(context, 'Mobile: ${sp.mobile?.isNotEmpty == true ? sp.mobile : '—'}',
-            onEdit: () => _showMobileChangeDialog(context)),
+        // Both live on the Basic Details step ("Service Phone No." / "Service Email"), which
+        // writes them through to the profile — so that's the form the pencil opens.
+        _line(context, 'Mobile: ${phone?.isNotEmpty == true ? phone : '—'}',
+            onEdit: () => _editSection(context, ref, sp, 'basic_details')),
         const SizedBox(height: 6),
-        _line(context, 'Email: ${sp.email?.isNotEmpty == true ? sp.email : '—'}',
-            onEdit: () => showModalBottomSheet<void>(
-                  context: context,
-                  isScrollControlled: true,
-                  backgroundColor: AppColors.surface,
-                  shape: const RoundedRectangleBorder(
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-                  builder: (_) => _EmailEditSheet(sp: sp),
-                )),
+        _line(context, 'Email: ${email?.isNotEmpty == true ? email : '—'}',
+            onEdit: () => _editSection(context, ref, sp, 'basic_details')),
       ],
     );
   }
@@ -522,107 +621,6 @@ class _ContactInfoBlock extends StatelessWidget {
         ],
       );
 
-  void _showMobileChangeDialog(BuildContext context) => showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Change mobile number'),
-          content: const Text(
-              "Your mobile number is used to sign in, so it can't be changed here. Contact support to update it."),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
-        ),
-      );
-}
-
-class _EmailEditSheet extends ConsumerStatefulWidget {
-  const _EmailEditSheet({required this.sp});
-  final ServiceProviderDetail sp;
-  @override
-  ConsumerState<_EmailEditSheet> createState() => _EmailEditSheetState();
-}
-
-class _EmailEditSheetState extends ConsumerState<_EmailEditSheet> {
-  late final _ctrl = TextEditingController(text: widget.sp.email ?? '');
-  bool _saving = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    final email = _ctrl.text.trim();
-    if (email.isEmpty || !email.contains('@')) {
-      setState(() => _error = 'Enter a valid email address');
-      return;
-    }
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      await ref.read(profileRepositoryProvider).updateEmail(email);
-      ref.invalidate(serviceProviderDetailProvider(widget.sp.id));
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      setState(() => _error = 'Could not update email');
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).viewInsets.bottom + 20),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 14),
-              decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
-            ),
-          ),
-          const Text('Edit email', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _ctrl,
-            keyboardType: TextInputType.emailAddress,
-            decoration: InputDecoration(
-              hintText: 'Email address',
-              errorText: _error,
-              filled: true,
-              fillColor: AppColors.background,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _saving ? null : _save,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(48),
-                elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: _saving
-                  ? const SizedBox(
-                      height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Text('Save', style: TextStyle(fontWeight: FontWeight.w600)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 /// Lets the resident enter (and confirm) how much to pay a non-menu SP directly — services
@@ -745,14 +743,6 @@ class _BasicDetails {
   final int? yearsOfExperience;
   final List<CustomField> extra;
 
-  static final _namePat = RegExp('name', caseSensitive: false);
-  static final _phonePat = RegExp('phone|mobile', caseSensitive: false);
-  static final _emailPat = RegExp('email', caseSensitive: false);
-  static final _aboutPat = RegExp('about', caseSensitive: false);
-  static final _educationPat = RegExp('^education', caseSensitive: false);
-  static final _professionPat = RegExp('^profession', caseSensitive: false);
-  static final _experiencePat = RegExp('experience', caseSensitive: false);
-
   factory _BasicDetails.fromFields(ServiceProviderDetail sp) {
     final basicFields = sp.customFields.where((f) => f.category == 'basic_details').toList();
     final matched = <int>{};
@@ -766,13 +756,13 @@ class _BasicDetails {
       return found;
     }
 
-    pick(_namePat);
-    pick(_phonePat);
-    pick(_emailPat);
-    final aboutField = pick(_aboutPat);
-    final eduField = pick(_educationPat);
-    final profField = pick(_professionPat);
-    final expField = pick(_experiencePat);
+    pick(kBasicNamePattern);
+    pick(kBasicPhonePattern);
+    pick(kBasicEmailPattern);
+    final aboutField = pick(kBasicAboutPattern);
+    final eduField = pick(kBasicEducationPattern);
+    final profField = pick(kBasicProfessionPattern);
+    final expField = pick(kBasicExperiencePattern);
     final extra = basicFields.where((f) => !matched.contains(f.fieldId) && (f.value?.trim().isNotEmpty ?? false)).toList();
 
     return _BasicDetails(
@@ -786,13 +776,13 @@ class _BasicDetails {
 }
 
 // ── About / Education / Profession ───────────────────────────
-class _AboutBlock extends StatelessWidget {
+class _AboutBlock extends ConsumerWidget {
   const _AboutBlock({required this.sp, required this.isOwner});
   final ServiceProviderDetail sp;
   final bool isOwner;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final basic = _BasicDetails.fromFields(sp);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -800,9 +790,7 @@ class _AboutBlock extends StatelessWidget {
         _SectionTitle(
           'About Me',
           trailing: isOwner
-              ? _EditIconButton(
-                  onTap: () => Navigator.of(context)
-                      .push(MaterialPageRoute(builder: (_) => const BasicInfoScreen())))
+              ? _EditIconButton(onTap: () => _editSection(context, ref, sp, 'basic_details'))
               : null,
         ),
         Text(
@@ -922,13 +910,13 @@ class _TravelDetails {
 }
 
 // ── Availability & Travel ────────────────────────────────────
-class _AvailabilityBlock extends StatelessWidget {
+class _AvailabilityBlock extends ConsumerWidget {
   const _AvailabilityBlock({required this.sp, this.isOwner = false});
   final ServiceProviderDetail sp;
   final bool isOwner;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final a = sp.availability;
     final years = sp.yearsOfExperience ?? _BasicDetails.fromFields(sp).yearsOfExperience;
     final travel = _TravelDetails.fromFields(sp);
@@ -938,16 +926,7 @@ class _AvailabilityBlock extends StatelessWidget {
         _SectionTitle(
           'Availability & Travel',
           trailing: isOwner
-              ? _EditIconButton(
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => SpSetupWizardScreen(
-                      initialAvailability: sp.availability,
-                      initialName: sp.name,
-                      hasMenu: sp.hasMenu,
-                      hasDateBooking: sp.hasDateBooking,
-                    ),
-                  )),
-                )
+              ? _EditIconButton(onTap: () => _editSection(context, ref, sp, 'travel'))
               : null,
         ),
         if (travel.willingToTravel) _check('Willing to Travel'),
@@ -1220,13 +1199,13 @@ class _DeliveryDetails {
   }
 }
 
-class _DeliveryBlock extends StatelessWidget {
+class _DeliveryBlock extends ConsumerWidget {
   const _DeliveryBlock({required this.sp, required this.isOwner});
   final ServiceProviderDetail sp;
   final bool isOwner;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final d = _DeliveryDetails.fromFields(sp);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1234,11 +1213,9 @@ class _DeliveryBlock extends StatelessWidget {
         _SectionTitle(
           'Delivery Settings',
           trailing: isOwner
-              ? _EditIconButton(
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const CategoryFieldsFormScreen(category: 'delivery', categoryLabel: 'Delivery Settings'),
-                  )),
-                )
+              // Already opened the right form, but the profile kept showing pre-edit data
+              // until a reload — routing through _editSection refreshes it on return.
+              ? _EditIconButton(onTap: () => _editSection(context, ref, sp, 'delivery'))
               : null,
         ),
         if (d.deliveryMethod != null) _kv('Delivery Method', d.deliveryMethod!),
@@ -1296,7 +1273,7 @@ class _DeliveryBlock extends StatelessWidget {
 // ── Category fields (Basic Details / Travel / Payment / Service Type / Delivery) ─────
 /// Renders the SP's answered onboarding fields grouped by admin-configured category. Owners
 /// get an edit-pencil per section that deep-links straight into that category's form.
-class _CategoryFieldsBlock extends StatelessWidget {
+class _CategoryFieldsBlock extends ConsumerWidget {
   const _CategoryFieldsBlock({required this.sp, required this.isOwner, required this.categories});
   final ServiceProviderDetail sp;
   final bool isOwner;
@@ -1307,7 +1284,7 @@ class _CategoryFieldsBlock extends StatelessWidget {
   final List<String> categories;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final byCategory = <String, List<CustomField>>{};
     for (final f in sp.customFields) {
       if (!categories.contains(f.category)) continue;
@@ -1320,23 +1297,15 @@ class _CategoryFieldsBlock extends StatelessWidget {
       children: [
         for (int i = 0; i < present.length; i++) ...[
           if (i != 0) const SizedBox(height: 20),
-          _categorySection(context, present[i], byCategory[present[i]]!),
+          _categorySection(context, ref, present[i], byCategory[present[i]]!),
         ],
       ],
     );
   }
 
-  Widget _categorySection(BuildContext context, String category, List<CustomField> fields) {
-    final pencil = isOwner
-        ? _EditIconButton(
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => CategoryFieldsFormScreen(
-                category: category,
-                categoryLabel: kCategoryLabels[category] ?? category,
-              ),
-            )),
-          )
-        : null;
+  Widget _categorySection(
+      BuildContext context, WidgetRef ref, String category, List<CustomField> fields) {
+    final pencil = isOwner ? _EditIconButton(onTap: () => _editSection(context, ref, sp, category)) : null;
 
     if (category == 'payment') {
       return Column(
@@ -1402,10 +1371,9 @@ class _CategoryFieldsBlock extends StatelessWidget {
 // for the owner (no cart controls on their own items); residents get Add/stepper + a
 // "Show All" link into the full listing screen.
 class _MenuBlock extends ConsumerWidget {
-  const _MenuBlock({required this.products, required this.spId, required this.spName, required this.isOwner});
+  const _MenuBlock({required this.products, required this.spId, required this.isOwner});
   final List<SpProduct> products;
   final int spId;
-  final String spName;
   final bool isOwner;
 
   static const _previewCount = 4;
@@ -1423,9 +1391,7 @@ class _MenuBlock extends ConsumerWidget {
             child: _SectionTitle(
               'Item List (${products.length})',
               trailing: isOwner
-                  ? _EditIconButton(
-                      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpProductsScreen())),
-                    )
+                  ? _EditIconButton(onTap: () => _editProducts(context))
                   : InkWell(
                       onTap: () => Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => SpMenuListingScreen(spId: spId),
@@ -1440,34 +1406,50 @@ class _MenuBlock extends ConsumerWidget {
                     ),
             ),
           ),
-          SizedBox(
-            height: isOwner ? 168 : 224,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.only(right: 20),
-              itemCount: preview.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 12),
-              itemBuilder: (_, i) => _MenuItemCard(product: preview[i], spId: spId, spName: spName, isOwner: isOwner),
+          if (preview.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 20, top: 4, bottom: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "You haven't added any items yet. Residents can't order until you do.",
+                    style: TextStyle(fontSize: 13.5, color: AppColors.textSecondary),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => _editProducts(context),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add items'),
+                  ),
+                ],
+              ),
+            )
+          else
+            SizedBox(
+              height: 168,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.only(right: 20),
+                itemCount: preview.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
+                itemBuilder: (_, i) => _MenuItemCard(product: preview[i]),
+              ),
             ),
-          ),
         ],
       ),
     );
   }
 }
 
-class _MenuItemCard extends ConsumerWidget {
-  const _MenuItemCard({required this.product, required this.spId, required this.spName, required this.isOwner});
+/// A read-only preview tile. Adding to the cart lives in [SpMenuListingScreen] — reached from
+/// the Order button and "Show All" — so the profile stays a summary rather than a shop counter.
+class _MenuItemCard extends StatelessWidget {
+  const _MenuItemCard({required this.product});
   final SpProduct product;
-  final int spId;
-  final String spName;
-  final bool isOwner;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final cart = ref.watch(cartProvider);
-    final notifier = ref.read(cartProvider.notifier);
-    final qty = cart.spProfileId == spId ? (cart.lines[product.id]?.qty ?? 0) : 0;
+  Widget build(BuildContext context) {
     return Container(
       width: 150,
       padding: const EdgeInsets.all(10),
@@ -1497,41 +1479,10 @@ class _MenuItemCard extends ConsumerWidget {
           if (product.price != null)
             Text('₹${product.price!.toStringAsFixed(0)}${product.quantityLabel.isNotEmpty ? '  ·  ${product.quantityLabel}' : ''}',
                 style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-          if (!isOwner) ...[
-            const SizedBox(height: 8),
-            if (qty == 0)
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () => notifier.add(spId, spName, product),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    side: const BorderSide(color: AppColors.primary),
-                    minimumSize: const Size(0, 32),
-                    padding: EdgeInsets.zero,
-                  ),
-                  child: const Text('Add'),
-                ),
-              )
-            else
-              _stepper(qty, () => notifier.setQty(product.id, qty - 1), () => notifier.add(spId, spName, product)),
-          ],
         ],
       ),
     );
   }
-
-  Widget _stepper(int qty, VoidCallback minus, VoidCallback plus) => Container(
-        decoration: BoxDecoration(border: Border.all(color: AppColors.primary), borderRadius: BorderRadius.circular(8)),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            InkWell(onTap: minus, child: const Padding(padding: EdgeInsets.all(6), child: Icon(Icons.remove, size: 16, color: AppColors.primary))),
-            SizedBox(width: 22, child: Text('$qty', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w700))),
-            InkWell(onTap: plus, child: const Padding(padding: EdgeInsets.all(6), child: Icon(Icons.add, size: 16, color: AppColors.primary))),
-          ],
-        ),
-      );
 
   Widget _ph() => Container(
         width: 128,
@@ -2484,9 +2435,10 @@ Future<void> _makePayment(BuildContext context, WidgetRef ref, ServiceProviderDe
   );
 }
 
+/// Pays an existing booking from the SP's profile. The flow pops itself when it finishes, so
+/// this lands back here either way; the result isn't needed.
 void _openPayment(BuildContext context, OrderModel order) {
   Navigator.of(context).push(MaterialPageRoute(
-    settings: const RouteSettings(name: kPaymentFlowRoute),
     builder: (_) => PaymentMethodScreen(orderId: order.id, total: order.totalAmount),
   ));
 }
@@ -2494,7 +2446,7 @@ void _openPayment(BuildContext context, OrderModel order) {
 Future<void> _shareProfile(BuildContext context, WidgetRef ref, ServiceProviderDetail sp) async {
   final parts = <String>[sp.name];
   if (sp.service != null) parts.add(sp.service!);
-  if (sp.showCallButton && (sp.mobile?.isNotEmpty ?? false)) parts.add('Contact: ${sp.mobile}');
+  if (sp.showCallButton && (sp.publishedPhone?.isNotEmpty ?? false)) parts.add('Contact: ${sp.publishedPhone}');
   await SharePlus.instance.share(ShareParams(text: parts.join(' · ')));
   try {
     await ref.read(discoveryRepositoryProvider).shareProfile(sp.id);

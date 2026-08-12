@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/input_formatters.dart';
 import '../../../auth/application/auth_controller.dart';
+import '../../../profile/data/profile_models.dart';
+import '../../../profile/data/profile_repository.dart';
 import '../../data/availability_models.dart';
 import '../../data/business_repository.dart';
 import '../../data/rate_models.dart';
@@ -27,6 +31,23 @@ class SpSetupWizardScreen extends ConsumerStatefulWidget {
   ConsumerState<SpSetupWizardScreen> createState() => _SpSetupWizardScreenState();
 }
 
+/// The replace-all body for `setProfessions` when the wizard's single title field is saved.
+///
+/// The wizard owns only the first entry, so the rest go back untouched by master id. Returns
+/// null when there's nothing to write — an unchanged title mustn't cost a request. Entries with
+/// no master id (legacy rows with no catalog link, whose label is only a placeholder) are
+/// dropped rather than round-tripped as free text, which would mint a junk pending category.
+List<Map<String, dynamic>>? professionsPayload(String title, List<IdName> existing) {
+  if (title.isEmpty) return null;
+  if (existing.isNotEmpty && existing.first.label == title) return null;
+  return [
+    {'category': title},
+    for (final p in existing.skip(1))
+      if (p.masterId != null)
+        {'professionMasterId': p.masterId, if (p.subtitle != null) 'companyOrDetail': p.subtitle},
+  ];
+}
+
 // Weekday chips in Figma order (Mon-first). Value is 0=Sun … 6=Sat.
 const _dayOrder = [1, 2, 3, 4, 5, 6, 0];
 const _dayLetters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -49,6 +70,10 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
   bool _willingToTravel = true;
   bool _saving = false;
 
+  /// The profile's professions as loaded, so a save can replace just the wizard's own title
+  /// (the first entry) without dropping ones added from the profile section.
+  List<IdName> _professions = const [];
+
   bool get _hasDateBooking => widget.hasDateBooking;
   bool get _isService => !widget.hasMenu;
 
@@ -67,7 +92,29 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
       _willingToTravel = a.willingToTravel;
       if (a.maxTravelKm != null) _maxDistance.text = a.maxTravelKm!.toStringAsFixed(0);
     }
+    _loadDetails();
     if (_isService) _loadRates(); // load charges for non-menu SPs
+  }
+
+  /// Fills the Details step from what's already saved. Without this, everything the SP typed
+  /// here last time comes back blank — the step writes these fields but never read them back.
+  Future<void> _loadDetails() async {
+    try {
+      final p = await ref.read(myProfileProvider.future);
+      if (!mounted) return;
+      setState(() {
+        _professions = p.professions;
+        // Don't clobber anything typed while the request was in flight.
+        if (_title.text.isEmpty && p.professions.isNotEmpty) _title.text = p.professions.first.label;
+        if (_experience.text.isEmpty && p.yearsOfExperience != null) {
+          _experience.text = p.yearsOfExperience!.toString();
+        }
+        if (_about.text.isEmpty) _about.text = p.aboutMe ?? '';
+        if (_name.text.isEmpty) _name.text = p.name;
+      });
+    } catch (_) {
+      // Prefill is a convenience — a failed load must not block the wizard.
+    }
   }
 
   Future<void> _loadRates() async {
@@ -100,16 +147,37 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
 
   // Steps: 0=Details, 1=Availability (only if hasDateBooking), 2=Preview
   // When !hasDateBooking the wizard jumps from 0 directly to 2.
-  void _next() {
+  //
+  // Each step persists as it's left, so backing out mid-wizard keeps whatever was filled in
+  // rather than discarding it. Every write is a replace, so re-entering a step and pressing
+  // Next again just rewrites the same values.
+  Future<void> _next() async {
     if (_step == 0) {
       if (_name.text.trim().isEmpty) return _toast('Please enter your name');
+      if (!await _persist(_persistDetails)) return;
       setState(() => _step = _hasDateBooking ? 1 : 2);
       return;
     } else if (_step == 1) {
       if (_days.isEmpty) return _toast('Pick at least one working day');
       if (_mins(_end) <= _mins(_start)) return _toast('End time must be after start time');
+      if (!await _persist(_persistAvailability)) return;
     }
     setState(() => _step++);
+  }
+
+  /// Runs one save with the button in its loading state. Returns false (and leaves the wizard
+  /// on the current step) if it failed, so a dropped save can't look like it succeeded.
+  Future<bool> _persist(Future<void> Function() save) async {
+    setState(() => _saving = true);
+    try {
+      await save();
+      return true;
+    } catch (_) {
+      if (mounted) _toast('Could not save. Please try again.');
+      return false;
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   void _backToEdit() => setState(() => _step = _hasDateBooking ? 1 : 0);
@@ -124,41 +192,62 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
 
   void _toast(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
+  /// Step 1's answers: the profile columns, the professional title and (service SPs) charges.
+  Future<void> _persistDetails() async {
+    final repo = ref.read(businessRepositoryProvider);
+    await repo.updateProfile({
+      'name': _name.text.trim(),
+      if (_experience.text.trim().isNotEmpty) 'yearsOfExperience': int.tryParse(_experience.text.trim()),
+      if (_about.text.trim().isNotEmpty) 'aboutMe': _about.text.trim(),
+    });
+
+    // Replace-all rather than POST, which would append a duplicate row on every save.
+    final title = _title.text.trim();
+    final professions = professionsPayload(title, _professions);
+    if (professions != null) {
+      await repo.setProfessions(professions);
+      // Reflect the write locally so re-saving an unchanged step doesn't repeat it. Only the
+      // first entry's label is read back — professionsPayload always rewrites it as free text.
+      _professions = [IdName(0, title), ..._professions.skip(1)];
+    }
+
+    if (_isService) {
+      final rates = <SpRate>[];
+      for (final t in _rateTypes) {
+        final v = double.tryParse(_rates[t]!.text.trim());
+        if (v != null && v > 0) rates.add(SpRate(rateType: t, amount: v));
+      }
+      if (rates.isNotEmpty) {
+        await repo.setRates(rates);
+        ref.invalidate(myRatesProvider);
+      }
+    }
+    ref.invalidate(myProfileProvider);
+  }
+
+  /// Step 2's answers. Only date-booking SPs reach this step.
+  Future<void> _persistAvailability() async {
+    await ref.read(businessRepositoryProvider).setAvailability({
+      'workingDays': _days.toList()..sort(),
+      'startTime': _hhmm(_start),
+      'endTime': _hhmm(_end),
+      'slotMinutes': _slotMinutes,
+      'willingToTravel': _willingToTravel,
+      if (_willingToTravel && _maxDistance.text.trim().isNotEmpty)
+        'maxTravelKm': double.tryParse(_maxDistance.text.trim()),
+      'horizonDays': 14,
+    });
+    ref.invalidate(myAvailabilityProvider);
+  }
+
+  /// Re-saves every step — the SP can edit on the preview step's "go back to edit", and the
+  /// writes are replaces, so this is safe to repeat.
   Future<void> _confirm() async {
     setState(() => _saving = true);
     try {
-      final repo = ref.read(businessRepositoryProvider);
-      await repo.updateProfile({
-        'name': _name.text.trim(),
-        if (_experience.text.trim().isNotEmpty) 'yearsOfExperience': int.tryParse(_experience.text.trim()),
-        if (_about.text.trim().isNotEmpty) 'aboutMe': _about.text.trim(),
-      });
-      if (_title.text.trim().isNotEmpty) await repo.addProfession(_title.text.trim());
-      if (_isService) {
-        final rates = <SpRate>[];
-        for (final t in _rateTypes) {
-          final v = double.tryParse(_rates[t]!.text.trim());
-          if (v != null && v > 0) rates.add(SpRate(rateType: t, amount: v));
-        }
-        if (rates.isNotEmpty) {
-          await repo.setRates(rates);
-          ref.invalidate(myRatesProvider);
-        }
-      }
-      if (_hasDateBooking) {
-        await repo.setAvailability({
-          'workingDays': _days.toList()..sort(),
-          'startTime': _hhmm(_start),
-          'endTime': _hhmm(_end),
-          'slotMinutes': _slotMinutes,
-          'willingToTravel': _willingToTravel,
-          if (_willingToTravel && _maxDistance.text.trim().isNotEmpty)
-            'maxTravelKm': double.tryParse(_maxDistance.text.trim()),
-          'horizonDays': 14,
-        });
-      }
+      await _persistDetails();
+      if (_hasDateBooking) await _persistAvailability();
       if (!mounted) return;
-      ref.invalidate(myAvailabilityProvider);
       await ref.read(authControllerProvider.notifier).refreshUser();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile & availability saved')));
@@ -184,7 +273,12 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: _step < 2
-              ? ElevatedButton(onPressed: _next, child: const Text('Next'))
+              ? ElevatedButton(
+                  onPressed: _saving ? null : _next,
+                  child: _saving
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('Next'),
+                )
               : Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -240,7 +334,7 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
           const SizedBox(height: 12),
           _field(_title, 'Your professional title'),
           const SizedBox(height: 12),
-          _field(_experience, 'Years of experience', keyboard: TextInputType.number),
+          _field(_experience, 'Years of experience', keyboard: TextInputType.number, formatters: kIntegerInput),
           const SizedBox(height: 12),
           _field(_about, 'About yourself', maxLines: 4),
           if (_isService) ...[
@@ -252,7 +346,7 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
             const SizedBox(height: 10),
             ..._rateTypes.map((t) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _field(_rates[t]!, rateTypeLabels[t]!, keyboard: TextInputType.number, prefix: '₹ '),
+                  child: _field(_rates[t]!, rateTypeLabels[t]!, keyboard: kDecimalKeyboard, formatters: kDecimalInput, prefix: '₹ '),
                 )),
           ],
           const SizedBox(height: 16),
@@ -310,7 +404,7 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
           _travelToggle(),
           if (_willingToTravel) ...[
             const SizedBox(height: 12),
-            _field(_maxDistance, 'Maximum distance can you travel (km)', keyboard: TextInputType.number),
+            _field(_maxDistance, 'Maximum distance can you travel (km)', keyboard: kDecimalKeyboard, formatters: kDecimalInput),
           ],
         ],
       );
@@ -375,10 +469,13 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
       );
 
   // ── Shared widgets ───────────────────────────────────────────
-  Widget _field(TextEditingController c, String label, {int maxLines = 1, TextInputType? keyboard, String? prefix}) => TextFormField(
+  Widget _field(TextEditingController c, String label,
+          {int maxLines = 1, TextInputType? keyboard, String? prefix, List<TextInputFormatter>? formatters}) =>
+      TextFormField(
         controller: c,
         maxLines: maxLines,
         keyboardType: keyboard,
+        inputFormatters: formatters,
         decoration: InputDecoration(labelText: label, prefixText: prefix),
       );
 

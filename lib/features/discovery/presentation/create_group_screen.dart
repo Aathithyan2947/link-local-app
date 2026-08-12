@@ -1,10 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/input_formatters.dart';
 import '../discovery_repository.dart';
 import 'group_profile_screen.dart';
 
@@ -90,7 +92,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             const SizedBox(height: 12),
             _field(_description, 'Description / guidelines', maxLines: 4),
             const SizedBox(height: 12),
-            _field(_maxMembers, 'Max members (optional)', keyboard: TextInputType.number),
+            _field(_maxMembers, 'Max members (optional)', keyboard: TextInputType.number, formatters: kIntegerInput),
             const SizedBox(height: 8),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
@@ -115,7 +117,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
               value: _isPaid,
               onChanged: (v) => setState(() => _isPaid = v),
             ),
-            if (_isPaid) _field(_price, 'Price (₹)', keyboard: TextInputType.number),
+            if (_isPaid) _field(_price, 'Price (₹)', keyboard: kDecimalKeyboard, formatters: kDecimalInput),
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed: _submitting ? null : _submit,
@@ -154,11 +156,12 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         ),
       );
 
-  Widget _field(TextEditingController c, String label, {bool required = false, int maxLines = 1, TextInputType? keyboard}) {
+  Widget _field(TextEditingController c, String label, {bool required = false, int maxLines = 1, TextInputType? keyboard, List<TextInputFormatter>? formatters}) {
     return TextFormField(
       controller: c,
       maxLines: maxLines,
       keyboardType: keyboard,
+      inputFormatters: formatters,
       decoration: InputDecoration(labelText: label),
       validator: required ? (v) => (v == null || v.trim().isEmpty) ? 'Required' : null : null,
     );

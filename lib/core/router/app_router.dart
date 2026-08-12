@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -29,6 +29,11 @@ abstract class Routes {
   static const home = '/home';
 }
 
+/// Watches route transitions app-wide. A screen subscribes with [RouteAware] to refresh
+/// itself in `didPopNext()` — when an editor pushed on top of it closes — instead of every
+/// edit site having to remember to invalidate the right provider.
+final appRouteObserver = RouteObserver<ModalRoute<void>>();
+
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier(0);
   ref.listen(authControllerProvider, (_, _) => refresh.value++);
@@ -37,6 +42,9 @@ final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: Routes.splash,
     refreshListenable: refresh,
+    // Lets a screen know when a route pushed on top of it was popped, so it can refetch what
+    // an editor may have changed. See ServiceProviderDetailScreen.
+    observers: [appRouteObserver],
     redirect: (context, state) {
       final auth = ref.read(authControllerProvider);
       final loc = state.matchedLocation;

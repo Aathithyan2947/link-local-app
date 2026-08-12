@@ -27,19 +27,18 @@ class _PaymentUpiScreenState extends ConsumerState<PaymentUpiScreen> {
     setState(() => _paying = true);
     try {
       await ref.read(ordersRepositoryProvider).pay(widget.orderId, paymentMethod: 'upi');
-      if (mounted) {
-        Navigator.of(context).push(MaterialPageRoute(
-          settings: const RouteSettings(name: kPaymentFlowRoute),
-          builder: (_) => PaymentSuccessScreen(amount: widget.total),
-        ));
-      }
+      if (!mounted) return;
+      final done = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => PaymentSuccessScreen(amount: widget.total)),
+      );
+      if (mounted) Navigator.of(context).pop(done ?? true);
     } catch (_) {
-      if (mounted) {
-        Navigator.of(context).push(MaterialPageRoute(
-          settings: const RouteSettings(name: kPaymentFlowRoute),
-          builder: (_) => PaymentFailedScreen(orderId: widget.orderId, amount: widget.total),
-        ));
-      }
+      if (!mounted) return;
+      // The failed screen can still end in success via Retry, so forward whatever it reports.
+      final retried = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => PaymentFailedScreen(orderId: widget.orderId, amount: widget.total)),
+      );
+      if (mounted && retried == true) Navigator.of(context).pop(true);
     } finally {
       if (mounted) setState(() => _paying = false);
     }

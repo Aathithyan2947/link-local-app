@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_client.dart';
+import '../../../core/auth/auth_scope.dart';
 import 'order_models.dart';
 
 class OrdersRepository {
@@ -62,12 +63,20 @@ class OrdersRepository {
 final ordersRepositoryProvider = Provider<OrdersRepository>((ref) => OrdersRepository(ref.watch(dioProvider)));
 
 /// The current user's placed orders (buyer view).
-final myOrdersProvider = FutureProvider<List<OrderModel>>((ref) => ref.watch(ordersRepositoryProvider).myOrders());
+final myOrdersProvider = FutureProvider<List<OrderModel>>((ref) {
+  ref.bindToAccount();
+  return ref.watch(ordersRepositoryProvider).myOrders();
+});
 
 /// Orders received by the current SP.
 final incomingOrdersProvider =
-    FutureProvider<List<OrderModel>>((ref) => ref.watch(ordersRepositoryProvider).incoming());
+    FutureProvider<List<OrderModel>>((ref) {
+  ref.bindToAccount();
+  return ref.watch(ordersRepositoryProvider).incoming();
+});
 
 /// A single order/booking by id (for the tracking screen).
-final orderByIdProvider =
-    FutureProvider.family<OrderModel, int>((ref, id) => ref.watch(ordersRepositoryProvider).order(id));
+final orderByIdProvider = FutureProvider.family<OrderModel, int>((ref, id) {
+  ref.bindToAccount();
+  return ref.watch(ordersRepositoryProvider).order(id);
+});

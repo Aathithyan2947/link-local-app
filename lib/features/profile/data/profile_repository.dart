@@ -1,3 +1,4 @@
+import '../../../core/auth/auth_scope.dart';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -127,6 +128,10 @@ class ProfileRepository {
 
   Future<void> setShowCallButton(bool value) =>
       _wrap(() => _dio.put('/profiles/me/privacy', data: {'showCallButton': value}), (_) {});
+  /// Records that the SP finished the onboarding chain. Idempotent server-side, so calling it
+  /// again after a later edit keeps the original completion time.
+  Future<void> markOnboardingComplete() async =>
+      _wrap(() => _dio.post('/profiles/me/onboarding-complete'), (_) {});
 }
 
 final profileRepositoryProvider = Provider<ProfileRepository>((ref) {
@@ -134,6 +139,7 @@ final profileRepositoryProvider = Provider<ProfileRepository>((ref) {
 });
 
 final myProfileProvider = FutureProvider<ProfileDetail>((ref) {
+  ref.bindToAccount();
   return ref.watch(profileRepositoryProvider).getMyProfile();
 });
 

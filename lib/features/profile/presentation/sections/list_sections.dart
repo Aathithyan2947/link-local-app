@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/input_formatters.dart';
 import '../../data/profile_models.dart';
 import '../../data/profile_repository.dart';
 import '../widgets/section_widgets.dart';
@@ -59,8 +61,12 @@ class _SectionList extends ConsumerWidget {
   }
 }
 
-TextField _field(TextEditingController c, String hint, {TextInputType? type}) =>
-    TextField(controller: c, keyboardType: type, decoration: InputDecoration(hintText: hint));
+TextField _field(TextEditingController c, String hint, {TextInputType? type, List<TextInputFormatter>? formatters}) =>
+    TextField(
+        controller: c,
+        keyboardType: type,
+        inputFormatters: formatters,
+        decoration: InputDecoration(hintText: hint));
 
 const _otherOption = 'Other (specify)';
 
@@ -315,7 +321,7 @@ class PetsScreen extends StatelessWidget {
                     const SizedBox(height: 12),
                     _field(breed, 'Breed'),
                     const SizedBox(height: 12),
-                    _field(age, 'Age (years)', type: TextInputType.number),
+                    _field(age, 'Age (years)', type: TextInputType.number, formatters: kIntegerInput),
                   ],
               onSave: () => ref.read(profileRepositoryProvider).addPet({
                     'name': name.text.trim(),

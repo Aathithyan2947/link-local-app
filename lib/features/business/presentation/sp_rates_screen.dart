@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/input_formatters.dart';
 import '../data/business_repository.dart';
 import '../data/rate_models.dart';
 
@@ -104,7 +105,8 @@ class _SpRatesScreenState extends ConsumerState<SpRatesScreen> {
                       padding: const EdgeInsets.only(bottom: 14),
                       child: TextField(
                         controller: _controllers[t],
-                        keyboardType: TextInputType.number,
+                        keyboardType: kDecimalKeyboard,
+                        inputFormatters: kDecimalInput,
                         decoration: InputDecoration(
                           labelText: rateTypeLabels[t],
                           prefixText: '₹ ',

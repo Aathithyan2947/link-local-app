@@ -127,6 +127,10 @@ class ServiceProviderDetail {
     required this.ratingCount,
     this.willingToTravel = false,
     this.mobile,
+    this.servicePhone,
+    this.serviceEmail,
+    this.publishedPhone,
+    this.publishedEmail,
     this.email,
     this.userId,
     this.providerKind = 'product',
@@ -158,7 +162,19 @@ class ServiceProviderDetail {
   final double? ratingAvg;
   final int ratingCount;
   final bool willingToTravel;
+  /// The SP's sign-in number — owner-only, never sent to other members.
   final String? mobile;
+
+  /// The contact details the SP publishes. Editable, and deliberately separate from the
+  /// sign-in credentials: an SP may show a business number while signing in with a private
+  /// one. Owner-only (what the edit sheet loads).
+  final String? servicePhone;
+  final String? serviceEmail;
+
+  /// What everyone actually sees: [servicePhone] when set, else the sign-in number, and null
+  /// entirely when the SP's call toggle is off. Resolved server-side.
+  final String? publishedPhone;
+  final String? publishedEmail;
   final String? email;
   final int? userId;
   final String providerKind; // product (menu/cart) | service (charges/booking)
@@ -236,6 +252,10 @@ class ServiceProviderDetail {
           (j['availability'] as Map<String, dynamic>?)?['willingToTravel'] as bool? ??
           false,
       mobile: (j['user'] as Map<String, dynamic>?)?['mobile'] as String?,
+      servicePhone: j['servicePhone'] as String?,
+      serviceEmail: j['serviceEmail'] as String?,
+      publishedPhone: j['publishedPhone'] as String?,
+      publishedEmail: j['publishedEmail'] as String?,
       email: (j['user'] as Map<String, dynamic>?)?['email'] as String?,
       userId: (j['user'] as Map<String, dynamic>?)?['id'] != null
           ? _asInt((j['user'] as Map<String, dynamic>)['id'])

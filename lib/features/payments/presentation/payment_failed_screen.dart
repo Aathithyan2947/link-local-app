@@ -25,12 +25,11 @@ class _PaymentFailedScreenState extends ConsumerState<PaymentFailedScreen> {
     setState(() => _retrying = true);
     try {
       await ref.read(ordersRepositoryProvider).pay(widget.orderId, paymentMethod: widget.paymentMethod);
-      if (mounted) {
-        Navigator.of(context).pushReplacement(MaterialPageRoute(
-          settings: const RouteSettings(name: kPaymentFlowRoute),
-          builder: (_) => PaymentSuccessScreen(amount: widget.amount),
-        ));
-      }
+      if (!mounted) return;
+      // Replaces this screen, so the success screen's `true` flows straight to our caller.
+      await Navigator.of(context).pushReplacement<bool, void>(
+        MaterialPageRoute(builder: (_) => PaymentSuccessScreen(amount: widget.amount)),
+      );
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -75,8 +74,7 @@ class _PaymentFailedScreenState extends ConsumerState<PaymentFailedScreen> {
               ),
               const SizedBox(height: 12),
               TextButton(
-                onPressed: () =>
-                    Navigator.of(context).popUntil((route) => route.settings.name != kPaymentFlowRoute),
+                onPressed: () => Navigator.of(context).pop(false),
                 child: const Text('Cancel'),
               ),
             ],

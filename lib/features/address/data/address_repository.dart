@@ -1,3 +1,4 @@
+import '../../../core/auth/auth_scope.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -174,5 +175,6 @@ final addressRepositoryProvider = Provider<AddressRepository>((ref) {
 });
 
 final myAddressProofProvider = FutureProvider<AddressProofInfo>((ref) {
+  ref.bindToAccount();
   return ref.watch(addressRepositoryProvider).getMyAddressProof();
 });

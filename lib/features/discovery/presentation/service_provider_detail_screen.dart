@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/media/image_editor.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../auth/application/auth_controller.dart';
@@ -15,6 +18,7 @@ import '../../business/data/availability_models.dart';
 import '../../business/data/business_repository.dart';
 import '../../business/data/product_models.dart';
 import '../../business/data/rate_models.dart';
+import '../../business/presentation/sp_rates_screen.dart';
 import '../../home/data/home_models.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../../messages/presentation/chat_screen.dart';
@@ -100,7 +104,7 @@ class _ServiceProviderDetailScreenState extends ConsumerState<ServiceProviderDet
             children: [
               RefreshIndicator(
                 color: AppColors.primary,
-                onRefresh: () async => ref.invalidate(serviceProviderDetailProvider(widget.id)),
+                onRefresh: () => ref.refresh(serviceProviderDetailProvider(widget.id).future),
                 child: ListView(
                   padding: const EdgeInsets.only(bottom: 90),
                   children: isOwner ? _ownerSections(sp) : _residentSections(sp),
@@ -147,14 +151,16 @@ List<Widget> _ownerSections(ServiceProviderDetail sp) {
     if (sp.hasMenu)
       _MenuBlock(products: sp.products, spId: sp.id, isOwner: true),
     _GalleryBlock(sp: sp, isOwner: true),
-    if (_hasAvailabilityContent(sp))
+    // Owners see these even when empty — "not applicable to my SP type" stays hidden, but
+    // "applicable and just not filled in yet" must still show a note + a working edit pencil.
+    if (sp.customFields.any((f) => f.category == 'travel') || sp.hasDateBooking)
       _Band(child: _AvailabilityBlock(sp: sp, isOwner: true)),
-    if (!_DeliveryDetails.fromFields(sp).isEmpty)
+    if (sp.hasMenu)
       _Band(color: AppColors.surface, child: _DeliveryBlock(sp: sp, isOwner: true)),
     if (hasPayment)
       _Band(child: _CategoryFieldsBlock(sp: sp, isOwner: true, categories: const ['payment']))
-    else if (!sp.hasMenu && sp.rates.isNotEmpty)
-      _Band(child: _ChargesBlock(rates: sp.rates)),
+    else if (!sp.hasMenu)
+      _Band(child: _ChargesBlock(rates: sp.rates, isOwner: true)),
     _EventsBlock(events: sp.events),
     _PostsBlock(posts: sp.posts),
     _Band(color: AppColors.surface, child: _GroupsBlock(groups: sp.groups)),
@@ -267,14 +273,20 @@ class _ProfileHeaderState extends ConsumerState<_ProfileHeader> {
   bool _uploading = false;
 
   Future<void> _changePhoto() async {
-    final img = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (img == null) return;
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (picked == null) return;
+    if (!mounted) return;
+    final rawBytes = await picked.readAsBytes();
+    if (!mounted) return;
+    final edited = await editPickedImageBytes(context, rawBytes, lockToSquare: true);
+    if (edited == null) return;
     setState(() => _uploading = true);
     try {
-      final bytes = await img.readAsBytes();
-      await ref.read(profileRepositoryProvider).uploadPhoto(bytes, img.name);
+      await ref.read(profileRepositoryProvider).uploadPhoto(edited, picked.name);
+      ref.invalidate(serviceProviderDetailProvider(widget.sp.id));
       await ref.read(serviceProviderDetailProvider(widget.sp.id).future);
       ref.invalidate(myProfileProvider);
+      await ref.read(authControllerProvider.notifier).refreshUser();
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not update photo')));
@@ -563,19 +575,22 @@ Future<void> _editSection(
   String category,
 ) async {
   final hasFields = sp.customFields.any((f) => f.category == category);
-  final Widget screen = hasFields
-      ? CategoryFieldsFormScreen(
-          category: category,
-          categoryLabel: kCategoryLabels[category] ?? category,
+  // Only travel and basic_details have a real alternate destination when the subcategory
+  // configures no fields for them; every other category (delivery, payment, ...) should
+  // still open its own form — empty is a legitimate state, an unrelated screen is not.
+  final Widget screen = !hasFields && category == 'travel'
+      ? SpSetupWizardScreen(
+          initialAvailability: sp.availability,
+          initialName: sp.name,
+          hasMenu: sp.hasMenu,
+          hasDateBooking: sp.hasDateBooking,
         )
-      : category == 'travel'
-          ? SpSetupWizardScreen(
-              initialAvailability: sp.availability,
-              initialName: sp.name,
-              hasMenu: sp.hasMenu,
-              hasDateBooking: sp.hasDateBooking,
-            )
-          : const BasicInfoScreen();
+      : !hasFields && category == 'basic_details'
+          ? const BasicInfoScreen()
+          : CategoryFieldsFormScreen(
+              category: category,
+              categoryLabel: kCategoryLabels[category] ?? category,
+            );
   await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   // No invalidate here: ServiceProviderDetailScreen refreshes itself in didPopNext(), which
   // works even if this widget's ref was disposed while the editor was open.
@@ -929,6 +944,9 @@ class _AvailabilityBlock extends ConsumerWidget {
               ? _EditIconButton(onTap: () => _editSection(context, ref, sp, 'travel'))
               : null,
         ),
+        if (!_hasAvailabilityContent(sp))
+          const Text('Not added yet — tap edit to set your availability, service areas and travel details.',
+              style: TextStyle(fontSize: 13.5, height: 1.5, color: AppColors.textSecondary)),
         if (travel.willingToTravel) _check('Willing to Travel'),
         if (travel.maxTravelKm != null) _check('Travels up to ${travel.maxTravelKm!.toStringAsFixed(0)} km'),
         if (years != null) _check('$years+ years of experience'),
@@ -1111,15 +1129,25 @@ class _SlotsSheet extends ConsumerWidget {
 
 // ── Charges (service SP, buyer view) ─────────────────────────
 class _ChargesBlock extends StatelessWidget {
-  const _ChargesBlock({required this.rates});
+  const _ChargesBlock({required this.rates, this.isOwner = false});
   final List<SpRate> rates;
+  final bool isOwner;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle('Charges'),
+        _SectionTitle(
+          'Charges',
+          trailing: isOwner
+              ? _EditIconButton(
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpRatesScreen())))
+              : null,
+        ),
+        if (rates.isEmpty)
+          const Text('Not added yet — tap edit to set your charges.',
+              style: TextStyle(fontSize: 13.5, height: 1.5, color: AppColors.textSecondary)),
         ...rates.map((r) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(
@@ -1218,6 +1246,9 @@ class _DeliveryBlock extends ConsumerWidget {
               ? _EditIconButton(onTap: () => _editSection(context, ref, sp, 'delivery'))
               : null,
         ),
+        if (d.isEmpty)
+          const Text('Not added yet — tap edit to set your delivery method, charges and timing.',
+              style: TextStyle(fontSize: 13.5, height: 1.5, color: AppColors.textSecondary)),
         if (d.deliveryMethod != null) _kv('Delivery Method', d.deliveryMethod!),
         if (d.orderTiming != null) _kv('Order Placement Timing', d.orderTiming!),
         if (d.shippingCharges != null) _kv('Shipping Charges', d.shippingCharges!),
@@ -1567,6 +1598,7 @@ class _GalleryBlock extends ConsumerWidget {
                   onDelete: () async {
                     await ref.read(profileRepositoryProvider).deleteMedia(item.id);
                     ref.invalidate(serviceProviderDetailProvider(sp.id));
+                    await ref.read(serviceProviderDetailProvider(sp.id).future);
                   },
                 );
               },
@@ -1658,10 +1690,18 @@ class _AddGalleryTileState extends ConsumerState<_AddGalleryTile> {
         ? await picker.pickVideo(source: ImageSource.gallery)
         : await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
     if (file == null) return;
+    Uint8List bytes = await file.readAsBytes();
+    final name = file.name;
+    if (mediaType != 'video') {
+      if (!mounted) return;
+      final edited = await editPickedImageBytes(context, bytes);
+      if (edited == null) return;
+      bytes = edited;
+    }
     setState(() => _busy = true);
     try {
-      final bytes = await file.readAsBytes();
-      await ref.read(profileRepositoryProvider).addMedia(bytes, file.name, mediaType);
+      await ref.read(profileRepositoryProvider).addMedia(bytes, name, mediaType);
+      ref.invalidate(serviceProviderDetailProvider(widget.spId));
       await ref.read(serviceProviderDetailProvider(widget.spId).future);
     } catch (_) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed')));
@@ -1845,6 +1885,8 @@ class _SubmitReviewState extends ConsumerState<_SubmitReview> {
       _controller.clear();
       setState(() => _stars = 0);
       ref.invalidate(serviceProviderDetailProvider(widget.id));
+      await ref.read(serviceProviderDetailProvider(widget.id).future);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Thanks for your review!')));
     } catch (_) {
       if (!mounted) return;
@@ -2461,6 +2503,7 @@ Future<void> _toggleBlockSp(BuildContext context, WidgetRef ref, ServiceProvider
   if (sp.isBlocked) {
     await ref.read(discoveryRepositoryProvider).unblockUser(userId);
     ref.invalidate(serviceProviderDetailProvider(sp.id));
+    await ref.read(serviceProviderDetailProvider(sp.id).future);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unblocked')));
     }
@@ -2483,6 +2526,7 @@ Future<void> _toggleBlockSp(BuildContext context, WidgetRef ref, ServiceProvider
   if (confirmed != true) return;
   await ref.read(discoveryRepositoryProvider).blockUser(userId);
   ref.invalidate(serviceProviderDetailProvider(sp.id));
+  await ref.read(serviceProviderDetailProvider(sp.id).future);
   if (context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Blocked')));
   }

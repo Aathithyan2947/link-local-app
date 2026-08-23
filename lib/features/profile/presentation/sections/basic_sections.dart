@@ -3,11 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../../../core/config/app_config.dart';
+import '../../../../core/media/image_editor.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../../core/widgets/primary_button.dart';
 import '../../../auth/application/auth_controller.dart';
+import '../../../home/presentation/widgets/home_widgets.dart';
 import '../../data/profile_repository.dart';
 import '../widgets/section_widgets.dart';
 
@@ -38,10 +39,14 @@ class _BasicInfoScreenState extends ConsumerState<BasicInfoScreen> {
     final res = await FilePicker.pickFiles(withData: true, type: FileType.image);
     final file = res?.files.single;
     if (file?.bytes == null) return;
+    if (!mounted) return;
+    final edited = await editPickedImageBytes(context, file!.bytes!, lockToSquare: true);
+    if (edited == null) return;
     setState(() => _loading = true);
     try {
-      await ref.read(profileRepositoryProvider).uploadPhoto(file!.bytes!, file.name);
+      await ref.read(profileRepositoryProvider).uploadPhoto(edited, file.name);
       ref.invalidate(myProfileProvider);
+      await ref.read(myProfileProvider.future);
       await ref.read(authControllerProvider.notifier).refreshUser();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Photo updated')));
     } finally {
@@ -59,6 +64,7 @@ class _BasicInfoScreenState extends ConsumerState<BasicInfoScreen> {
         'aboutMe': _about.text.trim(),
       });
       ref.invalidate(myProfileProvider);
+      await ref.read(myProfileProvider.future);
       await ref.read(authControllerProvider.notifier).refreshUser();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile saved')));
@@ -93,17 +99,7 @@ class _BasicInfoScreenState extends ConsumerState<BasicInfoScreen> {
               Center(
                 child: Stack(
                   children: [
-                    CircleAvatar(
-                      radius: 48,
-                      backgroundColor: AppColors.primarySurface,
-                      backgroundImage: p.photoUrl != null
-                          ? NetworkImage(AppConfig.assetUrl(p.photoUrl!))
-                          : null,
-                      child: p.photoUrl == null
-                          ? Text(p.name.isNotEmpty ? p.name[0].toUpperCase() : '?',
-                              style: const TextStyle(fontSize: 32, color: AppColors.primary, fontWeight: FontWeight.bold))
-                          : null,
-                    ),
+                    Avatar(photoUrl: p.photoUrl, name: p.name, radius: 48),
                     Positioned(
                       right: 0,
                       bottom: 0,
@@ -207,6 +203,7 @@ class _OfferHelpScreenState extends ConsumerState<OfferHelpScreen> {
     try {
       await ref.read(profileRepositoryProvider).updateBasic({'canOfferHelpWith': _text.text.trim()});
       ref.invalidate(myProfileProvider);
+      await ref.read(myProfileProvider.future);
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _loading = false);

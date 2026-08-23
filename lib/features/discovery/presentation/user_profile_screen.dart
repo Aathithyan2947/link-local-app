@@ -32,7 +32,7 @@ class UserProfileScreen extends ConsumerWidget {
         ),
         data: (p) => RefreshIndicator(
           color: AppColors.primary,
-          onRefresh: () async => ref.invalidate(publicProfileProvider(id)),
+          onRefresh: () => ref.refresh(publicProfileProvider(id).future),
           child: ListView(
             padding: const EdgeInsets.only(bottom: 32),
             children: [

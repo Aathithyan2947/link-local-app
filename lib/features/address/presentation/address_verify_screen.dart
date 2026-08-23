@@ -1,10 +1,8 @@
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
@@ -14,6 +12,7 @@ import '../../../core/widgets/primary_button.dart';
 import '../../reference/reference_models.dart';
 import '../../reference/reference_repository.dart';
 import '../data/address_repository.dart';
+import 'widgets/proof_picker.dart';
 
 class AddressVerifyScreen extends ConsumerStatefulWidget {
   const AddressVerifyScreen({super.key});
@@ -54,74 +53,15 @@ class _AddressVerifyScreenState extends ConsumerState<AddressVerifyScreen> {
         ),
       );
 
-  /// Lets the user pick the source: camera capture or a file from the device.
+  /// Lets the user pick the source: camera capture or a file from the device
+  /// (with a crop/rotate step for images, shared with the rest of the app).
   Future<void> _choose(String docType) async {
-    final source = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 18, 20, 6),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Add your proof', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-              ),
-            ),
-            ListTile(
-              leading: const _SourceIcon(Icons.photo_camera_outlined),
-              title: const Text('Take a photo', style: TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: const Text('Capture the document with your camera'),
-              onTap: () => Navigator.pop(ctx, 'camera'),
-            ),
-            ListTile(
-              leading: const _SourceIcon(Icons.folder_open_outlined),
-              title: const Text('Choose from device', style: TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: const Text('Pick an image or PDF from your files'),
-              onTap: () => Navigator.pop(ctx, 'file'),
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-    if (source == 'camera') {
-      await _fromCamera(docType);
-    } else if (source == 'file') {
-      await _fromFile(docType);
-    }
-  }
-
-  Future<void> _fromCamera(String docType) async {
     try {
-      final XFile? shot = await ImagePicker().pickImage(
-        source: ImageSource.camera,
-        imageQuality: 75,
-        maxWidth: 1600,
-      );
-      if (shot == null) return;
-      final bytes = await shot.readAsBytes();
-      _setFile(docType, shot.name, bytes);
+      final doc = await pickProofDocument(context);
+      if (doc == null) return;
+      _setFile(docType, doc.name, doc.bytes);
     } catch (e) {
-      if (mounted) setState(() => _error = 'Camera unavailable: $e');
-    }
-  }
-
-  Future<void> _fromFile(String docType) async {
-    try {
-      final result = await FilePicker.pickFiles(
-        withData: true,
-        type: FileType.custom,
-        allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
-      );
-      final file = result?.files.single;
-      if (file?.bytes == null) return;
-      _setFile(docType, file!.name, file.bytes!);
-    } catch (e) {
-      if (mounted) setState(() => _error = 'Could not open files: $e');
+      if (mounted) setState(() => _error = 'Could not add proof: $e');
     }
   }
 
@@ -354,20 +294,6 @@ class _ProofCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _SourceIcon extends StatelessWidget {
-  const _SourceIcon(this.icon);
-  final IconData icon;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 42,
-      width: 42,
-      decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(12)),
-      child: Icon(icon, color: AppColors.primary, size: 22),
     );
   }
 }

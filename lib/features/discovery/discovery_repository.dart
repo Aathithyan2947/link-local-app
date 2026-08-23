@@ -5,8 +5,10 @@ import '../../core/network/dio_client.dart';
 import '../business/data/availability_models.dart';
 import '../../core/auth/auth_scope.dart';
 import '../home/data/home_models.dart';
+import 'data/blocked_user_models.dart';
 import 'data/event_detail_models.dart';
 import 'data/group_detail_models.dart';
+import 'data/my_activity_models.dart';
 import 'data/public_profile_models.dart';
 import 'data/sp_detail_models.dart';
 
@@ -116,9 +118,20 @@ class DiscoveryRepository {
     return (res.data['data']['id'] as num).toInt();
   }
 
+  Future<void> updateEvent(int id, Map<String, dynamic> data) async => _dio.patch('/events/$id', data: data);
+
+  /// Events the current user hosts vs. has joined.
+  Future<MyEvents> myEvents() async {
+    final res = await _dio.get('/events/mine');
+    return MyEvents.fromJson(res.data['data'] as Map<String, dynamic>);
+  }
+
   /// Uploads an image to the shared media endpoint and returns its URL.
-  Future<String> uploadImage(String filePath) async {
-    final form = FormData.fromMap({'file': await MultipartFile.fromFile(filePath)});
+  Future<String> uploadImage(String filePath, {String? type}) async {
+    final form = FormData.fromMap({
+      'file': await MultipartFile.fromFile(filePath),
+      if (type != null) 'type': type,
+    });
     final res = await _dio.post('/media', data: form);
     return res.data['data']['url'] as String;
   }
@@ -153,6 +166,20 @@ class DiscoveryRepository {
     return (res.data['data']['id'] as num).toInt();
   }
 
+  Future<void> updateGroup(int id, Map<String, dynamic> data) async => _dio.patch('/groups/$id', data: data);
+
+  /// Groups the current user owns vs. has joined.
+  Future<MyGroups> myGroups() async {
+    final res = await _dio.get('/groups/mine');
+    return MyGroups.fromJson(res.data['data'] as Map<String, dynamic>);
+  }
+
+  /// Every review the current user has submitted, across SPs/events/groups.
+  Future<MyReviews> myReviews() async {
+    final res = await _dio.get('/reviews/mine');
+    return MyReviews.fromJson(res.data['data'] as Map<String, dynamic>);
+  }
+
   /// Public profile of any member (resident or SP), keyed by profile id.
   Future<PublicProfile> publicProfile(int id) async {
     final res = await _dio.get('/profiles/$id');
@@ -179,6 +206,11 @@ class DiscoveryRepository {
   Future<bool> blockStatus(int userId) async {
     final res = await _dio.get('/users/$userId/block-status');
     return (res.data['data'] as Map<String, dynamic>)['blocked'] as bool? ?? false;
+  }
+
+  Future<List<BlockedUserItem>> listBlockedUsers() async {
+    final res = await _dio.get('/users/blocked');
+    return (res.data['data'] as List).map((e) => BlockedUserItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 }
 
@@ -245,6 +277,21 @@ final groupDetailProvider = FutureProvider.family<GroupDetail, int>((ref, id) {
 final publicProfileProvider = FutureProvider.family<PublicProfile, int>((ref, id) {
   ref.bindToAccount();
   return ref.watch(discoveryRepositoryProvider).publicProfile(id);
+});
+
+/// The current user's own hosted/joined events, owned/joined groups, and submitted reviews —
+/// back the Profile tab's "Events" / "Groups" / "Reviews" screens.
+final myEventsProvider = FutureProvider<MyEvents>((ref) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).myEvents();
+});
+final myGroupsProvider = FutureProvider<MyGroups>((ref) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).myGroups();
+});
+final myReviewsProvider = FutureProvider<MyReviews>((ref) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).myReviews();
 });
 
 /// Shared search query for the Discover screen — lists are filtered client-side

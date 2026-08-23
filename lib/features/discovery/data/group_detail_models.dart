@@ -21,6 +21,9 @@ class GroupDetail {
     this.myStatus,
     this.myPaymentStatus,
     this.isCreator = false,
+    this.isPrivate = false,
+    this.maxMembers,
+    this.adminApprovalNeeded = false,
   });
 
   final int id;
@@ -38,6 +41,9 @@ class GroupDetail {
   final String? myStatus; // joined | pending_approval | exited | null
   final String? myPaymentStatus; // paid | unpaid | null
   final bool isCreator;
+  final bool isPrivate;
+  final int? maxMembers;
+  final bool adminApprovalNeeded;
 
   bool get isMember => isCreator || myStatus == 'joined';
   bool get isPending => myStatus == 'pending_approval';
@@ -65,6 +71,9 @@ class GroupDetail {
       myStatus: mine?['status'] as String?,
       myPaymentStatus: mine?['paymentStatus'] as String?,
       isCreator: j['isCreator'] as bool? ?? false,
+      isPrivate: j['isPrivate'] as bool? ?? false,
+      maxMembers: j['maxMembers'] != null ? _asInt(j['maxMembers']) : null,
+      adminApprovalNeeded: j['adminApprovalNeeded'] as bool? ?? false,
     );
   }
 }

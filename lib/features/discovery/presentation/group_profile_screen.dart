@@ -31,6 +31,8 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
       await action();
       if (!mounted) return;
       ref.invalidate(groupDetailProvider(widget.id));
+      await ref.read(groupDetailProvider(widget.id).future);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(okMsg)));
     } catch (_) {
       if (!mounted) return;
@@ -129,7 +131,7 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
         error: (e, _) => _error(),
         data: (g) => RefreshIndicator(
           color: AppColors.primary,
-          onRefresh: () async => ref.invalidate(groupDetailProvider(widget.id)),
+          onRefresh: () => ref.refresh(groupDetailProvider(widget.id).future),
           child: ListView(
             padding: EdgeInsets.zero,
             children: [

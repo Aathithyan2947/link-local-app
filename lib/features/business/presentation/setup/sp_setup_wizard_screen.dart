@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/input_formatters.dart';
 import '../../../auth/application/auth_controller.dart';
+import '../../../discovery/discovery_repository.dart';
 import '../../../profile/data/profile_models.dart';
 import '../../../profile/data/profile_repository.dart';
 import '../../data/availability_models.dart';
@@ -247,6 +248,9 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
     try {
       await _persistDetails();
       if (_hasDateBooking) await _persistAvailability();
+      // ServiceProviderDetailScreen ("My Profile") reads a separate cache that nothing else
+      // here touches — without this, edits made via My Shop only show up after a reload.
+      ref.invalidate(serviceProviderDetailProvider);
       if (!mounted) return;
       await ref.read(authControllerProvider.notifier).refreshUser();
       if (!mounted) return;

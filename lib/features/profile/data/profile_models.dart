@@ -37,12 +37,17 @@ class ProfileDetail {
     required this.hasDelivery,
     required this.hasPaymentMethods,
     this.cityId,
+    this.address,
+    this.email,
+    this.mobile,
   });
 
   final int id;
   final String name;
   final String userType;
   final String? photoUrl;
+  final String? email;
+  final String? mobile;
   final String? dateOfBirth;
   final String? gender;
   final String? aboutMe;
@@ -56,6 +61,7 @@ class ProfileDetail {
 
   bool get hasFinishedOnboarding => onboardingCompletedAt != null;
   final int? cityId; // from address.area.city.id — scopes the pincode field's area picker
+  final String? address; // profile.address.fullAddress
 
   final List<IdName> educations;
   final List<IdName> professions;
@@ -78,6 +84,8 @@ class ProfileDetail {
       id: _asInt(j['id']),
       name: j['name'] as String? ?? '',
       userType: (j['user'] as Map<String, dynamic>?)?['userType'] as String? ?? 'resident',
+      email: (j['user'] as Map<String, dynamic>?)?['email'] as String?,
+      mobile: (j['user'] as Map<String, dynamic>?)?['mobile'] as String?,
       photoUrl: j['photoUrl'] as String?,
       dateOfBirth: j['dateOfBirth'] as String?,
       gender: j['gender'] as String?,
@@ -129,6 +137,7 @@ class ProfileDetail {
       }).toList(),
       hasDelivery: j['delivery'] != null,
       hasPaymentMethods: ((j['paymentMethods'] as List?) ?? []).isNotEmpty,
+      address: (j['address'] as Map<String, dynamic>?)?['fullAddress'] as String?,
       cityId: (((j['address'] as Map<String, dynamic>?)?['area'] as Map<String, dynamic>?)?['city']
               as Map<String, dynamic>?)?['id'] !=
               null

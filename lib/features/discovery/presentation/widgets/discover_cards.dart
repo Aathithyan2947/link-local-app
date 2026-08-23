@@ -59,6 +59,26 @@ class JoinButton extends StatelessWidget {
   }
 }
 
+/// Non-interactive "Joined" badge — same visual weight as [JoinButton], but a
+/// status marker rather than an action, for items the user already belongs to.
+class JoinedBadge extends StatelessWidget {
+  const JoinedBadge({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.primarySurface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.primary),
+      ),
+      child: const Text('Joined',
+          style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 12)),
+    );
+  }
+}
+
 /// Rounded network image with a branded gradient fallback + icon.
 class NetworkThumb extends StatelessWidget {
   const NetworkThumb({
@@ -114,10 +134,14 @@ String eventTimeRange(WorkshopItem e) {
 /// Horizontal event card: [thumbnail | title · date|time · location · By ] with
 /// a rating pill (top-right) and a Join button (bottom-right).
 class EventCard extends StatelessWidget {
-  const EventCard({super.key, required this.event, this.onTap, this.onJoin});
+  const EventCard({super.key, required this.event, this.onTap, this.onJoin, this.trailing});
   final WorkshopItem event;
   final VoidCallback? onTap;
   final VoidCallback? onJoin;
+
+  /// Overrides the bottom-right action (defaults to a Join button) — e.g. an Edit
+  /// button or a status chip on the Profile tab's "My Events" screen.
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -215,7 +239,7 @@ class EventCard extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            JoinButton(onTap: onJoin),
+                            trailing ?? JoinButton(onTap: onJoin),
                           ],
                         ),
                       ],
@@ -306,9 +330,13 @@ class SpCard extends StatelessWidget {
 // ── Group card ───────────────────────────────────────────────
 /// [image | title · N Members · Owner: name].
 class GroupCard extends StatelessWidget {
-  const GroupCard({super.key, required this.group, this.onTap});
+  const GroupCard({super.key, required this.group, this.onTap, this.trailing});
   final GroupItem group;
   final VoidCallback? onTap;
+
+  /// Optional trailing action — e.g. an Edit button or a Join button on the Profile
+  /// tab's "My Groups" screen. Absent by default, matching the Discover tab's plain card.
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -359,6 +387,7 @@ class GroupCard extends StatelessWidget {
                     ],
                   ),
                 ),
+                ?trailing,
               ],
             ),
           ),

@@ -56,8 +56,10 @@ class OrdersRepository {
     await _dio.patch('/orders/$id/status', data: {'status': status, 'reason': ?reason});
   }
 
-  Future<void> pay(int id, {String paymentMethod = 'upi'}) async =>
-      _dio.post('/orders/$id/pay', data: {'paymentType': 'advance', 'paymentMethod': paymentMethod});
+  Future<void> pay(int id, {String paymentMethod = 'upi', String? paymentSubMethod}) async => _dio.post(
+        '/orders/$id/pay',
+        data: {'paymentType': 'advance', 'paymentMethod': paymentMethod, 'paymentSubMethod': ?paymentSubMethod},
+      );
 }
 
 final ordersRepositoryProvider = Provider<OrdersRepository>((ref) => OrdersRepository(ref.watch(dioProvider)));

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../discovery/discovery_repository.dart';
 import '../data/business_repository.dart';
 import '../data/product_models.dart';
 import 'add_product_screen.dart';
@@ -43,6 +44,7 @@ class SpProductsScreen extends ConsumerWidget {
     if (ok == true) {
       await ref.read(businessRepositoryProvider).deleteProduct(p.id);
       ref.invalidate(myProductsProvider);
+      ref.invalidate(serviceProviderDetailProvider);
     }
   }
 

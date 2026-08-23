@@ -58,6 +58,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _input.clear();
       ref.invalidate(threadProvider(widget.otherUserId));
       ref.invalidate(conversationsProvider);
+      await ref.read(threadProvider(widget.otherUserId).future);
     } catch (_) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not send')));
     } finally {

@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/media/image_editor.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/input_formatters.dart';
@@ -249,15 +250,22 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
   }
 
   Future<void> _pickImage(int fieldId) async {
-    final img = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (img == null) return;
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (picked == null) return;
+    if (!mounted) return;
+    final rawBytes = await picked.readAsBytes();
+    if (!mounted) return;
+    final edited = await editPickedImageBytes(context, rawBytes);
+    if (edited == null) return;
+    final path = await writeEditedImageToTempFile(edited);
+    final editedImage = XFile(path);
     setState(() {
-      _pendingImages[fieldId] = img;
+      _pendingImages[fieldId] = editedImage;
       _uploading.add(fieldId);
     });
     try {
-      final bytes = await img.readAsBytes();
-      final url = await ref.read(serviceProfileRepositoryProvider).uploadCustomFieldFile(bytes, img.name);
+      final bytes = await editedImage.readAsBytes();
+      final url = await ref.read(serviceProfileRepositoryProvider).uploadCustomFieldFile(bytes, editedImage.name);
       _ctrls[fieldId]!.text = url;
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -322,6 +330,9 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
       }
       ref.invalidate(customFieldsProvider);
       ref.invalidate(myProfileProvider);
+      // Covers entry points that don't live under a ServiceProviderDetailScreen instance
+      // (e.g. the Profile tab's "Delivery settings" menu item), where didPopNext never fires.
+      ref.invalidate(serviceProviderDetailProvider);
       if (!mounted) return;
       final next = widget.nextCategories;
       if (next == null) {

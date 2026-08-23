@@ -152,7 +152,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
               : spSection.items.where((sp) => sp.service == _selectedCategory).toList();
           return RefreshIndicator(
           color: AppColors.primary,
-          onRefresh: () async => ref.invalidate(homeFeedProvider),
+          onRefresh: () => ref.refresh(homeFeedProvider.future),
           child: ListView(
             padding: EdgeInsets.only(bottom: 66 + MediaQuery.of(context).padding.bottom + 24),
             children: [

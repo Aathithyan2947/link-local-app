@@ -38,6 +38,8 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
       await action();
       if (!mounted) return;
       ref.invalidate(eventDetailProvider(widget.id));
+      await ref.read(eventDetailProvider(widget.id).future);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(okMsg)));
     } catch (_) {
       if (!mounted) return;
@@ -77,7 +79,7 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
         error: (e, _) => _error(),
         data: (e) => RefreshIndicator(
           color: AppColors.primary,
-          onRefresh: () async => ref.invalidate(eventDetailProvider(widget.id)),
+          onRefresh: () => ref.refresh(eventDetailProvider(widget.id).future),
           child: ListView(
             padding: const EdgeInsets.only(bottom: 32),
             children: [

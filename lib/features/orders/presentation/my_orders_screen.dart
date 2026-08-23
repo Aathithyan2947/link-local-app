@@ -25,7 +25,7 @@ class MyOrdersScreen extends ConsumerWidget {
           if (orders.isEmpty) return const Center(child: Text('No orders yet.'));
           return RefreshIndicator(
             color: AppColors.primary,
-            onRefresh: () async => ref.invalidate(myOrdersProvider),
+            onRefresh: () => ref.refresh(myOrdersProvider.future),
             child: ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: orders.length,

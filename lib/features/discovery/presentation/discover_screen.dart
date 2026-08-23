@@ -407,7 +407,7 @@ class _EventsList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return RefreshIndicator(
       color: AppColors.primary,
-      onRefresh: () async => ref.invalidate(eventsProvider),
+      onRefresh: () => ref.refresh(eventsProvider.future),
       child: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
@@ -434,7 +434,7 @@ class _SpList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return RefreshIndicator(
       color: AppColors.primary,
-      onRefresh: () async => ref.invalidate(serviceProvidersProvider),
+      onRefresh: () => ref.refresh(serviceProvidersProvider.future),
       child: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
@@ -461,7 +461,7 @@ class _GroupsList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return RefreshIndicator(
       color: AppColors.primary,
-      onRefresh: () async => ref.invalidate(groupsProvider),
+      onRefresh: () => ref.refresh(groupsProvider.future),
       child: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [

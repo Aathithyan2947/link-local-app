@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/input_formatters.dart';
+import '../../discovery/discovery_repository.dart';
 import '../data/business_repository.dart';
 import '../data/rate_models.dart';
 
@@ -65,6 +66,7 @@ class _SpRatesScreenState extends ConsumerState<SpRatesScreen> {
       await ref.read(businessRepositoryProvider).setRates(rates);
       if (!mounted) return;
       ref.invalidate(myRatesProvider);
+      ref.invalidate(serviceProviderDetailProvider);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Charges saved')));
       Navigator.of(context).pop();
     } catch (_) {

@@ -72,21 +72,25 @@ class GroupItem {
     required this.members,
     this.photoUrl,
     this.ownerName,
+    this.creatorId,
   });
   final int id;
   final String title;
   final int members;
   final String? photoUrl;
   final String? ownerName;
+  final int? creatorId;
   factory GroupItem.fromJson(Map<String, dynamic> j) {
     final count = j['_count'] as Map<String, dynamic>?;
-    final profile = (j['creator'] as Map<String, dynamic>?)?['profile'] as Map<String, dynamic>?;
+    final creator = j['creator'] as Map<String, dynamic>?;
+    final profile = creator?['profile'] as Map<String, dynamic>?;
     return GroupItem(
       id: _asInt(j['id']),
       title: j['title'] as String? ?? '',
       members: _asInt(count?['members']),
       photoUrl: j['photoUrl'] as String?,
       ownerName: profile?['name'] as String?,
+      creatorId: creator?['id'] != null ? _asInt(creator!['id']) : null,
     );
   }
 }
@@ -104,6 +108,7 @@ class WorkshopItem {
     this.photoUrl,
     this.creatorName,
     this.ratingAvg,
+    this.creatorId,
   });
   final int id;
   final String title;
@@ -116,10 +121,12 @@ class WorkshopItem {
   final String? photoUrl;
   final String? creatorName;
   final double? ratingAvg;
+  final int? creatorId;
 
   factory WorkshopItem.fromJson(Map<String, dynamic> j) {
     final count = j['_count'] as Map<String, dynamic>?;
-    final profile = (j['creator'] as Map<String, dynamic>?)?['profile'] as Map<String, dynamic>?;
+    final creator = j['creator'] as Map<String, dynamic>?;
+    final profile = creator?['profile'] as Map<String, dynamic>?;
     return WorkshopItem(
       id: _asInt(j['id']),
       title: j['title'] as String? ?? '',
@@ -132,6 +139,7 @@ class WorkshopItem {
       photoUrl: j['photoUrl'] as String?,
       creatorName: profile?['name'] as String?,
       ratingAvg: _asDouble(j['ratingAvg']),
+      creatorId: creator?['id'] != null ? _asInt(creator!['id']) : null,
     );
   }
 }

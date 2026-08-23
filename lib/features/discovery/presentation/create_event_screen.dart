@@ -6,15 +6,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/config/app_config.dart';
+import '../../../core/media/image_editor.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/input_formatters.dart';
+import '../data/event_detail_models.dart';
 import '../discovery_repository.dart';
 import 'event_detail_screen.dart';
 
-/// Form to host a new event. Uploads an optional cover image via /media,
-/// then POSTs to /events and opens the created event.
+/// Form to host a new event, or edit one you already host when [event] is passed.
+/// Create uploads an optional cover image via /media then POSTs to /events and opens the
+/// created event; edit PATCHes the existing event and pops back.
 class CreateEventScreen extends ConsumerStatefulWidget {
-  const CreateEventScreen({super.key});
+  const CreateEventScreen({super.key, this.event});
+  final EventDetail? event;
+  bool get isEdit => event != null;
 
   @override
   ConsumerState<CreateEventScreen> createState() => _CreateEventScreenState();
@@ -36,7 +42,32 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   String _mode = 'offline';
   bool _isPaid = false;
   XFile? _image;
+  String? _existingPhotoUrl;
   bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.event;
+    if (e == null) return;
+    _title.text = e.title;
+    _description.text = e.description ?? '';
+    _location.text = e.location ?? '';
+    _onlineLink.text = e.onlineLink ?? '';
+    _price.text = e.price != null ? e.price!.toStringAsFixed(0) : '';
+    _maxAttendees.text = e.maxAttendees?.toString() ?? '';
+    _duration.text = e.durationMinutes?.toString() ?? '60';
+    _date = e.date;
+    _time = e.startTime != null ? TimeOfDay(hour: e.startTime!.hour, minute: e.startTime!.minute) : null;
+    _mode = e.mode;
+    _isPaid = e.isPaid;
+    _existingPhotoUrl = e.photoUrl;
+    if (e.rawMaterials.isNotEmpty) {
+      _materials
+        ..clear()
+        ..addAll(e.rawMaterials.map((m) => TextEditingController(text: m)));
+    }
+  }
 
   @override
   void dispose() {
@@ -47,8 +78,15 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   }
 
   Future<void> _pickImage() async {
-    final img = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (img != null) setState(() => _image = img);
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (picked == null) return;
+    if (!mounted) return;
+    final bytes = await picked.readAsBytes();
+    if (!mounted) return;
+    final edited = await editPickedImageBytes(context, bytes);
+    if (edited == null) return;
+    final path = await writeEditedImageToTempFile(edited);
+    setState(() => _image = XFile(path));
   }
 
   Future<void> _submit() async {
@@ -61,10 +99,10 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
     try {
       final repo = ref.read(discoveryRepositoryProvider);
       String? photoUrl;
-      if (_image != null) photoUrl = await repo.uploadImage(_image!.path);
+      if (_image != null) photoUrl = await repo.uploadImage(_image!.path, type: 'event');
 
       final materials = _materials.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList();
-      final id = await repo.createEvent({
+      final data = {
         'title': _title.text.trim(),
         if (_description.text.trim().isNotEmpty) 'description': _description.text.trim(),
         'photoUrl': ?photoUrl,
@@ -78,15 +116,30 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
         if (_isPaid && _price.text.trim().isNotEmpty) 'price': double.tryParse(_price.text.trim()),
         if (_maxAttendees.text.trim().isNotEmpty) 'maxAttendees': int.tryParse(_maxAttendees.text.trim()),
         if (materials.isNotEmpty) 'rawMaterials': materials,
-      });
-      if (!mounted) return;
-      ref.invalidate(eventsProvider);
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => EventDetailScreen(id: id)),
-      );
+      };
+
+      if (widget.isEdit) {
+        final id = widget.event!.id;
+        await repo.updateEvent(id, data);
+        if (!mounted) return;
+        ref.invalidate(eventsProvider);
+        ref.invalidate(myEventsProvider);
+        ref.invalidate(eventDetailProvider(id));
+        await ref.read(eventDetailProvider(id).future);
+        if (!mounted) return;
+        Navigator.of(context).pop();
+      } else {
+        final id = await repo.createEvent(data);
+        if (!mounted) return;
+        ref.invalidate(eventsProvider);
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => EventDetailScreen(id: id)),
+        );
+      }
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not create event')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(widget.isEdit ? 'Could not save event' : 'Could not create event')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -96,7 +149,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Host an Event')),
+      appBar: AppBar(title: Text(widget.isEdit ? 'Edit Event' : 'Host an Event')),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -147,7 +200,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               onPressed: _submitting ? null : _submit,
               child: _submitting
                   ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Text('Create Event'),
+                  : Text(widget.isEdit ? 'Save Changes' : 'Create Event'),
             ),
           ],
         ),
@@ -165,9 +218,11 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
             border: Border.all(color: AppColors.border),
             image: _image != null
                 ? DecorationImage(image: FileImage(File(_image!.path)), fit: BoxFit.cover)
-                : null,
+                : (_existingPhotoUrl != null
+                    ? DecorationImage(image: NetworkImage(AppConfig.assetUrl(_existingPhotoUrl!)), fit: BoxFit.cover)
+                    : null),
           ),
-          child: _image != null
+          child: (_image != null || _existingPhotoUrl != null)
               ? null
               : const Center(
                   child: Column(

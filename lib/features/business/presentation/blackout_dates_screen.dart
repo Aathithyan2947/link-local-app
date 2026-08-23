@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../discovery/discovery_repository.dart';
 import '../data/business_repository.dart';
 
 /// SP blackout / off dates that override the weekly availability (holidays etc.).
@@ -22,6 +23,7 @@ class BlackoutDatesScreen extends ConsumerWidget {
     try {
       await ref.read(businessRepositoryProvider).addBlackout(ymd, reason: 'holiday');
       ref.invalidate(myAvailabilityProvider);
+      ref.invalidate(serviceProviderDetailProvider);
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not add date')));
@@ -33,6 +35,7 @@ class BlackoutDatesScreen extends ConsumerWidget {
     try {
       await ref.read(businessRepositoryProvider).deleteBlackout(id);
       ref.invalidate(myAvailabilityProvider);
+      ref.invalidate(serviceProviderDetailProvider);
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not remove date')));

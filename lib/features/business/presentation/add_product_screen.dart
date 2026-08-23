@@ -7,8 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/media/image_editor.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/input_formatters.dart';
+import '../../discovery/discovery_repository.dart';
 import '../data/business_repository.dart';
 import '../data/product_models.dart';
 
@@ -46,8 +48,15 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
   }
 
   Future<void> _pick() async {
-    final img = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (img != null) setState(() => _image = img);
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (picked == null) return;
+    if (!mounted) return;
+    final bytes = await picked.readAsBytes();
+    if (!mounted) return;
+    final edited = await editPickedImageBytes(context, bytes);
+    if (edited == null) return;
+    final path = await writeEditedImageToTempFile(edited);
+    setState(() => _image = XFile(path));
   }
 
   Future<void> _save() async {
@@ -56,7 +65,7 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
     try {
       final repo = ref.read(businessRepositoryProvider);
       String? photoUrl = widget.product?.photoUrl;
-      if (_image != null) photoUrl = await repo.uploadImage(_image!.path);
+      if (_image != null) photoUrl = await repo.uploadImage(_image!.path, type: 'product');
 
       final data = <String, dynamic>{
         'name': _name.text.trim(),
@@ -74,6 +83,7 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
       }
       if (!mounted) return;
       ref.invalidate(myProductsProvider);
+      ref.invalidate(serviceProviderDetailProvider);
       Navigator.of(context).pop();
     } catch (_) {
       if (!mounted) return;

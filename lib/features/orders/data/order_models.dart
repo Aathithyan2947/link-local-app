@@ -117,19 +117,25 @@ class OrderPaymentModel {
   const OrderPaymentModel({
     required this.amount,
     required this.paymentMethod,
+    this.paymentSubMethod,
     required this.paymentStatus,
     this.paidAt,
+    this.createdAt,
   });
   final double amount;
   final String paymentMethod;
+  final String? paymentSubMethod; // e.g. "GPay" — brand-level detail within paymentMethod
   final String paymentStatus; // paid | failed | refunded
   final DateTime? paidAt;
+  final DateTime? createdAt;
 
   factory OrderPaymentModel.fromJson(Map<String, dynamic> j) => OrderPaymentModel(
         amount: _asDouble(j['amount']),
         paymentMethod: j['paymentMethod'] as String? ?? '',
+        paymentSubMethod: j['paymentSubMethod'] as String?,
         paymentStatus: j['paymentStatus'] as String? ?? '',
         paidAt: j['paidAt'] != null ? DateTime.tryParse(j['paidAt'] as String) : null,
+        createdAt: j['createdAt'] != null ? DateTime.tryParse(j['createdAt'] as String) : null,
       );
 }
 
@@ -153,6 +159,8 @@ class OrderModel {
     this.slot,
     required this.buyerName,
     this.buyerPhoto,
+    this.buyerId,
+    this.deliveryAddress,
     required this.spProfileId,
     required this.spName,
     this.spPhoto,
@@ -180,6 +188,8 @@ class OrderModel {
   final OrderSlot? slot;
   final String buyerName;
   final String? buyerPhoto;
+  final int? buyerId;
+  final String? deliveryAddress;
   final int spProfileId;
   final String spName;
   final String? spPhoto;
@@ -219,6 +229,8 @@ class OrderModel {
       slot: slot != null ? OrderSlot.fromJson(slot) : null,
       buyerName: buyerProfile?['name'] as String? ?? 'Customer',
       buyerPhoto: buyerProfile?['photoUrl'] as String?,
+      buyerId: buyer?['id'] != null ? _asInt(buyer!['id']) : null,
+      deliveryAddress: (j['deliveryAddress'] as Map<String, dynamic>?)?['fullAddress'] as String?,
       spProfileId: _asInt(sp?['id']),
       spName: sp?['name'] as String? ?? 'Seller',
       spPhoto: sp?['photoUrl'] as String?,

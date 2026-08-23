@@ -1,79 +1,69 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
+import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../home/presentation/widgets/home_widgets.dart';
+import '../../messages/presentation/chat_screen.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
-import 'my_orders_screen.dart';
 
-/// Orders received by the SP — the "Incoming Orders" frame. Accept/Reject then
-/// progress the order through fulfilment.
+const _needsActionStatuses = {'placed', 'requested'};
+const _ongoingStatuses = {'accepted', 'confirmed', 'in_progress', 'delivered'};
+
+const _ongoingStatusLabels = <String, String>{
+  'in_progress': 'In Preparation',
+};
+
+String _orderRef(int id) => '#K${id.toString().padLeft(6, '0')}';
+
+String _timeAgo(DateTime dt) {
+  final diff = DateTime.now().difference(dt);
+  if (diff.inMinutes < 1) return 'Just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} Mins Ago';
+  if (diff.inHours < 24) return '${diff.inHours} ${diff.inHours == 1 ? 'Hour' : 'Hours'} Ago';
+  return '${diff.inDays} ${diff.inDays == 1 ? 'Day' : 'Days'} Ago';
+}
+
+/// Orders received by the SP — grouped into what needs a decision now
+/// ("New Coming Orders") and what's already accepted and in flight
+/// ("Ongoing Orders"). Accept/Reject/progress actions unchanged underneath.
 class IncomingOrdersScreen extends ConsumerWidget {
   const IncomingOrdersScreen({super.key});
 
   Future<void> _act(WidgetRef ref, int id, String status) async {
     await ref.read(ordersRepositoryProvider).updateStatus(id, status);
     ref.invalidate(incomingOrdersProvider);
+    await ref.read(incomingOrdersProvider.future);
   }
 
   Future<void> _accept(WidgetRef ref, int id) async {
     await ref.read(ordersRepositoryProvider).accept(id);
     ref.invalidate(incomingOrdersProvider);
+    await ref.read(incomingOrdersProvider.future);
   }
 
   Future<void> _reject(WidgetRef ref, int id) async {
     await ref.read(ordersRepositoryProvider).reject(id);
     ref.invalidate(incomingOrdersProvider);
+    await ref.read(incomingOrdersProvider.future);
   }
 
-  Widget? _actions(WidgetRef ref, OrderModel o) {
-    // Booking flow: requested → accept/reject; the buyer then pays to confirm.
+  /// The progress action shown on an ongoing order's row, if any.
+  Widget? _ongoingAction(WidgetRef ref, OrderModel o) {
     if (o.isBooking) {
-      switch (o.status) {
-        case 'requested':
-          return Row(children: [
-            Expanded(child: _btn('Accept', AppColors.primary, () => _accept(ref, o.id), filled: true)),
-            const SizedBox(width: 12),
-            Expanded(child: _btn('Reject', AppColors.error, () => _reject(ref, o.id))),
-          ]);
-        case 'accepted':
-          return _btn('Awaiting payment', AppColors.textMuted, () {}, full: true);
-        case 'confirmed':
-          return _btn('Mark completed', AppColors.primary, () => _act(ref, o.id, 'completed'), filled: true, full: true);
-        default:
-          return null;
-      }
+      return o.status == 'confirmed'
+          ? TextButton(onPressed: () => _act(ref, o.id, 'completed'), child: const Text('Mark completed'))
+          : null;
     }
-    // Product flow: placed → accept/reject → prepare → deliver → complete.
-    switch (o.status) {
-      case 'placed':
-        return Row(children: [
-          Expanded(child: _btn('Accept', AppColors.primary, () => _accept(ref, o.id), filled: true)),
-          const SizedBox(width: 12),
-          Expanded(child: _btn('Reject', AppColors.error, () => _reject(ref, o.id))),
-        ]);
-      case 'confirmed':
-        return _btn('Start preparing', AppColors.primary, () => _act(ref, o.id, 'in_progress'), filled: true, full: true);
-      case 'in_progress':
-        return _btn('Mark delivered', AppColors.primary, () => _act(ref, o.id, 'delivered'), filled: true, full: true);
-      case 'delivered':
-        return _btn('Mark completed', AppColors.primary, () => _act(ref, o.id, 'completed'), filled: true, full: true);
-      default:
-        return null;
-    }
-  }
-
-  Widget _btn(String label, Color color, VoidCallback onTap, {bool filled = false, bool full = false}) {
-    final child = filled
-        ? ElevatedButton(
-            onPressed: onTap,
-            style: ElevatedButton.styleFrom(backgroundColor: color, minimumSize: const Size.fromHeight(44)),
-            child: Text(label))
-        : OutlinedButton(
-            onPressed: onTap,
-            style: OutlinedButton.styleFrom(foregroundColor: color, side: BorderSide(color: color), minimumSize: const Size.fromHeight(44)),
-            child: Text(label));
-    return full ? SizedBox(width: double.infinity, child: child) : child;
+    return switch (o.status) {
+      'confirmed' => TextButton(onPressed: () => _act(ref, o.id, 'in_progress'), child: const Text('Start preparing')),
+      'in_progress' => TextButton(onPressed: () => _act(ref, o.id, 'delivered'), child: const Text('Mark delivered')),
+      'delivered' => TextButton(onPressed: () => _act(ref, o.id, 'completed'), child: const Text('Mark completed')),
+      _ => null,
+    };
   }
 
   @override
@@ -81,23 +71,299 @@ class IncomingOrdersScreen extends ConsumerWidget {
     final async = ref.watch(incomingOrdersProvider);
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Incoming Orders')),
+      appBar: AppBar(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        title: const Text('Your Orders & Bookings'),
+      ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
         error: (e, _) => Center(child: OutlinedButton(onPressed: () => ref.invalidate(incomingOrdersProvider), child: const Text('Retry'))),
         data: (orders) {
-          if (orders.isEmpty) return const Center(child: Text('No orders yet.'));
+          final needsAction = orders.where((o) => _needsActionStatuses.contains(o.status)).toList();
+          final ongoing = orders.where((o) => _ongoingStatuses.contains(o.status)).toList();
+          if (needsAction.isEmpty && ongoing.isEmpty) return const Center(child: Text('No orders yet.'));
           return RefreshIndicator(
             color: AppColors.primary,
-            onRefresh: () async => ref.invalidate(incomingOrdersProvider),
-            child: ListView.separated(
+            onRefresh: () => ref.refresh(incomingOrdersProvider.future),
+            child: ListView(
               padding: const EdgeInsets.all(16),
-              itemCount: orders.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 12),
-              itemBuilder: (_, i) => OrderCard(order: orders[i], trailing: _actions(ref, orders[i])),
+              children: [
+                if (needsAction.isNotEmpty) ...[
+                  const _SectionTitle('New Coming Orders'),
+                  const SizedBox(height: 10),
+                  for (final o in needsAction) ...[
+                    _NewOrderCard(
+                      order: o,
+                      onAccept: () => _accept(ref, o.id),
+                      onReject: () => _reject(ref, o.id),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                ],
+                if (ongoing.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const _SectionTitle('Ongoing Orders'),
+                  const SizedBox(height: 10),
+                  for (final o in ongoing) ...[
+                    _OngoingOrderRow(order: o, action: _ongoingAction(ref, o)),
+                    const SizedBox(height: 10),
+                  ],
+                ],
+              ],
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.text);
+  final String text;
+  @override
+  Widget build(BuildContext context) =>
+      Text(text, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink));
+}
+
+class _NewOrderCard extends StatelessWidget {
+  const _NewOrderCard({required this.order, required this.onAccept, required this.onReject});
+  final OrderModel order;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    final firstItem = order.items.isNotEmpty ? order.items.first : null;
+    final otherItems = order.items.length > 1
+        ? order.items.skip(1).map((i) => '${i.productName} (${i.quantity.toStringAsFixed(0)} pcs)').join(', ')
+        : null;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Avatar(name: order.buyerName, photoUrl: order.buyerPhoto, radius: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(order.buyerName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5)),
+                    if (order.deliveryAddress != null && order.deliveryAddress!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on_outlined, size: 13, color: AppColors.textMuted),
+                          const SizedBox(width: 3),
+                          Expanded(
+                            child: Text(order.deliveryAddress!,
+                                maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text('₹${order.totalAmount.toStringAsFixed(0)}',
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5)),
+                  const SizedBox(height: 4),
+                  if (order.items.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(color: AppColors.field, borderRadius: BorderRadius.circular(20)),
+                      child: Text('${order.items.length} Items', style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+                    ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Order ID: ${_orderRef(order.id)}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                    if (order.placedAt != null)
+                      Text('Order Placed: ${_timeAgo(order.placedAt!)}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                    if (order.deliveryTimeWindow != null && order.deliveryTimeWindow!.isNotEmpty)
+                      Text('Expected Delivery: ${order.deliveryTimeWindow}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                  ],
+                ),
+              ),
+              if (order.buyerId != null)
+                InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => ChatScreen(otherUserId: order.buyerId!, otherName: order.buyerName, otherPhoto: order.buyerPhoto),
+                  )),
+                  child: const Padding(
+                    padding: EdgeInsets.all(6),
+                    child: Icon(Icons.chat_bubble_rounded, color: AppColors.primary, size: 22),
+                  ),
+                ),
+            ],
+          ),
+          if (firstItem != null) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: DecoratedBox(
+                decoration: BoxDecoration(border: Border(top: BorderSide(color: AppColors.border, style: BorderStyle.solid))),
+                child: SizedBox(height: 1),
+              ),
+            ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: firstItem.productPhoto != null
+                      ? CachedNetworkImage(
+                          imageUrl: AppConfig.assetUrl(firstItem.productPhoto!),
+                          width: 52, height: 52, fit: BoxFit.cover)
+                      : Container(width: 52, height: 52, color: AppColors.field,
+                          child: const Icon(Icons.fastfood_outlined, color: AppColors.textMuted)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(firstItem.productName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                      if (otherItems != null) ...[
+                        const SizedBox(height: 2),
+                        Text(otherItems, style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                      ],
+                      if (firstItem.customizationNotes != null && firstItem.customizationNotes!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        InkWell(
+                          onTap: () => showDialog<void>(
+                            context: context,
+                            builder: (_) => AlertDialog(
+                              title: const Text('Customization'),
+                              content: Text(firstItem.customizationNotes!),
+                              actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+                            ),
+                          ),
+                          child: const Text('Customization',
+                              style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 12.5, decoration: TextDecoration.underline)),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: onAccept,
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, minimumSize: const Size.fromHeight(44)),
+                  child: const Text('Accept'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onReject,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error, side: const BorderSide(color: AppColors.error), minimumSize: const Size.fromHeight(44)),
+                  child: const Text('Reject'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OngoingOrderRow extends StatelessWidget {
+  const _OngoingOrderRow({required this.order, this.action});
+  final OrderModel order;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final photo = order.items.isNotEmpty ? order.items.first.productPhoto : null;
+    final statusLabel = _ongoingStatusLabels[order.status] ?? order.statusLabel;
+    final timing = (order.deliveryTimeWindow != null && order.deliveryTimeWindow!.isNotEmpty)
+        ? order.deliveryTimeWindow!
+        : (order.placedAt != null ? DateFormat('MMM d, h:mm a').format(order.placedAt!) : '');
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: photo != null
+                    ? CachedNetworkImage(imageUrl: AppConfig.assetUrl(photo), width: 44, height: 44, fit: BoxFit.cover)
+                    : Container(width: 44, height: 44, color: AppColors.field, child: const Icon(Icons.fastfood_outlined, size: 20, color: AppColors.textMuted)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(order.buyerName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5)),
+                    const SizedBox(height: 2),
+                    Text('Order ID: ${_orderRef(order.id)}', style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                    if (timing.isNotEmpty) Text(timing, style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (order.items.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(color: AppColors.field, borderRadius: BorderRadius.circular(20)),
+                      child: Text('${order.items.length} Items', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                    ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(color: AppColors.warning.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(20)),
+                    child: Text(statusLabel, style: const TextStyle(fontSize: 11, color: AppColors.warning, fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          ?action,
+        ],
       ),
     );
   }

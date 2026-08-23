@@ -33,7 +33,7 @@ class ProfileRepository {
         (_) {},
       );
 
-  Future<void> updateEmail(String email) =>
+  Future<void> updateEmail(String? email) =>
       _wrap(() => _dio.patch('/profiles/me/email', data: {'email': email}), (_) {});
 
   /// mediaType: photo | video
@@ -132,6 +132,39 @@ class ProfileRepository {
   /// again after a later edit keeps the original completion time.
   Future<void> markOnboardingComplete() async =>
       _wrap(() => _dio.post('/profiles/me/onboarding-complete'), (_) {});
+
+  /// profileVisibility/contactVisibility: all | area | apartment | only_me (contact also: has_ordered).
+  Future<Map<String, String>> getVisibilitySettings() => _wrap(
+        () => _dio.get('/profiles/me/visibility'),
+        (d) => (d as Map<String, dynamic>).map((k, v) => MapEntry(k, v as String)),
+      );
+
+  Future<void> setVisibilitySettings({String? profileVisibility, String? contactVisibility}) => _wrap(
+        () => _dio.put('/profiles/me/visibility', data: {
+          if (profileVisibility != null) 'profileVisibility': profileVisibility,
+          if (contactVisibility != null) 'contactVisibility': contactVisibility,
+        }),
+        (_) {},
+      );
+
+  Future<Map<String, bool>> getNotificationPrefs() => _wrap(
+        () => _dio.get('/profiles/me/notification-prefs'),
+        (d) => (d as Map<String, dynamic>).map((k, v) => MapEntry(k, v as bool)),
+      );
+
+  Future<void> setNotificationPrefs(Map<String, bool> values) =>
+      _wrap(() => _dio.put('/profiles/me/notification-prefs', data: values), (_) {});
+
+  Future<void> updatePhone(String? mobile) =>
+      _wrap(() => _dio.patch('/profiles/me/phone', data: {'mobile': mobile}), (_) {});
+
+  Future<void> changePassword({String? currentPassword, required String newPassword}) => _wrap(
+        () => _dio.patch('/profiles/me/password', data: {
+          if (currentPassword != null) 'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        }),
+        (_) {},
+      );
 }
 
 final profileRepositoryProvider = Provider<ProfileRepository>((ref) {

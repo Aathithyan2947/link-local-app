@@ -23,10 +23,10 @@ class _PaymentUpiScreenState extends ConsumerState<PaymentUpiScreen> {
 
   static const _apps = ['GPay', 'PhonePe', 'PayTM', 'BHIM UPI', 'Others'];
 
-  Future<void> _pay() async {
+  Future<void> _pay({String? app}) async {
     setState(() => _paying = true);
     try {
-      await ref.read(ordersRepositoryProvider).pay(widget.orderId, paymentMethod: 'upi');
+      await ref.read(ordersRepositoryProvider).pay(widget.orderId, paymentMethod: 'upi', paymentSubMethod: app);
       if (!mounted) return;
       final done = await Navigator.of(context).push<bool>(
         MaterialPageRoute(builder: (_) => PaymentSuccessScreen(amount: widget.total)),
@@ -123,7 +123,7 @@ class _PaymentUpiScreenState extends ConsumerState<PaymentUpiScreen> {
             children: _apps
                 .map((a) => ActionChip(
                       label: Text(a),
-                      onPressed: _paying ? null : _pay,
+                      onPressed: _paying ? null : () => _pay(app: a),
                       backgroundColor: AppColors.surface,
                       side: const BorderSide(color: AppColors.border),
                     ))

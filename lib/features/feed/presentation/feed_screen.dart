@@ -46,7 +46,7 @@ class FeedScreen extends ConsumerWidget {
           }
           return RefreshIndicator(
             color: AppColors.primary,
-            onRefresh: () async => ref.invalidate(feedProvider),
+            onRefresh: () => ref.refresh(feedProvider.future),
             child: ListView.builder(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
               itemCount: posts.length,

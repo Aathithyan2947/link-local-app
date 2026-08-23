@@ -61,6 +61,7 @@ class _AddressProofScreenState extends ConsumerState<AddressProofScreen> {
             description: _docType == 'other' ? _descCtrl.text : null,
           );
       ref.invalidate(myAddressProofProvider);
+      await ref.read(myAddressProofProvider.future);
       await ref.read(authControllerProvider.notifier).refreshUser();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

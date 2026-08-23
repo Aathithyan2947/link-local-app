@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../core/media/image_editor.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../discovery/discovery_repository.dart';
 import '../data/feed_repository.dart';
@@ -30,8 +31,15 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   }
 
   Future<void> _pickImage() async {
-    final img = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (img != null) setState(() => _image = img);
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (picked == null) return;
+    if (!mounted) return;
+    final bytes = await picked.readAsBytes();
+    if (!mounted) return;
+    final edited = await editPickedImageBytes(context, bytes);
+    if (edited == null) return;
+    final path = await writeEditedImageToTempFile(edited);
+    setState(() => _image = XFile(path));
   }
 
   Future<void> _submit() async {
@@ -43,7 +51,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
     try {
       final photoUrls = <String>[];
       if (_image != null) {
-        final url = await ref.read(discoveryRepositoryProvider).uploadImage(_image!.path);
+        final url = await ref.read(discoveryRepositoryProvider).uploadImage(_image!.path, type: 'post');
         photoUrls.add(url);
       }
       await ref.read(feedRepositoryProvider).createPost(

@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../core/media/image_editor.dart';
 import '../../../../core/theme/app_colors.dart';
 
 typedef PickedDoc = ({String name, Uint8List bytes});
@@ -44,18 +45,23 @@ Future<PickedDoc?> pickProofDocument(BuildContext context) async {
     ),
   );
 
-  if (source == 'camera') return _fromCamera();
-  if (source == 'file') return _fromFile();
+  if (!context.mounted) return null;
+  if (source == 'camera') return _fromCamera(context);
+  if (source == 'file') return _fromFile(context);
   return null;
 }
 
-Future<PickedDoc?> _fromCamera() async {
+Future<PickedDoc?> _fromCamera(BuildContext context) async {
   final shot = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 75, maxWidth: 1600);
   if (shot == null) return null;
-  return (name: shot.name, bytes: await shot.readAsBytes());
+  final rawBytes = await shot.readAsBytes();
+  if (!context.mounted) return null;
+  final edited = await editPickedImageBytes(context, rawBytes);
+  if (edited == null) return null;
+  return (name: shot.name, bytes: edited);
 }
 
-Future<PickedDoc?> _fromFile() async {
+Future<PickedDoc?> _fromFile(BuildContext context) async {
   final result = await FilePicker.pickFiles(
     withData: true,
     type: FileType.custom,
@@ -63,7 +69,12 @@ Future<PickedDoc?> _fromFile() async {
   );
   final f = result?.files.single;
   if (f?.bytes == null) return null;
-  return (name: f!.name, bytes: f.bytes!);
+  final isPdf = f!.extension?.toLowerCase() == 'pdf';
+  if (isPdf) return (name: f.name, bytes: f.bytes!);
+  if (!context.mounted) return null;
+  final edited = await editPickedImageBytes(context, f.bytes!);
+  if (edited == null) return null;
+  return (name: f.name, bytes: edited);
 }
 
 class _SourceIcon extends StatelessWidget {

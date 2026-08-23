@@ -62,7 +62,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
               ),
               data: (post) => RefreshIndicator(
                 color: AppColors.primary,
-                onRefresh: () async => ref.invalidate(postDetailProvider(widget.id)),
+                onRefresh: () => ref.refresh(postDetailProvider(widget.id).future),
                 child: ListView(
                   padding: const EdgeInsets.all(16),
                   children: [

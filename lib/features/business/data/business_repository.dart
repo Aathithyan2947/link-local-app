@@ -34,8 +34,11 @@ class BusinessRepository {
       _dio.patch('/profiles/me/products/$id', data: data);
   Future<void> deleteProduct(int id) async => _dio.delete('/profiles/me/products/$id');
 
-  Future<String> uploadImage(String filePath) async {
-    final form = FormData.fromMap({'file': await MultipartFile.fromFile(filePath)});
+  Future<String> uploadImage(String filePath, {String? type}) async {
+    final form = FormData.fromMap({
+      'file': await MultipartFile.fromFile(filePath),
+      if (type != null) 'type': type,
+    });
     final res = await _dio.post('/media', data: form);
     return res.data['data']['url'] as String;
   }

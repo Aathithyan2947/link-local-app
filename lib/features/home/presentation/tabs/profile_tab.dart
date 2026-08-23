@@ -3,17 +3,45 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../auth/application/auth_controller.dart';
+import '../../../business/data/business_repository.dart';
+import '../../../business/presentation/blackout_dates_screen.dart';
+import '../../../business/presentation/setup/sp_setup_wizard_screen.dart';
 import '../../../business/presentation/sp_dashboard_screen.dart';
 import '../../../feed/presentation/feed_screen.dart';
 import '../../../messages/presentation/conversations_screen.dart';
-import '../../../notifications/presentation/notifications_screen.dart';
+import '../../../discovery/presentation/my_events_screen.dart';
+import '../../../discovery/presentation/my_groups_screen.dart';
+import '../../../discovery/presentation/my_reviews_screen.dart';
 import '../../../discovery/presentation/service_provider_detail_screen.dart';
-import '../../../orders/presentation/my_orders_screen.dart';
+import '../../../orders/presentation/orders_hub_screen.dart';
 import '../../../orders/presentation/payments_screen.dart';
+import '../../../profile/data/profile_models.dart';
 import '../../../profile/data/profile_repository.dart';
-import '../../../profile/presentation/privacy_settings_screen.dart';
-import '../../../profile/presentation/profile_completion_screen.dart';
+import '../../../profile/presentation/blocked_users_screen.dart';
+import '../../../profile/presentation/contact_visibility_screen.dart';
+import '../../../profile/presentation/login_security_screen.dart';
+import '../../../profile/presentation/notification_settings_screen.dart';
+import '../../../profile/presentation/profile_visibility_screen.dart';
+import '../../../profile/presentation/sections/basic_sections.dart';
+import '../../../referrals/presentation/referrals_screen.dart';
 import '../widgets/home_widgets.dart';
+
+/// SP → their service subcategory (e.g. "Home Baker"); resident → their
+/// profession if set; otherwise omitted, same as the other optional card lines.
+String? _roleLabel(ProfileDetail? profile) {
+  if (profile == null) return null;
+  if (profile.isServiceProvider && profile.serviceTypes.isNotEmpty) return profile.serviceTypes.first.label;
+  if (profile.professions.isNotEmpty) return profile.professions.first.label;
+  return null;
+}
+
+/// The SP's own public listing — same destination for the card's Edit button
+/// and the "My Profile" menu item below it, so both do the same job.
+void _openMyProfile(BuildContext context, WidgetRef ref) {
+  final myId = ref.read(myProfileProvider).asData?.value.id;
+  if (myId == null) return;
+  Navigator.of(context).push(MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: myId)));
+}
 
 /// The user's own profile — a settings hub (Profile Page frame): identity card
 /// + Edit, then Personal / Transaction / Privacy menu sections, and Log Out.
@@ -27,6 +55,30 @@ class ProfileTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authControllerProvider).user;
+    final profile = ref.watch(myProfileProvider).value;
+    final features = ref.watch(myProviderFeaturesProvider).asData?.value;
+    final hasMenu = features?.hasMenu ?? false;
+    final hasDateBooking = features?.hasDateBooking ?? false;
+    final availability = ref.watch(myAvailabilityProvider).asData?.value.availability;
+    final shopSettingsItems = user?.isServiceProvider != true
+        ? const <_MenuItem>[]
+        : [
+            if (hasDateBooking)
+              _MenuItem(Icons.event_available_outlined, 'Availability & schedule', () async {
+                await Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => SpSetupWizardScreen(
+                    initialAvailability: availability,
+                    initialName: user?.name,
+                    hasMenu: hasMenu,
+                    hasDateBooking: hasDateBooking,
+                  ),
+                ));
+                ref.invalidate(myAvailabilityProvider);
+              }),
+            if (hasDateBooking)
+              _MenuItem(Icons.event_busy_outlined, 'Off days',
+                  () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BlackoutDatesScreen()))),
+          ];
     return Scaffold(
       backgroundColor: AppColors.background,
       body: ListView(
@@ -34,13 +86,18 @@ class ProfileTab extends ConsumerWidget {
         children: [
           _ProfileCard(
             name: user?.name ?? 'Member',
-            address: user?.city,
+            role: _roleLabel(profile),
+            address: profile?.address ?? user?.city,
             email: user?.email,
             phone: user?.mobile,
             photoUrl: user?.photoUrl,
-            onEdit: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ProfileCompletionScreen()),
-            ),
+            onEdit: () {
+              if (user?.isServiceProvider == true) {
+                _openMyProfile(context, ref);
+              } else {
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BasicInfoScreen()));
+              }
+            },
           ),
           if (user?.isServiceProvider == true) ...[
             Padding(
@@ -77,12 +134,7 @@ class ProfileTab extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(14),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(14),
-                  onTap: () {
-                    final myId = ref.read(myProfileProvider).asData?.value.id;
-                    if (myId == null) return;
-                    Navigator.of(context)
-                        .push(MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: myId)));
-                  },
+                  onTap: () => _openMyProfile(context, ref),
                   child: const Padding(
                     padding: EdgeInsets.all(16),
                     child: Row(
@@ -90,7 +142,7 @@ class ProfileTab extends ConsumerWidget {
                         Icon(Icons.visibility_outlined, color: AppColors.primary),
                         SizedBox(width: 14),
                         Expanded(
-                          child: Text('View My Profile',
+                          child: Text('My Profile',
                               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
                         ),
                         Icon(Icons.chevron_right, color: AppColors.textMuted),
@@ -101,32 +153,39 @@ class ProfileTab extends ConsumerWidget {
               ),
             ),
           ],
+          if (shopSettingsItems.isNotEmpty) _Section('My Shop Settings', shopSettingsItems),
           const SizedBox(height: 8),
           _Section('Personal', [
-            _MenuItem(Icons.event_outlined, 'Events', () => _soon(context, 'Events')),
-            _MenuItem(Icons.groups_outlined, 'Groups', () => _soon(context, 'Groups')),
-            _MenuItem(Icons.star_border_rounded, 'Reviews', () => _soon(context, 'Reviews')),
+            _MenuItem(Icons.event_outlined, 'Events',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyEventsScreen()))),
+            _MenuItem(Icons.groups_outlined, 'Groups',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyGroupsScreen()))),
+            _MenuItem(Icons.star_border_rounded, 'Reviews',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyReviewsScreen()))),
             _MenuItem(Icons.chat_bubble_outline, 'Posts',
                 () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FeedScreen()))),
-            _MenuItem(Icons.attach_money_rounded, 'Referrals', () => _soon(context, 'Referrals')),
+            _MenuItem(Icons.attach_money_rounded, 'Referrals',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ReferralsScreen()))),
           ]),
           _Section('Transaction History', [
             _MenuItem(Icons.credit_card_outlined, 'Payments',
                 () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PaymentsScreen()))),
             _MenuItem(Icons.receipt_long_outlined, 'Orders / Bookings',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyOrdersScreen()))),
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const OrdersHubScreen()))),
             _MenuItem(Icons.forum_outlined, 'Messages',
                 () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ConversationsScreen()))),
           ]),
           _Section('Privacy', [
-            _MenuItem(Icons.visibility_outlined, 'Profile visibility', () => _soon(context, 'Profile visibility')),
-            if (user?.isServiceProvider == true)
-              _MenuItem(Icons.call_outlined, 'Call visibility',
-                  () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PrivacySettingsScreen()))),
-            _MenuItem(Icons.shield_outlined, 'Sign in & Security', () => _soon(context, 'Sign in & Security')),
+            _MenuItem(Icons.visibility_outlined, 'Profile visibility',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ProfileVisibilityScreen()))),
+            _MenuItem(Icons.lock_outline, 'Log In & Change Password',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoginSecurityScreen()))),
             _MenuItem(Icons.notifications_none_rounded, 'Notifications & Alerts',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationsScreen()))),
-            _MenuItem(Icons.block_outlined, 'Blocked users', () => _soon(context, 'Blocked users')),
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()))),
+            _MenuItem(Icons.block_outlined, 'Blocked users',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BlockedUsersScreen()))),
+            _MenuItem(Icons.contact_phone_outlined, 'Contact Details Visiblity',
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ContactVisibilityScreen()))),
           ]),
           const SizedBox(height: 8),
           Padding(
@@ -167,6 +226,7 @@ class ProfileTab extends ConsumerWidget {
 class _ProfileCard extends StatelessWidget {
   const _ProfileCard({
     required this.name,
+    this.role,
     this.address,
     this.email,
     this.phone,
@@ -174,6 +234,7 @@ class _ProfileCard extends StatelessWidget {
     required this.onEdit,
   });
   final String name;
+  final String? role;
   final String? address;
   final String? email;
   final String? phone;
@@ -218,6 +279,13 @@ class _ProfileCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 19)),
+                    if (role != null && role!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(role!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13.5)),
+                    ],
                     if (address != null && address!.isNotEmpty) ...[
                       const SizedBox(height: 2),
                       Text(address!,

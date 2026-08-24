@@ -1,7 +1,9 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../orders/data/orders_repository.dart';
 import '../../orders/presentation/order_tracking_screen.dart';
@@ -18,16 +20,34 @@ class NotificationsScreen extends ConsumerWidget {
     ref.invalidate(unreadCountProvider);
   }
 
-  Future<void> _accept(WidgetRef ref, int orderId) async {
-    await ref.read(ordersRepositoryProvider).accept(orderId);
-    ref.invalidate(incomingOrdersProvider);
-    await _refresh(ref);
+  Future<void> _accept(BuildContext context, WidgetRef ref, int orderId) async {
+    try {
+      await ref.read(ordersRepositoryProvider).accept(orderId);
+      ref.invalidate(incomingOrdersProvider);
+      await _refresh(ref);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order accepted')));
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      final message = e is DioException ? ApiException.fromDio(e).message : 'Something went wrong. Please try again.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
-  Future<void> _reject(WidgetRef ref, int orderId) async {
-    await ref.read(ordersRepositoryProvider).reject(orderId);
-    ref.invalidate(incomingOrdersProvider);
-    await _refresh(ref);
+  Future<void> _reject(BuildContext context, WidgetRef ref, int orderId) async {
+    try {
+      await ref.read(ordersRepositoryProvider).reject(orderId);
+      ref.invalidate(incomingOrdersProvider);
+      await _refresh(ref);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order rejected')));
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      final message = e is DioException ? ApiException.fromDio(e).message : 'Something went wrong. Please try again.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   @override
@@ -73,8 +93,8 @@ class NotificationsScreen extends ConsumerWidget {
                     Navigator.of(context).push(MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: id)));
                   }
                 },
-                onAccept: () => _accept(ref, items[i].entityId!),
-                onReject: () => _reject(ref, items[i].entityId!),
+                onAccept: () => _accept(context, ref, items[i].entityId!),
+                onReject: () => _reject(context, ref, items[i].entityId!),
               ),
             ),
           );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../auth/application/auth_controller.dart';
 import '../../payments/presentation/payment_method_screen.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
@@ -14,7 +15,7 @@ class OrderTrackingScreen extends ConsumerWidget {
 
   Future<void> _confirmAndPay(BuildContext context, WidgetRef ref, OrderModel o) async {
     final paid = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => PaymentMethodScreen(orderId: o.id, total: o.totalAmount)),
+      MaterialPageRoute(builder: (_) => PaymentMethodScreen(orderId: o.id, total: o.amountDue)),
     );
     if (paid == true) {
       ref.invalidate(orderByIdProvider(orderId));
@@ -26,7 +27,8 @@ class OrderTrackingScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(orderByIdProvider(orderId));
     final o = async.asData?.value;
-    final canPay = o != null && o.isBooking && o.status == 'accepted' && !o.paid;
+    final myUserId = ref.watch(authControllerProvider).user?.id;
+    final canPay = o != null && o.isBooking && o.status == 'accepted' && !o.paid && o.buyerId == myUserId;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: Text('Order #$orderId')),

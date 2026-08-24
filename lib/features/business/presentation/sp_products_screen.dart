@@ -15,7 +15,12 @@ import 'add_product_screen.dart';
 /// which hid any other field configured there. The step now renders its fields and links
 /// here instead.
 class SpProductsScreen extends ConsumerWidget {
-  const SpProductsScreen({super.key});
+  const SpProductsScreen({super.key, this.fromOnboarding = false});
+
+  /// True only when reached from the Service Type onboarding step's "Manage items" link —
+  /// shows a "Done and Proceed" button that pops straight back into the wizard chain, instead
+  /// of requiring a manual back-then-Next. False everywhere else (My Shop, edit-pencil).
+  final bool fromOnboarding;
 
   Future<void> _add(BuildContext context, WidgetRef ref) async {
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AddProductScreen()));
@@ -57,10 +62,28 @@ class SpProductsScreen extends ConsumerWidget {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: ElevatedButton(
-            onPressed: () => _add(context, ref),
-            child: const Text('+ Add Item(s)'),
-          ),
+          child: fromOnboarding
+              ? Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => _add(context, ref),
+                        child: const Text('+ Add Item(s)'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.of(context).pop(true),
+                        child: const Text('Done and Proceed'),
+                      ),
+                    ),
+                  ],
+                )
+              : ElevatedButton(
+                  onPressed: () => _add(context, ref),
+                  child: const Text('+ Add Item(s)'),
+                ),
         ),
       ),
       body: async.when(

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/media/image_editor.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/input_formatters.dart';
 import '../../discovery/discovery_repository.dart';
@@ -85,9 +87,10 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
       ref.invalidate(myProductsProvider);
       ref.invalidate(serviceProviderDetailProvider);
       Navigator.of(context).pop();
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save product')));
+      final message = e is DioException ? ApiException.fromDio(e).message : 'Could not save product';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -194,6 +197,9 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
           padding: const EdgeInsets.all(20),
           children: [
             _imagePicker(),
+            const SizedBox(height: 6),
+            const Text('JPG, PNG or WEBP · up to 10MB',
+                style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
             const SizedBox(height: 16),
             _field(_name, 'Product Name', required: true),
             const SizedBox(height: 12),
@@ -337,7 +343,7 @@ class _CustomizationSheetState extends State<_CustomizationSheet> {
             ),
           ],
           const SizedBox(height: 16),
-          const Text('How does the resident answer?',
+          const Text('How would you like your customers to respond?',
               style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
           const SizedBox(height: 6),
           SegmentedButton<String>(

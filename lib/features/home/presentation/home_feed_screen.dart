@@ -173,9 +173,9 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
               else if (showCongratsBanner)
                 const _ProfileCongratsBanner(),
               if (showDocReminder) _DocReminderBanner(rejected: proof.status == 'rejected'),
+              _SectionHeader('Service provider in', '${spOverride?.label ?? feed.city?.name ?? ''}(${spSection.total})',
+                  dropdown: true, onTap: () => _pickSectionArea(spSectionAreaProvider)),
               if (spSection.items.isNotEmpty) ...[
-                _SectionHeader('Service provider in', '${spOverride?.label ?? feed.city?.name ?? ''}(${spSection.total})',
-                    dropdown: true, onTap: () => _pickSectionArea(spSectionAreaProvider)),
                 _ServiceCategoryRow(
                   items: spSection.items,
                   selectedCategory: _selectedCategory,
@@ -184,7 +184,10 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                 ),
                 const SizedBox(height: 12),
                 ...visibleSps.map((sp) => _SpCard(sp: sp, city: feed.city?.name ?? '')),
-              ],
+              ] else
+                _EmptyScopedSection(
+                  label: 'No service providers in ${spOverride?.label ?? feed.city?.name ?? 'this area'} yet.',
+                ),
               if (feed.discussions.isNotEmpty) ...[
                 _SectionHeader('Community Discussions in', feed.city?.name ?? 'your area'),
                 const Padding(
@@ -209,16 +212,22 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                   ),
                 ),
               ],
-              if (workshopsSection.items.isNotEmpty) ...[
-                _SectionHeader('Workshops in', '${workshopsOverride?.label ?? feed.city?.name ?? ''}(${workshopsSection.total})',
-                    dropdown: true, onTap: () => _pickSectionArea(workshopsSectionAreaProvider)),
-                _WorkshopRow(items: workshopsSection.items),
-              ],
-              if (groupsSection.items.isNotEmpty) ...[
-                _SectionHeader('Groups in', '${groupsOverride?.label ?? feed.city?.name ?? ''}(${groupsSection.total})',
-                    dropdown: true, onTap: () => _pickSectionArea(groupsSectionAreaProvider)),
-                _GroupsWrap(items: groupsSection.items),
-              ],
+              _SectionHeader('Workshops in', '${workshopsOverride?.label ?? feed.city?.name ?? ''}(${workshopsSection.total})',
+                  dropdown: true, onTap: () => _pickSectionArea(workshopsSectionAreaProvider)),
+              if (workshopsSection.items.isNotEmpty)
+                _WorkshopRow(items: workshopsSection.items)
+              else
+                _EmptyScopedSection(
+                  label: 'No workshops in ${workshopsOverride?.label ?? feed.city?.name ?? 'this area'} yet.',
+                ),
+              _SectionHeader('Groups in', '${groupsOverride?.label ?? feed.city?.name ?? ''}(${groupsSection.total})',
+                  dropdown: true, onTap: () => _pickSectionArea(groupsSectionAreaProvider)),
+              if (groupsSection.items.isNotEmpty)
+                _GroupsWrap(items: groupsSection.items)
+              else
+                _EmptyScopedSection(
+                  label: 'No groups in ${groupsOverride?.label ?? feed.city?.name ?? 'this area'} yet.',
+                ),
               _ReferralBanner(info: feed.referral),
             ],
           ),
@@ -460,6 +469,20 @@ class _SectionHeader extends StatelessWidget {
       child: onTap == null ? row : GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: row),
     );
   }
+}
+
+/// Shown under a scoped section's header instead of letting the whole section (header +
+/// area dropdown included) disappear when the picked area has no data — keeps the dropdown
+/// reachable so the member can just pick a different area.
+class _EmptyScopedSection extends StatelessWidget {
+  const _EmptyScopedSection({required this.label});
+  final String label;
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+        child: Text('$label Try a different area from the dropdown above.',
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+      );
 }
 
 // ── Service provider category shortcuts ──────────────────────

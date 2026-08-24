@@ -133,6 +133,7 @@ class ServiceProviderDetail {
     this.publishedEmail,
     this.email,
     this.userId,
+    this.userType = 'resident',
     this.providerKind = 'product',
     this.hasMenu = false,
     this.hasDateBooking = false,
@@ -177,6 +178,8 @@ class ServiceProviderDetail {
   final String? publishedEmail;
   final String? email;
   final int? userId;
+  final String userType; // resident | service_provider | business_listing
+  bool get isServiceProvider => userType == 'service_provider';
   final String providerKind; // product (menu/cart) | service (charges/booking)
   final bool hasMenu; // true when any subcategory type == 'menu'
   final bool hasDateBooking; // true when any subcategory type == 'date'
@@ -260,6 +263,7 @@ class ServiceProviderDetail {
       userId: (j['user'] as Map<String, dynamic>?)?['id'] != null
           ? _asInt((j['user'] as Map<String, dynamic>)['id'])
           : null,
+      userType: (j['user'] as Map<String, dynamic>?)?['userType'] as String? ?? 'resident',
       providerKind: j['providerKind'] as String? ?? 'service',
       hasMenu: j['hasMenu'] as bool? ?? featureTypes.contains('menu'),
       hasDateBooking: j['hasDateBooking'] as bool? ?? featureTypes.contains('date'),

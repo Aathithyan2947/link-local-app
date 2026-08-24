@@ -105,7 +105,7 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
       if (!mounted) return;
       // Route through the Payment method + UPI pages (mock gateway).
       final paid = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(builder: (_) => PaymentMethodScreen(orderId: order.id, total: order.totalAmount)),
+        MaterialPageRoute(builder: (_) => PaymentMethodScreen(orderId: order.id, total: order.amountDue)),
       );
       if (!mounted) return;
       if (paid == true) {

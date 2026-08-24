@@ -35,8 +35,9 @@ String? _roleLabel(ProfileDetail? profile) {
   return null;
 }
 
-/// The SP's own public listing — same destination for the card's Edit button
-/// and the "My Profile" menu item below it, so both do the same job.
+/// The member's own profile — same destination for the card's Edit button and the "My
+/// Profile" menu item below it, so both do the same job. `ServiceProviderDetailScreen`
+/// itself trims down to the resident-appropriate sections when the owner isn't an SP.
 void _openMyProfile(BuildContext context, WidgetRef ref) {
   final myId = ref.read(myProfileProvider).asData?.value.id;
   if (myId == null) return;
@@ -99,7 +100,7 @@ class ProfileTab extends ConsumerWidget {
               }
             },
           ),
-          if (user?.isServiceProvider == true) ...[
+          if (user?.isServiceProvider == true)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: Material(
@@ -127,32 +128,31 @@ class ProfileTab extends ConsumerWidget {
                 ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-              child: Material(
-                color: AppColors.surface,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: Material(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+              child: InkWell(
                 borderRadius: BorderRadius.circular(14),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: () => _openMyProfile(context, ref),
-                  child: const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Icon(Icons.visibility_outlined, color: AppColors.primary),
-                        SizedBox(width: 14),
-                        Expanded(
-                          child: Text('My Profile',
-                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
-                        ),
-                        Icon(Icons.chevron_right, color: AppColors.textMuted),
-                      ],
-                    ),
+                onTap: () => _openMyProfile(context, ref),
+                child: const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Icon(Icons.visibility_outlined, color: AppColors.primary),
+                      SizedBox(width: 14),
+                      Expanded(
+                        child: Text('My Profile',
+                            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
+                      ),
+                      Icon(Icons.chevron_right, color: AppColors.textMuted),
+                    ],
                   ),
                 ),
               ),
             ),
-          ],
+          ),
           if (shopSettingsItems.isNotEmpty) _Section('My Shop Settings', shopSettingsItems),
           const SizedBox(height: 8),
           _Section('Personal', [

@@ -151,6 +151,7 @@ class OrderModel {
     required this.platformFee,
     required this.discountApplied,
     required this.totalAmount,
+    required this.amountDue,
     this.rateType,
     this.rateAmount,
     this.specialInstructions,
@@ -180,6 +181,9 @@ class OrderModel {
   final double platformFee;
   final double discountApplied;
   final double totalAmount;
+  /// Amount owed for the "pay now" step — equals [totalAmount] unless the SP configured a
+  /// partial-advance % (product orders only; see backend `computeAmountDue`).
+  final double amountDue;
   final String? rateType;
   final double? rateAmount;
   final String? specialInstructions;
@@ -221,6 +225,7 @@ class OrderModel {
       platformFee: _asDouble(j['platformFee']),
       discountApplied: _asDouble(j['discountApplied']),
       totalAmount: _asDouble(j['totalAmount']),
+      amountDue: _asDouble(j['amountDue'] ?? j['totalAmount']),
       rateType: j['rateType'] as String?,
       rateAmount: j['rateAmount'] != null ? _asDouble(j['rateAmount']) : null,
       specialInstructions: j['specialInstructions'] as String?,

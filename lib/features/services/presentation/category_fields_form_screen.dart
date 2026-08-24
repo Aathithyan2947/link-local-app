@@ -394,7 +394,10 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
   /// template and feature flags, so they're fetched first; a failure just opens it empty.
   Future<void> _openMarkerEditor(bool isMenu) async {
     if (isMenu) {
-      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpProductsScreen()));
+      final proceed = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => SpProductsScreen(fromOnboarding: widget.nextCategories != null),
+      ));
+      if (proceed == true && mounted) await _save();
       return;
     }
     AvailabilityData? availability;

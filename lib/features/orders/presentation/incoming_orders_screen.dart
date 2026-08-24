@@ -1,9 +1,11 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../../messages/presentation/chat_screen.dart';
@@ -33,35 +35,61 @@ String _timeAgo(DateTime dt) {
 class IncomingOrdersScreen extends ConsumerWidget {
   const IncomingOrdersScreen({super.key});
 
-  Future<void> _act(WidgetRef ref, int id, String status) async {
-    await ref.read(ordersRepositoryProvider).updateStatus(id, status);
-    ref.invalidate(incomingOrdersProvider);
-    await ref.read(incomingOrdersProvider.future);
+  Future<void> _runAction(BuildContext context, WidgetRef ref, String successMessage, Future<void> Function() action) async {
+    try {
+      await action();
+      ref.invalidate(incomingOrdersProvider);
+      await ref.read(incomingOrdersProvider.future);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(successMessage)));
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      final message = e is DioException ? ApiException.fromDio(e).message : 'Something went wrong. Please try again.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
-  Future<void> _accept(WidgetRef ref, int id) async {
-    await ref.read(ordersRepositoryProvider).accept(id);
-    ref.invalidate(incomingOrdersProvider);
-    await ref.read(incomingOrdersProvider.future);
-  }
+  Future<void> _act(BuildContext context, WidgetRef ref, int id, String status, String label) => _runAction(
+        context,
+        ref,
+        label,
+        () => ref.read(ordersRepositoryProvider).updateStatus(id, status),
+      );
 
-  Future<void> _reject(WidgetRef ref, int id) async {
-    await ref.read(ordersRepositoryProvider).reject(id);
-    ref.invalidate(incomingOrdersProvider);
-    await ref.read(incomingOrdersProvider.future);
-  }
+  Future<void> _accept(BuildContext context, WidgetRef ref, int id) => _runAction(
+        context,
+        ref,
+        'Order accepted',
+        () => ref.read(ordersRepositoryProvider).accept(id),
+      );
+
+  Future<void> _reject(BuildContext context, WidgetRef ref, int id) => _runAction(
+        context,
+        ref,
+        'Order rejected',
+        () => ref.read(ordersRepositoryProvider).reject(id),
+      );
 
   /// The progress action shown on an ongoing order's row, if any.
-  Widget? _ongoingAction(WidgetRef ref, OrderModel o) {
+  Widget? _ongoingAction(BuildContext context, WidgetRef ref, OrderModel o) {
     if (o.isBooking) {
       return o.status == 'confirmed'
-          ? TextButton(onPressed: () => _act(ref, o.id, 'completed'), child: const Text('Mark completed'))
+          ? TextButton(
+              onPressed: () => _act(context, ref, o.id, 'completed', 'Marked as completed'),
+              child: const Text('Mark completed'))
           : null;
     }
     return switch (o.status) {
-      'confirmed' => TextButton(onPressed: () => _act(ref, o.id, 'in_progress'), child: const Text('Start preparing')),
-      'in_progress' => TextButton(onPressed: () => _act(ref, o.id, 'delivered'), child: const Text('Mark delivered')),
-      'delivered' => TextButton(onPressed: () => _act(ref, o.id, 'completed'), child: const Text('Mark completed')),
+      'confirmed' => TextButton(
+          onPressed: () => _act(context, ref, o.id, 'in_progress', 'Marked as in preparation'),
+          child: const Text('Start preparing')),
+      'in_progress' => TextButton(
+          onPressed: () => _act(context, ref, o.id, 'delivered', 'Marked as delivered'),
+          child: const Text('Mark delivered')),
+      'delivered' => TextButton(
+          onPressed: () => _act(context, ref, o.id, 'completed', 'Marked as completed'),
+          child: const Text('Mark completed')),
       _ => null,
     };
   }
@@ -95,8 +123,8 @@ class IncomingOrdersScreen extends ConsumerWidget {
                   for (final o in needsAction) ...[
                     _NewOrderCard(
                       order: o,
-                      onAccept: () => _accept(ref, o.id),
-                      onReject: () => _reject(ref, o.id),
+                      onAccept: () => _accept(context, ref, o.id),
+                      onReject: () => _reject(context, ref, o.id),
                     ),
                     const SizedBox(height: 14),
                   ],
@@ -106,7 +134,7 @@ class IncomingOrdersScreen extends ConsumerWidget {
                   const _SectionTitle('Ongoing Orders'),
                   const SizedBox(height: 10),
                   for (final o in ongoing) ...[
-                    _OngoingOrderRow(order: o, action: _ongoingAction(ref, o)),
+                    _OngoingOrderRow(order: o, action: _ongoingAction(context, ref, o)),
                     const SizedBox(height: 10),
                   ],
                 ],
@@ -136,9 +164,6 @@ class _NewOrderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final firstItem = order.items.isNotEmpty ? order.items.first : null;
-    final otherItems = order.items.length > 1
-        ? order.items.skip(1).map((i) => '${i.productName} (${i.quantity.toStringAsFixed(0)} pcs)').join(', ')
-        : null;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -247,25 +272,19 @@ class _NewOrderCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(firstItem.productName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                      if (otherItems != null) ...[
-                        const SizedBox(height: 2),
-                        Text(otherItems, style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
-                      ],
-                      if (firstItem.customizationNotes != null && firstItem.customizationNotes!.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        InkWell(
-                          onTap: () => showDialog<void>(
-                            context: context,
-                            builder: (_) => AlertDialog(
-                              title: const Text('Customization'),
-                              content: Text(firstItem.customizationNotes!),
-                              actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
-                            ),
-                          ),
-                          child: const Text('Customization',
-                              style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 12.5, decoration: TextDecoration.underline)),
+                      for (final item in order.items) ...[
+                        Text(
+                          item.quantity > 1
+                              ? '${item.productName} × ${item.quantity.toStringAsFixed(0)}'
+                              : item.productName,
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                         ),
+                        if (item.customizationNotes != null && item.customizationNotes!.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(item.customizationNotes!,
+                              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                        ],
+                        if (item != order.items.last) const SizedBox(height: 8),
                       ],
                     ],
                   ),

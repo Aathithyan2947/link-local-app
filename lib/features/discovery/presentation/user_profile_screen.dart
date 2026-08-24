@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../auth/application/auth_controller.dart';
 import '../../home/data/home_models.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../../messages/presentation/chat_screen.dart';
@@ -111,6 +113,7 @@ class UserProfileScreen extends ConsumerWidget {
   // ── Header ─────────────────────────────────────────────────
   Widget _header(BuildContext context, WidgetRef ref, PublicProfile p) {
     final topPad = MediaQuery.of(context).padding.top;
+    final isOwner = ref.watch(authControllerProvider).user?.id == p.userId;
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(16, topPad + 8, 16, 20),
@@ -129,10 +132,11 @@ class UserProfileScreen extends ConsumerWidget {
                 child: const Icon(Icons.chevron_left, color: Colors.white, size: 28),
               ),
               const Spacer(),
-              TextButton(
-                onPressed: () => _toggleBlock(context, ref, p),
-                child: const Text('Block', style: TextStyle(color: Colors.white70)),
-              ),
+              if (!isOwner)
+                TextButton(
+                  onPressed: () => _toggleBlock(context, ref, p),
+                  child: const Text('Block', style: TextStyle(color: Colors.white70)),
+                ),
             ],
           ),
           const SizedBox(height: 4),
@@ -159,29 +163,42 @@ class UserProfileScreen extends ConsumerWidget {
                         ),
                       ]),
                     ],
+                    if (p.mobile != null && p.mobile!.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      InkWell(
+                        onTap: () => launchUrl(Uri(scheme: 'tel', path: p.mobile)),
+                        child: Row(children: [
+                          const Icon(Icons.call, size: 14, color: Colors.white70),
+                          const SizedBox(width: 3),
+                          Text(p.mobile!, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                        ]),
+                      ),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => ChatScreen(otherUserId: p.userId, otherName: p.name, otherPhoto: p.photoUrl),
-              )),
-              icon: const Icon(Icons.chat_bubble_outline, size: 18),
-              label: const Text('Message'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: AppColors.primary,
-                elevation: 0,
-                minimumSize: const Size.fromHeight(44),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          if (!isOwner) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => ChatScreen(otherUserId: p.userId, otherName: p.name, otherPhoto: p.photoUrl),
+                )),
+                icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                label: const Text('Message'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: AppColors.primary,
+                  elevation: 0,
+                  minimumSize: const Size.fromHeight(44),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );

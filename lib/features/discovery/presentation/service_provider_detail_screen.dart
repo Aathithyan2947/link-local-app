@@ -107,7 +107,9 @@ class _ServiceProviderDetailScreenState extends ConsumerState<ServiceProviderDet
                 onRefresh: () => ref.refresh(serviceProviderDetailProvider(widget.id).future),
                 child: ListView(
                   padding: const EdgeInsets.only(bottom: 90),
-                  children: isOwner ? _ownerSections(sp) : _residentSections(sp),
+                  children: isOwner
+                      ? (sp.isServiceProvider ? _ownerSections(sp) : _residentOwnerSections(sp))
+                      : _residentSections(sp),
                 ),
               ),
               if (!isOwner && sp.hasMenu) CartBar(spId: sp.id),
@@ -161,6 +163,20 @@ List<Widget> _ownerSections(ServiceProviderDetail sp) {
       _Band(child: _CategoryFieldsBlock(sp: sp, isOwner: true, categories: const ['payment']))
     else if (!sp.hasMenu)
       _Band(child: _ChargesBlock(rates: sp.rates, isOwner: true)),
+    _EventsBlock(events: sp.events),
+    _PostsBlock(posts: sp.posts),
+    _Band(color: AppColors.surface, child: _GroupsBlock(groups: sp.groups)),
+  ];
+}
+
+/// A resident's own profile, reusing this same screen's owner-editable pieces but with every
+/// shop-specific block dropped: no Contact info (published business number), Item List,
+/// Work Gallery, Availability & Travel, Delivery Settings, or Payment & Fee/Charges.
+List<Widget> _residentOwnerSections(ServiceProviderDetail sp) {
+  return [
+    _TopBar(),
+    _ProfileHeader(sp: sp, isOwner: true),
+    _Band(color: AppColors.surface, child: _AboutBlock(sp: sp, isOwner: true)),
     _EventsBlock(events: sp.events),
     _PostsBlock(posts: sp.posts),
     _Band(color: AppColors.surface, child: _GroupsBlock(groups: sp.groups)),
@@ -509,6 +525,10 @@ class _OwnerBanner extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // SP-onboarding-completion nudge only — residents never go through this chain.
+    if (ref.watch(myProfileProvider).asData?.value.isServiceProvider != true) {
+      return const SizedBox.shrink();
+    }
     final fields = ref.watch(customFieldsProvider).asData?.value;
     final finished = ref.watch(myProfileProvider).asData?.value.hasFinishedOnboarding ?? false;
     // Same rule as the home banner: prompt until they've actually been through the chain, and
@@ -909,7 +929,7 @@ class _TravelDetails {
     final scheduleField = pick(_schedulePat);
 
     final serviceAreas = (pincodeField?.resolvedAreas?.isNotEmpty ?? false)
-        ? pincodeField!.resolvedAreas!.map((a) => a.label).toList()
+        ? pincodeField!.resolvedAreas!.map((a) => a.areaName).toList()
         : (sp.locationLabel != null ? [sp.locationLabel!] : const <String>[]);
 
     final extra = fields.where((f) => !matched.contains(f.fieldId) && (f.value?.trim().isNotEmpty ?? false)).toList();
@@ -1379,7 +1399,7 @@ class _CategoryFieldsBlock extends ConsumerWidget {
                                         color: AppColors.primarySurface,
                                         borderRadius: BorderRadius.circular(16),
                                       ),
-                                      child: Text(a.label,
+                                      child: Text(a.areaName,
                                           style: const TextStyle(
                                               color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w600)),
                                     ))
@@ -1407,11 +1427,9 @@ class _MenuBlock extends ConsumerWidget {
   final int spId;
   final bool isOwner;
 
-  static const _previewCount = 4;
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final preview = products.take(_previewCount).toList();
+    final preview = products;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 0, 4),
       child: Column(
@@ -1584,11 +1602,11 @@ class _GalleryBlock extends ConsumerWidget {
             child: _SectionTitle('Work Gallery'),
           ),
           SizedBox(
-            height: 64,
+            height: 130,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: items.length + (isOwner ? 1 : 0),
-              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
               itemBuilder: (_, i) {
                 if (isOwner && i == items.length) return _AddGalleryTile(spId: sp.id);
                 final item = items[i];
@@ -1618,58 +1636,66 @@ class _GalleryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        GestureDetector(
-          onTap: item.isVideo
-              ? null
-              : () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => _ImageViewerScreen(url: item.url, heroTag: 'gallery-${item.id}'),
-                  )),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: item.isVideo
-                ? Container(
-                    width: 114,
-                    height: 64,
-                    color: Colors.black87,
-                    alignment: Alignment.center,
-                    child: const Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 26),
-                  )
-                : Hero(
-                    tag: 'gallery-${item.id}',
-                    child: CachedNetworkImage(
-                      imageUrl: AppConfig.assetUrl(item.url),
-                      width: 114,
-                      height: 64,
-                      fit: BoxFit.cover,
-                      placeholder: (_, _) => Container(width: 114, height: 64, color: AppColors.primarySurface),
-                      errorWidget: (_, _, _) => Container(
-                        width: 114,
-                        height: 64,
-                        color: AppColors.primarySurface,
-                        child: const Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
+    return Container(
+      width: 150,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Stack(
+        children: [
+          GestureDetector(
+            onTap: item.isVideo
+                ? null
+                : () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => _ImageViewerScreen(url: item.url, heroTag: 'gallery-${item.id}'),
+                    )),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: item.isVideo
+                  ? Container(
+                      width: 128,
+                      height: 90,
+                      color: Colors.black87,
+                      alignment: Alignment.center,
+                      child: const Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 26),
+                    )
+                  : Hero(
+                      tag: 'gallery-${item.id}',
+                      child: CachedNetworkImage(
+                        imageUrl: AppConfig.assetUrl(item.url),
+                        width: 128,
+                        height: 90,
+                        fit: BoxFit.cover,
+                        placeholder: (_, _) => Container(width: 128, height: 90, color: AppColors.primarySurface),
+                        errorWidget: (_, _, _) => Container(
+                          width: 128,
+                          height: 90,
+                          color: AppColors.primarySurface,
+                          child: const Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
+                        ),
                       ),
                     ),
-                  ),
-          ),
-        ),
-        if (isOwner)
-          Positioned(
-            top: -6,
-            right: -6,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: onDelete,
-              child: Container(
-                padding: const EdgeInsets.all(2),
-                decoration: const BoxDecoration(color: AppColors.ink, shape: BoxShape.circle),
-                child: const Icon(Icons.close, size: 12, color: Colors.white),
-              ),
             ),
           ),
-      ],
+          if (isOwner)
+            Positioned(
+              top: 0,
+              right: 0,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: onDelete,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(color: AppColors.ink, shape: BoxShape.circle),
+                  child: const Icon(Icons.close, size: 12, color: Colors.white),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -1747,19 +1773,19 @@ class _AddGalleryTileState extends ConsumerState<_AddGalleryTile> {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: _busy ? null : _showChoice,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-        width: 114,
-        height: 64,
+        width: 150,
+        height: 130,
         decoration: BoxDecoration(
-          color: AppColors.primarySurface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.border),
         ),
         alignment: Alignment.center,
         child: _busy
             ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
-            : const Icon(Icons.add, color: AppColors.primary),
+            : const Icon(Icons.add, color: AppColors.primary, size: 28),
       ),
     );
   }
@@ -2481,7 +2507,7 @@ Future<void> _makePayment(BuildContext context, WidgetRef ref, ServiceProviderDe
 /// this lands back here either way; the result isn't needed.
 void _openPayment(BuildContext context, OrderModel order) {
   Navigator.of(context).push(MaterialPageRoute(
-    builder: (_) => PaymentMethodScreen(orderId: order.id, total: order.totalAmount),
+    builder: (_) => PaymentMethodScreen(orderId: order.id, total: order.amountDue),
   ));
 }
 

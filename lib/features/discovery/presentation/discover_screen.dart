@@ -409,7 +409,7 @@ class _EventsList extends ConsumerWidget {
       color: AppColors.primary,
       onRefresh: () => ref.refresh(eventsProvider.future),
       child: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
+        padding: EdgeInsets.only(bottom: 66 + MediaQuery.of(context).padding.bottom + 24),
         children: [
           _SectionHeader(prefix: 'Events in', city: city, count: events.length),
           if (events.isEmpty)
@@ -436,7 +436,7 @@ class _SpList extends ConsumerWidget {
       color: AppColors.primary,
       onRefresh: () => ref.refresh(serviceProvidersProvider.future),
       child: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
+        padding: EdgeInsets.only(bottom: 66 + MediaQuery.of(context).padding.bottom + 24),
         children: [
           _SectionHeader(prefix: 'Service Providers in', city: city, count: sps.length),
           if (sps.isEmpty)
@@ -463,7 +463,7 @@ class _GroupsList extends ConsumerWidget {
       color: AppColors.primary,
       onRefresh: () => ref.refresh(groupsProvider.future),
       child: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
+        padding: EdgeInsets.only(bottom: 66 + MediaQuery.of(context).padding.bottom + 24),
         children: [
           _SectionHeader(prefix: 'Groups in', city: city, count: groups.length),
           if (groups.isEmpty)

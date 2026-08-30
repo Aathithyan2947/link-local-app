@@ -1,10 +1,8 @@
 import '../../../core/auth/auth_scope.dart';
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
@@ -42,44 +40,19 @@ class AddressRepository {
     }
   }
 
-  /// Reverse-geocode a map pin via OpenStreetMap Nominatim (no API key). Used only as a
-  /// FALLBACK when no curated Address Master locality is nearby. Field mapping is
-  /// deliberately conservative: a `road` is often a highway/flyover, so it seeds Lane 1
-  /// only as a last resort, and suburb/city are kept distinct (not duplicated).
+  /// Reverse-geocode a map pin through the backend, which holds the Google key and
+  /// caches every result. Used only as a FALLBACK when no curated Address Master
+  /// locality is nearby — the curated data stays the source of truth.
+  ///
+  /// Never throws: a failed lookup falls back to bare coordinates rather than
+  /// dead-ending the address flow, exactly as the previous geocoder did.
   Future<GeoAddress> reverseGeocode(double lat, double lng) async {
-    final uri = Uri.parse(
-      'https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=$lat&lon=$lng&addressdetails=1',
-    );
-    final res = await http.get(uri, headers: {'User-Agent': 'LinkLocalApp/1.0'});
-    if (res.statusCode != 200) {
+    try {
+      final res = await _dio.get('/geo/reverse', queryParameters: {'lat': lat, 'lng': lng});
+      return GeoAddress.fromJson(res.data['data'] as Map<String, dynamic>);
+    } on DioException {
       return GeoAddress(latitude: lat, longitude: lng);
     }
-    final json = jsonDecode(res.body) as Map<String, dynamic>;
-    final a = (json['address'] as Map<String, dynamic>?) ?? {};
-
-    // OSM hierarchy (fine → coarse): neighbourhood/residential → suburb → city_district →
-    // city/town → state. Map each to a single, non-overlapping slot.
-    final neighbourhood = (a['neighbourhood'] ?? a['residential'] ?? a['quarter']) as String?;
-    final suburb = (a['suburb'] ?? a['city_district']) as String?;
-    final city = (a['city'] ?? a['town'] ?? a['municipality'] ?? a['village']) as String?;
-    final road = a['road'] as String?;
-    // Skip obvious through-roads/flyovers as a "lane" — they're rarely the user's lane.
-    final roadIsLane = road != null &&
-        !RegExp(r'flyover|highway|expressway|bridge|f\.?o\.?b', caseSensitive: false).hasMatch(road);
-
-    return GeoAddress(
-      latitude: lat,
-      longitude: lng,
-      fullAddress: json['display_name'] as String?,
-      lane1: roadIsLane ? road : null,
-      locality: neighbourhood,
-      // Prefer a true neighbourhood as the "area"; fall back to the OSM suburb.
-      area: neighbourhood ?? suburb,
-      suburb: suburb != neighbourhood ? suburb : null,
-      city: city,
-      state: a['state'] as String?,
-      pincode: a['postcode'] as String?,
-    );
   }
 
   Future<void> createAddress({
@@ -94,6 +67,9 @@ class AddressRepository {
     String? lane2,
     double? latitude,
     double? longitude,
+    double? accuracyM,
+    String? locationSource,
+    String? googlePlaceId,
   }) async {
     try {
       await _dio.post('/addresses', data: {
@@ -110,6 +86,11 @@ class AddressRepository {
         // locality its coordinates (so it works in 2 km autofill once approved).
         'latitude': ?latitude,
         'longitude': ?longitude,
+        // How the pin was captured, so a bad one can be found and re-verified
+        // later instead of being indistinguishable from a surveyed doorstep.
+        'accuracyM': ?accuracyM,
+        'locationSource': ?locationSource,
+        'googlePlaceId': ?googlePlaceId,
       });
     } on DioException catch (e) {
       throw ApiException.fromDio(e);

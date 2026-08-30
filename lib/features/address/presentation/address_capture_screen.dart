@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../../core/location/location_models.dart';
+import '../../../core/location/location_providers.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/auth_header.dart';
@@ -30,6 +30,30 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
   City? _city;
   String? _state;
   LatLng? _picked;
+  /// How the pin was captured, carried through to the saved address so a bad
+  /// pin can be traced back to the fix that produced it.
+  LocationFix? _fix;
+  String? _placeId;
+  /// Set when the fix behind a prefill was too coarse to trust, shown in the
+  /// confirm sheet so the member can correct it before saving.
+  String? _accuracyWarning;
+
+  /// Best fix from the background warm-up started when this screen opened.
+  LocationFix? _warmFix;
+  StreamSubscription<LocationFix>? _warmUp;
+
+  /// Past this the warm fix is discarded rather than trusted — the member may
+  /// have moved between opening the screen and tapping the button.
+  static const _warmFixMaxAge = Duration(seconds: 45);
+
+  /// How far a curated Address Master locality may be from the pin and still be
+  /// trusted for a given field. `nearbyMaster` searches a 2 km radius, which is
+  /// the right net for "which city is this" but far too wide for "which lane is
+  /// this" — 2 km crosses several suburbs and more than one pincode in Thane or
+  /// Mumbai. Beyond each radius the field falls through to the geocoder rather
+  /// than inheriting a stranger's address.
+  static const _laneTrustKm = 0.15;
+  static const _areaTrustKm = 0.5;
 
   // Per-city address-form config + a controller per field key.
   List<CityAddressField> _fields = [];
@@ -53,6 +77,7 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _warmUp?.cancel();
     _search.dispose();
     for (final c in _fieldCtrls.values) {
       c.dispose();
@@ -133,6 +158,9 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
       _picked = pin;
     } else if (s.latitude != null && s.longitude != null) {
       _picked = LatLng(s.latitude!, s.longitude!);
+      // Curated coordinates supersede whatever the device last reported.
+      _fix = LocationFix.fromMaster(latitude: s.latitude!, longitude: s.longitude!);
+      _accuracyWarning = null;
     }
     _prefill
       // Selecting a directory suggestion DOES fill the building/complex name.
@@ -154,50 +182,88 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
     await _applyMaster(s);
   }
 
-  /// High-accuracy device position (throws a user-facing message on failure).
-  Future<Position> _devicePosition() async {
-    if (!await Geolocator.isLocationServiceEnabled()) throw 'Location services are off.';
-    var perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
-    if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
-      throw 'Location permission denied.';
+  /// The best fix the device can manage (throws a user-facing message on failure).
+  ///
+  /// Prefers the warm-up started when the screen opened: by the time the member
+  /// has picked a city and reached this button it has usually converged, so they
+  /// get an answer at once instead of waiting out a fresh 12-second acquisition.
+  Future<LocationFix> _deviceFix() async {
+    final warm = _warmFix;
+    if (warm != null &&
+        warm.isConfirmable &&
+        DateTime.now().difference(warm.timestamp) <= _warmFixMaxAge) {
+      return warm;
     }
-    return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
+
+    // Not good enough, or too old to trust. Acquire again — the GPS hardware is
+    // already awake from the warm-up, so this converges far faster than cold.
+    await _warmUp?.cancel();
+    final service = ref.read(locationServiceProvider);
+    final outcome = await service.ensurePermission();
+    if (!outcome.canLocate) throw outcome.message ?? 'Could not get your location.';
+
+    final fix = await service.acquireBest();
+    if (fix == null) throw 'Could not get your location. Pin it on the map instead.';
+    return fix;
   }
 
-  /// Silent best-effort: pick the user's city from GPS on screen load. Never shows an error.
+  /// Silent best-effort on screen load: detect the member's city, and keep the
+  /// location stream running afterwards so that by the time they reach "Use
+  /// Current Location" the fix has already converged. Never shows an error.
   Future<void> _autoDetectCity() async {
     try {
       await ref.read(citiesProvider.future); // ensure the city list is loaded
-      if (!await Geolocator.isLocationServiceEnabled()) return;
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
-      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return;
+      final service = ref.read(locationServiceProvider);
+      if (!(await service.ensurePermission()).canLocate) return;
 
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      var cityResolved = false;
+      _warmUp = service.acquire().listen(
+        (fix) {
+          _warmFix = fix;
+          // Picking a city needs a suburb, not a doorstep, so fire on the first
+          // real fix rather than waiting for the stream to converge.
+          if (!cityResolved && fix.source != LocationSource.cached) {
+            cityResolved = true;
+            _detectCityFrom(fix);
+          }
+        },
+        // If only a replayed last-known position ever arrived, it still beats
+        // leaving the member with no city at all.
+        onDone: () {
+          final fix = _warmFix;
+          if (!cityResolved && fix != null) _detectCityFrom(fix);
+        },
+        onError: (_) {},
+        cancelOnError: true,
       );
+    } catch (_) {
+      // Ignore — the user can still select their city manually.
+    }
+  }
+
+  /// Resolves a fix to a serviceable city and selects it, silently.
+  Future<void> _detectCityFrom(LocationFix fix) async {
+    try {
       final repo = ref.read(addressRepositoryProvider);
       // Curated master gives the serviceable city directly (best-effort; endpoint optional).
-      City? detected;
+      City? found;
       try {
-        final near = await repo.nearbyMaster(pos.latitude, pos.longitude);
-        if (near.isNotEmpty) detected = _cityById(near.first.cityId) ?? _cityByName(near.first.city);
+        final near = await repo.nearbyMaster(fix.latitude, fix.longitude);
+        if (near.isNotEmpty) found = _cityById(near.first.cityId) ?? _cityByName(near.first.city);
       } catch (_) {}
       // Fall back to map data (reverse geocoding) for the city name.
-      detected ??= _cityByName((await repo.reverseGeocode(pos.latitude, pos.longitude)).city);
+      found ??= _cityByName((await repo.reverseGeocode(fix.latitude, fix.longitude)).city);
 
       // Only auto-select when it's a city Link Local actually serves.
-      if (detected != null && mounted) {
-        setState(() {
-          _city = detected;
-          _state = detected!.state ?? _state;
-          _picked = LatLng(pos.latitude, pos.longitude);
-        });
-        await _loadFields();
-      }
+      final city = found;
+      if (city == null || !mounted) return;
+      setState(() {
+        _city = city;
+        _state = city.state ?? _state;
+        _picked = LatLng(fix.latitude, fix.longitude);
+        _fix = fix;
+      });
+      await _loadFields();
     } catch (_) {
       // Ignore — the user can still select their city manually.
     }
@@ -209,8 +275,8 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
       _locating = true;
     });
     try {
-      final pos = await _devicePosition();
-      await _resolveLocation(pos.latitude, pos.longitude);
+      final fix = await _deviceFix();
+      await _resolveLocation(fix.latitude, fix.longitude, fix: fix);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -221,14 +287,26 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
   /// Resolves a GPS pin to a serviceable city using the curated master (preferred) and map
   /// data (fallback). Prefills + locks the city/state ONLY when the location falls in a city
   /// Link Local serves; otherwise it tells the user and leaves the city for manual selection.
-  Future<void> _resolveLocation(double lat, double lng) async {
+  Future<void> _resolveLocation(double lat, double lng, {LocationFix? fix}) async {
     final repo = ref.read(addressRepositoryProvider);
 
     // 1) Curated Address Master within 2 km → the serviceable city directly (best-effort).
     MasterSuggestion? hit;
+    // Every entry sharing the nearest one's exact distance. The master stores a
+    // single representative coordinate per locality rather than per lane, so the
+    // "nearest" entry is routinely one of a large tie — around eight on average
+    // in the current data, and up to thirteen. Which one arrives first is
+    // arbitrary, so any field they disagree on cannot be inferred from the pin.
+    var tied = const <MasterSuggestion>[];
     try {
       final near = await repo.nearbyMaster(lat, lng);
-      if (near.isNotEmpty) hit = near.first;
+      if (near.isNotEmpty) {
+        hit = near.first;
+        final nearest = hit.distanceKm;
+        tied = nearest == null
+            ? [hit]
+            : near.where((m) => ((m.distanceKm ?? nearest) - nearest).abs() < 0.001).toList();
+      }
     } catch (_) {
       // Endpoint optional/unavailable — fall through to map data.
     }
@@ -253,16 +331,45 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
     _city = city;
     _state = city.state ?? geo.state ?? _state;
     _picked = LatLng(lat, lng);
+    _fix = fix ?? _fix;
+    _placeId = geo.googlePlaceId ?? _placeId;
+    // Converge-then-warn applies on this path too: the member never sees the map
+    // here, so the sheet is the only place left to tell them the fix was coarse.
+    final f = _fix;
+    _accuracyWarning = (f != null && !f.isConfirmable)
+        ? 'Your location was only accurate to ${f.accuracyLabel ?? 'an unknown radius'}. '
+            'Check the details below, or pin your building on the map.'
+        : null;
+    // Two independent guards before a curated value is trusted. Distance: a
+    // locality 1.9 km away is still the nearest, but its lane is not the
+    // member's lane, and an unknown distance counts as too far. Agreement: the
+    // tied candidates must all say the same thing. Whatever fails a guard falls
+    // through to the geocoder rather than inheriting a neighbour's address.
+    // City resolution above deliberately keeps using the full 2 km.
+    final km = hit?.distanceKm;
+    final laneOk = km != null && km <= _laneTrustKm;
+    final areaOk = km != null && km <= _areaTrustKm;
+
     _prefill
       // GPS / map pin never fills the building — we can't know the exact complex.
       ..['building'] = ''
-      ..['lane1'] = hit?.lane1 ?? geo.lane1 ?? ''
-      ..['lane2'] = hit?.lane2 ?? geo.locality ?? ''
-      ..['area'] = hit?.area ?? geo.area ?? geo.locality ?? ''
-      ..['suburb'] = hit?.suburb ?? geo.suburb ?? ''
-      ..['pincode'] = hit?.pincode ?? geo.pincode ?? '';
+      ..['lane1'] = (laneOk ? _agreed(tied, (m) => m.lane1) : null) ?? geo.lane1 ?? ''
+      ..['lane2'] = (laneOk ? _agreed(tied, (m) => m.lane2) : null) ?? geo.locality ?? ''
+      ..['area'] = (areaOk ? _agreed(tied, (m) => m.area) : null) ?? geo.area ?? geo.locality ?? ''
+      ..['suburb'] = (areaOk ? _agreed(tied, (m) => m.suburb) : null) ?? geo.suburb ?? ''
+      ..['pincode'] = (areaOk ? _agreed(tied, (m) => m.pincode) : null) ?? geo.pincode ?? '';
     await _loadFields();
     if (mounted) _openConfirmSheet();
+  }
+
+  /// The one value every tied candidate agrees on, or null when they disagree —
+  /// disagreement being the signal that this field cannot be read off the pin.
+  static String? _agreed(
+    List<MasterSuggestion> tied,
+    String? Function(MasterSuggestion) field,
+  ) {
+    final values = tied.map(field).whereType<String>().where((v) => v.isNotEmpty).toSet();
+    return values.length == 1 ? values.first : null;
   }
 
   Future<void> _pickOnMap() async {
@@ -271,13 +378,13 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
       setState(() => _error = 'Select your city first, or tap "Use Current Location".');
       return;
     }
-    final geo = await Navigator.of(context).push<GeoAddress>(
+    final result = await Navigator.of(context).push<MapPinResult>(
       // Reopen on the existing pin so a small correction doesn't restart the map.
       MaterialPageRoute(builder: (_) => AddressMapScreen(initial: _picked)),
     );
-    if (geo == null) return;
+    if (result == null) return;
     setState(() => _error = null);
-    await _resolveLocation(geo.latitude, geo.longitude);
+    await _resolveLocation(result.fix.latitude, result.fix.longitude, fix: result.fix);
   }
 
   Future<void> _next() async {
@@ -321,6 +428,9 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
             pincode: v('pincode'),
             latitude: _picked?.latitude,
             longitude: _picked?.longitude,
+            accuracyM: _fix?.accuracyM,
+            locationSource: _fix?.sourceWireValue,
+            googlePlaceId: _placeId,
           );
       if (mounted) {
         Navigator.pop(context);
@@ -383,6 +493,10 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
                   ]), textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary)),
                 ),
                 const SizedBox(height: 20),
+                if (_accuracyWarning != null) ...[
+                  ErrorBanner(message: _accuracyWarning!, tone: BannerTone.warning),
+                  const SizedBox(height: 18),
+                ],
                 // Dynamic fields from the city's configured form format.
                 for (final f in _fields) ...[
                   _label(f.label, required: f.isRequired),
@@ -600,25 +714,23 @@ class _MapPreview extends StatelessWidget {
             alignment: Alignment.center,
             children: [
               IgnorePointer(
-                child: FlutterMap(
+                child: GoogleMap(
                   // Re-create the map when the pin changes so it re-centers on the picked
                   // location (e.g. after choosing a search suggestion with coordinates).
                   key: ValueKey(picked),
-                  options: MapOptions(
-                    initialCenter: center,
-                    initialZoom: picked != null ? 16 : 14,
-                    interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+                  initialCameraPosition: CameraPosition(
+                    target: center,
+                    zoom: picked != null ? 16 : 14,
                   ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.sentellent.link_local',
-                    ),
-                    if (picked != null)
-                      MarkerLayer(markers: [
-                        Marker(point: picked!, width: 40, height: 40, child: const Icon(Icons.location_on, color: AppColors.primary, size: 40)),
-                      ]),
-                  ],
+                  // A bitmap-backed map on Android: this is a static thumbnail, so
+                  // there is no reason to spin up a fully interactive map view.
+                  liteModeEnabled: true,
+                  zoomControlsEnabled: false,
+                  mapToolbarEnabled: false,
+                  myLocationButtonEnabled: false,
+                  markers: picked == null
+                      ? const {}
+                      : {Marker(markerId: const MarkerId('picked'), position: picked!)},
                 ),
               ),
               Container(

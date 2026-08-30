@@ -4,6 +4,17 @@
 <dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Link Local uses your location to find your address and connect you with neighbours nearby.</string>
+	<!-- Purpose strings for Geolocator's one-off full-accuracy request. The key
+	     'addressCapture' must match LocationService.iosPurposeKey exactly, or iOS
+	     rejects the request outright. -->
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>addressCapture</key>
+		<string>Link Local needs your precise location to place the map pin on your building. Without it your address could be a kilometre out.</string>
+	</dict>
+	<!-- Substituted from Secrets.xcconfig at build time; read in AppDelegate. -->
+	<key>MAPS_API_KEY</key>
+	<string>$(MAPS_API_KEY)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Link Local needs camera access so you can capture your address proof document.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

@@ -26,6 +26,8 @@ migrate_working_dir/
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
+# Holds the Google Maps API key for the iOS build — never commit.
+**/ios/Flutter/Secrets.xcconfig
 .dart_tool/
 .flutter-plugins-dependencies
 .pub-cache/

@@ -138,7 +138,22 @@ class GeoAddress {
     this.city,
     this.state,
     this.pincode,
+    this.googlePlaceId,
   });
+
+  factory GeoAddress.fromJson(Map<String, dynamic> j) => GeoAddress(
+        latitude: (j['latitude'] as num).toDouble(),
+        longitude: (j['longitude'] as num).toDouble(),
+        fullAddress: j['fullAddress'] as String?,
+        lane1: j['lane1'] as String?,
+        locality: j['locality'] as String?,
+        area: j['area'] as String?,
+        suburb: j['suburb'] as String?,
+        city: j['city'] as String?,
+        state: j['state'] as String?,
+        pincode: j['pincode'] as String?,
+        googlePlaceId: j['googlePlaceId'] as String?,
+      );
   final double latitude;
   final double longitude;
   final String? fullAddress;
@@ -149,4 +164,8 @@ class GeoAddress {
   final String? city;
   final String? state;
   final String? pincode;
+
+  /// Google's stable identifier for the resolved place, kept so a locality can
+  /// be re-checked later without geocoding its free-text fields again.
+  final String? googlePlaceId;
 }

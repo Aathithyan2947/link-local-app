@@ -6,6 +6,9 @@ abstract class AppColors {
   static const Color primary = Color(0xFF0E9F6E);
   static const Color primaryDark = Color(0xFF07AD61);
   static const Color primaryTint = Color(0xFF90D3BD);
+  /// Recessed green for chips/badges sitting ON the green header, where a lighter
+  /// tint would float instead of reading as part of the bar.
+  static const Color primaryDeep = Color(0xFF0A7B55);
   static const Color primarySurface = Color(0xFFE8F6F0);
 
   // Neutrals

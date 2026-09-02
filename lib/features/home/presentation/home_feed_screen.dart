@@ -27,6 +27,7 @@ import '../data/home_models.dart';
 import '../data/home_repository.dart';
 import 'widgets/area_picker_sheet.dart';
 import 'widgets/home_widgets.dart';
+import 'widgets/service_icons.dart';
 
 /// The SP's home-banner-relevant fields — Basic Details + Travel + (menu SPs only) Service
 /// Type + Delivery, EXCLUDING Payment and anything else (gallery/education/profession/
@@ -75,6 +76,18 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
     _goToDiscover(0); // 0 = "All" tab — filters Events/SPs/Groups together
   }
 
+  /// Clears the field AND the Discover query it feeds, so tapping the X actually resets
+  /// results rather than leaving a stale filter behind on the Discover surface.
+  void _clearSearch() {
+    _searchCtrl.clear();
+    ref.read(discoverQueryProvider.notifier).set('');
+  }
+
+  /// The Members counter — the community feed is where neighbours actually surface; the app
+  /// has no standalone member directory to send them to.
+  void _openMembers() =>
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FeedScreen()));
+
   void _toggleCategory(String c) => setState(() => _selectedCategory = _selectedCategory == c ? null : c);
 
   Future<void> _pickArea() async {
@@ -100,9 +113,12 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
     // Per-section area overrides (Service Providers/Workshops/Groups headers) — independent
     // of `scopeState`, which only drives the top banner + My Society/Lane/Area/City chips.
     final spOverride = ref.watch(spSectionAreaProvider);
+    final discussionsOverride = ref.watch(discussionsSectionAreaProvider);
     final workshopsOverride = ref.watch(workshopsSectionAreaProvider);
     final groupsOverride = ref.watch(groupsSectionAreaProvider);
     final spScopedAsync = spOverride != null ? ref.watch(spSectionScopedProvider(spOverride.areaId)) : null;
+    final discussionsScopedAsync =
+        discussionsOverride != null ? ref.watch(discussionsSectionScopedProvider(discussionsOverride.areaId)) : null;
     final workshopsScopedAsync =
         workshopsOverride != null ? ref.watch(workshopsSectionScopedProvider(workshopsOverride.areaId)) : null;
     final groupsScopedAsync =
@@ -145,11 +161,16 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
           // while its scoped fetch is still in flight — avoids a loading flicker by keeping
           // the previous content visible until the new area's data arrives.
           final spSection = spScopedAsync?.asData?.value ?? feed.serviceProviders;
+          // Home shows at most 3 discussions; the rest live behind "See all discussions".
+          final discussions = (discussionsScopedAsync?.asData?.value ?? feed.discussions).take(3).toList();
           final workshopsSection = workshopsScopedAsync?.asData?.value ?? feed.workshops;
           final groupsSection = groupsScopedAsync?.asData?.value ?? feed.groups;
+          // Matches on every service a provider offers, not just the one shown on their card —
+          // the shortcut's badge counts all of them, so filtering on the primary alone made
+          // the list come up short of its own badge.
           final visibleSps = _selectedCategory == null
               ? spSection.items.take(3).toList()
-              : spSection.items.where((sp) => sp.service == _selectedCategory).toList();
+              : spSection.items.where((sp) => sp.services.contains(_selectedCategory)).toList();
           return RefreshIndicator(
           color: AppColors.primary,
           onRefresh: () => ref.refresh(homeFeedProvider.future),
@@ -164,8 +185,12 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                 onProfile: widget.onProfile,
                 searchController: _searchCtrl,
                 onSearchSubmit: _submitSearch,
+                onSearchClear: _clearSearch,
                 locationLabel: scopeState.overrideAreaLabel ?? feed.city?.label ?? 'Your area',
                 onLocationTap: _pickArea,
+                onMembers: _openMembers,
+                onServiceProviders: () => _goToDiscover(2),
+                onEvents: () => _goToDiscover(1),
               ),
               const SizedBox(height: 8),
               if (showProfileBanner)
@@ -177,6 +202,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                   dropdown: true, onTap: () => _pickSectionArea(spSectionAreaProvider)),
               if (spSection.items.isNotEmpty) ...[
                 _ServiceCategoryRow(
+                  services: feed.spServices,
                   items: spSection.items,
                   selectedCategory: _selectedCategory,
                   onSelect: _toggleCategory,
@@ -188,14 +214,16 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                 _EmptyScopedSection(
                   label: 'No service providers in ${spOverride?.label ?? feed.city?.name ?? 'this area'} yet.',
                 ),
-              if (feed.discussions.isNotEmpty) ...[
-                _SectionHeader('Community Discussions in', feed.city?.name ?? 'your area'),
+              if (discussions.isNotEmpty) ...[
+                _SectionHeader('Community Discussions in',
+                    discussionsOverride?.label ?? feed.city?.name ?? 'your area',
+                    dropdown: true, onTap: () => _pickSectionArea(discussionsSectionAreaProvider)),
                 const Padding(
                   padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
                   child: Text('Ask questions, share updates, and connect with your community',
                       style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
                 ),
-                ...feed.discussions.map((d) => _DiscussionCard(
+                ...discussions.map((d) => _DiscussionCard(
                       item: d,
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => PostDetailScreen(id: d.id)),
@@ -223,7 +251,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
               _SectionHeader('Groups in', '${groupsOverride?.label ?? feed.city?.name ?? ''}(${groupsSection.total})',
                   dropdown: true, onTap: () => _pickSectionArea(groupsSectionAreaProvider)),
               if (groupsSection.items.isNotEmpty)
-                _GroupsWrap(items: groupsSection.items)
+                _GroupsRow(items: groupsSection.items)
               else
                 _EmptyScopedSection(
                   label: 'No groups in ${groupsOverride?.label ?? feed.city?.name ?? 'this area'} yet.',
@@ -247,8 +275,12 @@ class _Header extends StatelessWidget {
     required this.onScope,
     required this.searchController,
     required this.onSearchSubmit,
+    required this.onSearchClear,
     required this.locationLabel,
     required this.onLocationTap,
+    required this.onMembers,
+    required this.onServiceProviders,
+    required this.onEvents,
     this.onProfile,
   });
   final HomeFeed feed;
@@ -257,15 +289,22 @@ class _Header extends StatelessWidget {
   final ValueChanged<String> onScope;
   final TextEditingController searchController;
   final ValueChanged<String> onSearchSubmit;
+  final VoidCallback onSearchClear;
   final String locationLabel;
   final VoidCallback onLocationTap;
+  final VoidCallback onMembers;
+  final VoidCallback onServiceProviders;
+  final VoidCallback onEvents;
   final VoidCallback? onProfile;
+
+  static const List<String> _scopeValues = ['society', 'lane', 'area', 'city'];
+  static const List<String> _scopeLabels = ['My Society', 'Lane', 'Area', 'City'];
 
   @override
   Widget build(BuildContext context) {
     final topPad = MediaQuery.of(context).padding.top;
     return Container(
-      padding: EdgeInsets.fromLTRB(20, topPad + 14, 20, 20),
+      padding: EdgeInsets.fromLTRB(20, topPad + 12, 20, 16),
       decoration: const BoxDecoration(
         color: AppColors.primary,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
@@ -275,40 +314,48 @@ class _Header extends StatelessWidget {
         children: [
           Row(
             children: [
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: onLocationTap,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.location_on, color: Colors.white, size: 18),
-                    const SizedBox(width: 4),
-                    Text(locationLabel,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
-                    const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 20),
-                  ],
+              // Expanded (not Flexible + Spacer): those split the free space evenly, which
+              // clipped "Mumbai, Maharashtra" to "Mumbai, M…" with room to spare.
+              Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onLocationTap,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.location_on, color: Colors.white, size: 18),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(locationLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
+                      ),
+                      const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 20),
+                    ],
+                  ),
                 ),
               ),
-              const Spacer(),
+              // Bare glyphs, per Figma — the translucent circular chips these used to sit in
+              // read as buttons competing with the location control next to them.
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationsScreen())),
-                child: Container(
-                  height: 36,
-                  width: 36,
-                  margin: const EdgeInsets.only(right: 10),
-                  decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
+                onTap: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => const NotificationsScreen())),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                   child: Consumer(
                     builder: (context, ref, _) {
                       final unread = ref.watch(unreadCountProvider).asData?.value ?? 0;
                       return Stack(
-                        alignment: Alignment.center,
+                        clipBehavior: Clip.none,
                         children: [
-                          const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 20),
+                          const Icon(Icons.notifications, color: Colors.white, size: 26),
                           if (unread > 0)
                             Positioned(
-                              top: 6,
-                              right: 7,
+                              top: 1,
+                              right: 2,
                               child: Container(
                                 width: 9,
                                 height: 9,
@@ -325,38 +372,53 @@ class _Header extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(width: 10),
               GestureDetector(
                 onTap: onProfile,
                 behavior: HitTestBehavior.opaque,
-                child: Container(
-                  height: 36,
-                  width: 36,
-                  decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
-                  child: const Icon(Icons.person, color: Colors.white, size: 20),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  child: Icon(Icons.person, color: Colors.white, size: 26),
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          // One line, always: FittedBox shrinks the headline on narrow handsets rather than
+          // letting it wrap to two, which is what the design flagged.
+          const SizedBox(
+            width: double.infinity,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.center,
+              child: Text(
+                'Discover meaningful Local connections',
+                maxLines: 1,
+                softWrap: false,
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 17),
+              ),
+            ),
+          ),
           const SizedBox(height: 14),
-          const Text('Discover meaningful Local connections',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 18)),
-          const SizedBox(height: 16),
           Row(
             children: [
-              _statBox('${feed.stats.members}', 'Members'),
+              _StatBox(value: '${feed.stats.members}', label: 'Members', onTap: onMembers),
               const SizedBox(width: 10),
-              _statBox('${feed.stats.serviceProviders}', 'Service Providers'),
+              _StatBox(
+                  value: '${feed.stats.serviceProviders}',
+                  label: 'Service Providers',
+                  onTap: onServiceProviders),
               const SizedBox(width: 10),
-              _statBox('${feed.stats.events}', 'Events'),
+              _StatBox(value: '${feed.stats.events}', label: 'Events', onTap: onEvents),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(28)),
+            padding: const EdgeInsets.only(left: 14, right: 6),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
             child: Row(
               children: [
-                const Icon(Icons.search, color: AppColors.textMuted),
+                const Icon(Icons.search, color: AppColors.textMuted, size: 22),
                 const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
@@ -364,6 +426,7 @@ class _Header extends StatelessWidget {
                     textInputAction: TextInputAction.search,
                     onSubmitted: onSearchSubmit,
                     cursorColor: AppColors.primary,
+                    style: const TextStyle(fontSize: 13.5, color: AppColors.textPrimary),
                     decoration: const InputDecoration(
                       hintText: 'Just Moved in, need help with "Cleaning"',
                       hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 13),
@@ -378,33 +441,34 @@ class _Header extends StatelessWidget {
                     ),
                   ),
                 ),
+                // Listens to the controller directly so the clear affordance appears without
+                // rebuilding (and re-fetching) the whole feed on every keystroke.
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: searchController,
+                  builder: (context, value, _) => value.text.isEmpty
+                      ? const SizedBox(width: 8)
+                      : GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: onSearchClear,
+                          child: const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Icon(Icons.close, color: AppColors.textSecondary, size: 20),
+                          ),
+                        ),
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           Row(
-            children: List.generate(4, (i) {
-              const scopeValues = ['society', 'lane', 'area', 'city'];
-              const labels = ['My Society', 'Lane', 'Area', 'City'];
-              final selected = scopeValues[i] == scope;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: GestureDetector(
-                  onTap: () => onScope(scopeValues[i]),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: selected ? Colors.white : Colors.transparent,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white70),
-                    ),
-                    child: Text(labels[i],
-                        style: TextStyle(
-                            color: selected ? AppColors.primary : Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13)),
-                  ),
-                ),
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(_scopeValues.length, (i) {
+              final value = _scopeValues[i];
+              return _ScopeTab(
+                label: _scopeLabels[i],
+                count: feed.scopeCounts?.of(value),
+                selected: value == scope,
+                onTap: () => onScope(value),
               );
             }),
           ),
@@ -412,28 +476,99 @@ class _Header extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _statBox(String value, String label) => Expanded(
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white38),
-          ),
-          child: Column(
-            children: [
-              Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 20)),
-              const SizedBox(height: 2),
-              Text(label,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontSize: 10.5)),
-            ],
+/// One of the three header counters. Each opens the surface it counts.
+class _StatBox extends StatelessWidget {
+  const _StatBox({required this.value, required this.label, required this.onTap});
+  final String value;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Material(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white38),
+            ),
+            child: Column(
+              children: [
+                Text(value,
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w700, fontSize: 20, height: 1.2)),
+                Text(label,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 11, height: 1.25)),
+              ],
+            ),
           ),
         ),
-      );
+      ),
+    );
+  }
+}
+
+/// My Society / Lane / Area / City — underlined text tabs carrying the number of results
+/// each scope would surface, rather than the bordered pills they replace.
+class _ScopeTab extends StatelessWidget {
+  const _ScopeTab({required this.label, required this.count, required this.selected, required this.onTap});
+  final String label;
+  final int? count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.only(top: 4, bottom: 6),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: selected ? Colors.white : Colors.transparent, width: 2),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label,
+                style: TextStyle(
+                  color: selected ? Colors.white : Colors.white.withValues(alpha: 0.8),
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  fontSize: 13,
+                )),
+            if (count != null) ...[
+              const SizedBox(width: 5),
+              Container(
+                constraints: const BoxConstraints(minWidth: 18),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryDeep,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Text('$count',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600, height: 1.3)),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ── Section header ───────────────────────────────────────────
@@ -488,63 +623,130 @@ class _EmptyScopedSection extends StatelessWidget {
 // ── Service provider category shortcuts ──────────────────────
 class _ServiceCategoryRow extends StatelessWidget {
   const _ServiceCategoryRow({
+    required this.services,
     required this.items,
     required this.selectedCategory,
     required this.onSelect,
     required this.onExploreMore,
   });
+
+  /// Server-counted services in scope. Empty on older backends, in which case the row
+  /// falls back to whatever services the returned providers happen to name.
+  final List<ServiceCount> services;
   final List<ServiceProviderItem> items;
   final String? selectedCategory;
   final ValueChanged<String> onSelect;
   final VoidCallback onExploreMore;
 
+  List<ServiceCount> get _cards {
+    if (services.isNotEmpty) return services.take(3).toList();
+    final seen = <String>{};
+    for (final s in items) {
+      if (s.service != null) seen.add(s.service!);
+    }
+    return seen.take(3).map((n) => ServiceCount(name: n, count: 0)).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final services = <String>{};
-    for (final s in items) {
-      if (s.service != null) services.add(s.service!);
-    }
-    final chips = services.take(2).toList();
     return SizedBox(
-      height: 96,
+      height: 100,
       child: ListView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
+        clipBehavior: Clip.none,
         children: [
-          ...chips.map((c) => _catCard(c, Icons.handyman_outlined,
-              selected: c == selectedCategory, onTap: () => onSelect(c))),
-          _catCard('Explore\nMore...', Icons.arrow_forward, selected: false, onTap: onExploreMore),
+          ..._cards.map((c) => _CategoryCard(
+                label: c.name,
+                count: c.count,
+                selected: c.name == selectedCategory,
+                onTap: () => onSelect(c.name),
+              )),
+          _CategoryCard(label: 'Explore\nMore...', count: 0, selected: false, onTap: onExploreMore),
         ],
       ),
     );
   }
+}
 
-  Widget _catCard(String label, IconData icon, {required bool selected, required VoidCallback onTap}) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 100,
-          margin: const EdgeInsets.only(right: 16),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: selected ? AppColors.primarySurface : AppColors.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: selected ? AppColors.primary : AppColors.border),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: AppColors.primary, size: 24),
-              const SizedBox(height: 6),
-              Text(label,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 11, fontWeight: selected ? FontWeight.w700 : FontWeight.w500)),
-            ],
-          ),
+class _CategoryCard extends StatelessWidget {
+  const _CategoryCard({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  /// "Explore More..." is the row's tail action, not a service — the design gives it the
+  /// same card but no icon, so its label sits centred on its own.
+  bool get _isExploreMore => label.startsWith('Explore');
+
+  @override
+  Widget build(BuildContext context) {
+    final card = Container(
+      width: 86,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+      decoration: BoxDecoration(
+        color: selected ? AppColors.primarySurface : AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: selected ? AppColors.primary : AppColors.border),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (!_isExploreMore) ...[
+            ServiceIcon(serviceName: label, size: 30, color: AppColors.textPrimary),
+            const SizedBox(height: 8),
+          ],
+          Text(label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.2,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                color: AppColors.textPrimary,
+              )),
+        ],
+      ),
+    );
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 12),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            card,
+            if (count > 0)
+              Positioned(
+                top: -6,
+                right: -4,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 22),
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(11),
+                    border: Border.all(color: AppColors.background, width: 1.5),
+                  ),
+                  child: Text('$count',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700, height: 1.3)),
+                ),
+              ),
+          ],
         ),
-      );
+      ),
+    );
+  }
 }
 
 class _SpCard extends StatelessWidget {
@@ -554,52 +756,74 @@ class _SpCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    void open() => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: sp.id)),
+        );
+
     return GestureDetector(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: sp.id)),
-      ),
+      onTap: open,
       child: Container(
-      margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          Avatar(name: sp.name, photoUrl: sp.photoUrl, radius: 26),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(child: Text(sp.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
-                    RatingBadge(value: sp.ratingAvg, compact: true),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(sp.service ?? 'Service Provider', style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Text(city, style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                    const Text('  ·  300m', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                  ],
-                ),
-              ],
+        margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Avatar(name: sp.name, photoUrl: sp.photoUrl, radius: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(sp.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                      ),
+                      const SizedBox(width: 8),
+                      RatingBadge(value: sp.ratingAvg, compact: true),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(sp.service ?? 'Service Provider',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                  const SizedBox(height: 6),
+                  // Location and the CTA share the last line — "View Profile" was previously
+                  // a full-height column of its own, which left it floating beside the card.
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: Text('$city | 300m',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: open,
+                        child: const Text('View Profile',
+                            style: TextStyle(
+                                color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 13)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: sp.id)),
-            ),
-            child: const Text('View Profile', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 12)),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
@@ -616,45 +840,58 @@ class _DiscussionCard extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-      margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Avatar(name: item.authorName, photoUrl: item.authorPhoto, radius: 18),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(item.authorName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                  const Text('Resident · 2hr ago', style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(item.text, style: const TextStyle(fontSize: 14)),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const Icon(Icons.favorite_border, size: 18, color: AppColors.textSecondary),
-              const SizedBox(width: 6),
-              Text('${item.likes}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-              const SizedBox(width: 16),
-              const Icon(Icons.mode_comment_outlined, size: 17, color: AppColors.textSecondary),
-              const SizedBox(width: 6),
-              Text('${item.comments} Replies', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-            ],
-          ),
-        ],
-      ),
+        margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Avatar(name: item.authorName, photoUrl: item.authorPhoto, radius: 21),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item.authorName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.textPrimary)),
+                      const SizedBox(height: 1),
+                      const Text('Resident  •  2hr ago',
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(item.text,
+                style: const TextStyle(
+                    fontSize: 14.5, fontWeight: FontWeight.w600, color: AppColors.textPrimary, height: 1.35)),
+            const SizedBox(height: 10),
+            const Divider(height: 1, thickness: 1, color: AppColors.border),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.thumb_up_alt_outlined, size: 17, color: AppColors.textSecondary),
+                const SizedBox(width: 6),
+                Text('${item.likes}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                const SizedBox(width: 18),
+                const Icon(Icons.mode_comment_outlined, size: 16, color: AppColors.textSecondary),
+                const SizedBox(width: 6),
+                Text('${item.comments} Replies',
+                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -666,8 +903,12 @@ class _WorkshopRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A horizontal list needs a fixed height, so it has to match the tallest card exactly or
+    // every tile carries the difference as dead space under its Join row. The venue line is
+    // the only optional part, so its presence is the whole variance.
+    final hasLocation = items.any((w) => (w.location ?? '').isNotEmpty);
     return SizedBox(
-      height: 246,
+      height: hasLocation ? 214 : 194,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -685,7 +926,7 @@ class _WorkshopRow extends StatelessWidget {
             width: 212,
             decoration: BoxDecoration(
               color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(color: AppColors.border),
             ),
             child: Column(
@@ -698,7 +939,7 @@ class _WorkshopRow extends StatelessWidget {
                       fallbackIcon: Icons.celebration_rounded,
                       width: double.infinity,
                       height: 96,
-                      radius: const BorderRadius.vertical(top: Radius.circular(16)),
+                      radius: const BorderRadius.vertical(top: Radius.circular(9)),
                     ),
                     Positioned(top: 8, right: 8, child: RatingBadge(value: w.ratingAvg, compact: true)),
                   ],
@@ -711,28 +952,29 @@ class _WorkshopRow extends StatelessWidget {
                       Text(w.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary)),
                       const SizedBox(height: 4),
                       Row(children: [
-                        const Icon(Icons.calendar_today, size: 11, color: AppColors.textMuted),
+                        const Icon(Icons.calendar_today, size: 12, color: AppColors.textSecondary),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(time.isNotEmpty ? '$date | $time' : date,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                              style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
                         ),
                       ]),
                       if (w.location != null && w.location!.isNotEmpty) ...[
                         const SizedBox(height: 3),
                         Row(children: [
-                          const Icon(Icons.location_on_outlined, size: 11, color: AppColors.textMuted),
+                          const Icon(Icons.location_on_outlined, size: 12, color: AppColors.textSecondary),
                           const SizedBox(width: 4),
                           Expanded(
                               child: Text(w.location!,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted))),
+                                  style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary))),
                         ]),
                       ],
                       const SizedBox(height: 8),
@@ -762,56 +1004,93 @@ class _WorkshopRow extends StatelessWidget {
   }
 }
 
-class _GroupsWrap extends StatelessWidget {
-  const _GroupsWrap({required this.items});
+/// Groups as a scrolling row of circular tiles with a member-count badge, per the design —
+/// replaces the three-across grid of bordered cards, which gave each group a card's worth of
+/// visual weight in a section meant to be scanned.
+class _GroupsRow extends StatelessWidget {
+  const _GroupsRow({required this.items});
   final List<GroupItem> items;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
-        children: items.take(6).map((g) {
+    return SizedBox(
+      height: 108,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        clipBehavior: Clip.none,
+        itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 14),
+        itemBuilder: (context, i) {
+          final g = items[i];
           return GestureDetector(
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => GroupProfileScreen(id: g.id)),
             ),
-            child: Container(
-            width: (MediaQuery.of(context).size.width - 40 - 24) / 3,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.border),
+            child: SizedBox(
+              width: 68,
+              child: Column(
+                children: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        height: 58,
+                        width: 58,
+                        decoration: const BoxDecoration(color: AppColors.border, shape: BoxShape.circle),
+                        clipBehavior: Clip.antiAlias,
+                        child: g.photoUrl != null && g.photoUrl!.isNotEmpty
+                            ? NetworkThumb(
+                                photoUrl: g.photoUrl,
+                                fallbackIcon: Icons.groups_rounded,
+                                width: 58,
+                                height: 58,
+                                radius: BorderRadius.circular(29),
+                              )
+                            : const Icon(Icons.groups_rounded, color: AppColors.textSecondary, size: 26),
+                      ),
+                      if (g.members > 0)
+                        Positioned(
+                          top: -4,
+                          right: -4,
+                          child: Container(
+                            constraints: const BoxConstraints(minWidth: 20),
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.background, width: 1.5),
+                            ),
+                            child: Text('${g.members}',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.3)),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                  Text(g.title,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 11, height: 1.25, fontWeight: FontWeight.w500, color: AppColors.textPrimary)),
+                ],
+              ),
             ),
-            child: Column(
-              children: [
-                Container(
-                  height: 44,
-                  width: 44,
-                  decoration: const BoxDecoration(color: AppColors.primarySurface, shape: BoxShape.circle),
-                  child: const Icon(Icons.groups_rounded, color: AppColors.primary),
-                ),
-                const SizedBox(height: 8),
-                Text(g.title,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 2),
-                Text('${g.members} Members', style: const TextStyle(fontSize: 10, color: AppColors.textMuted)),
-              ],
-            ),
-          ),
           );
-        }).toList(),
+        },
       ),
     );
   }
 }
 
+/// Light card with a dark CTA, per the design — the solid green gradient it replaces put the
+/// banner at the same visual weight as the header and read as a second app bar.
 class _ReferralBanner extends StatelessWidget {
   const _ReferralBanner({required this.info});
   final ReferralInfo info;
@@ -820,34 +1099,55 @@ class _ReferralBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-      padding: const EdgeInsets.fromLTRB(18, 18, 0, 18),
-      decoration: BoxDecoration(gradient: AppColors.brandGradient, borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(
+        color: AppColors.primarySurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(info.message.isEmpty ? 'Earn ₹150 for every friend you refer' : info.message,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
-                const SizedBox(height: 6),
-                const Text('Get ₹150 as soon as they make their first booking',
-                    style: TextStyle(color: Colors.white70, fontSize: 12)),
-                const SizedBox(height: 14),
-                ElevatedButton(
-                  onPressed: () {},
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppColors.primary,
-                    minimumSize: const Size(120, 40),
-                    elevation: 0,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(info.message.isEmpty ? 'Earn ₹150 for every friend you refer' : info.message,
+                      style: const TextStyle(
+                          color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 15, height: 1.25)),
+                  const SizedBox(height: 5),
+                  const Text('Get ₹150 as soon as they make their first booking',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5, height: 1.3)),
+                  const SizedBox(height: 12),
+                  Material(
+                    color: AppColors.ink,
+                    borderRadius: BorderRadius.circular(8),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () {},
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 15),
+                            SizedBox(width: 6),
+                            Text('Refer Now',
+                                style: TextStyle(
+                                    color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12.5)),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                  child: const Text('Refer Now'),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-          Image.asset('assets/images/referral_gift.png', width: 96, fit: BoxFit.contain),
+          Image.asset('assets/images/referral_gift.png', width: 108, fit: BoxFit.contain),
         ],
       ),
     );
@@ -959,6 +1259,8 @@ class _ErrorView extends StatelessWidget {
 }
 
 // ── Dismissible "upload your address proof" reminder ─────────
+/// Styled as the design's warning strip — a full-width amber bar with a red alert glyph —
+/// rather than the soft green card it used to be, which read as a tip instead of a to-do.
 class _DocReminderBanner extends ConsumerWidget {
   const _DocReminderBanner({required this.rejected});
   final bool rejected;
@@ -966,12 +1268,12 @@ class _DocReminderBanner extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
       child: Material(
-        color: rejected ? const Color(0xFFFDECEC) : AppColors.primarySurface,
-        borderRadius: BorderRadius.circular(14),
+        color: rejected ? const Color(0xFFFDECEC) : const Color(0xFFFDF6DD),
+        borderRadius: BorderRadius.circular(10),
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(10),
           onTap: () async {
             await Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const AddressProofScreen()),
@@ -979,32 +1281,28 @@ class _DocReminderBanner extends ConsumerWidget {
             ref.invalidate(myAddressProofProvider);
           },
           child: Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
             child: Row(
               children: [
-                Icon(rejected ? Icons.error_outline : Icons.verified_user_outlined,
-                    color: rejected ? AppColors.error : AppColors.primary),
+                const Icon(Icons.error, color: AppColors.error, size: 22),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(rejected ? 'Address proof rejected' : 'Verify your address',
-                          style: const TextStyle(fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 2),
-                      Text(
-                        rejected
-                            ? 'Re-upload a document to get verified.'
-                            : 'Upload a document to get verified.',
-                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
-                      ),
-                    ],
+                  child: Text(
+                    rejected ? 'Address proof rejected — re-upload' : 'Upload your address proof',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.textPrimary),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 18, color: AppColors.textMuted),
-                  tooltip: 'Skip',
-                  onPressed: () => dismissDocReminder(ref),
+                const Icon(Icons.chevron_right, color: AppColors.textPrimary, size: 22),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => dismissDocReminder(ref),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    child: Icon(Icons.close, size: 16, color: AppColors.textMuted),
+                  ),
                 ),
               ],
             ),

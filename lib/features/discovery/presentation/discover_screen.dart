@@ -99,7 +99,10 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     final anyLoading = eventsAsync.isLoading || spAsync.isLoading || groupsAsync.isLoading;
     final anyError = eventsAsync.hasError && spAsync.hasError && groupsAsync.hasError;
 
-    return Container(
+    // Material, not a bare Container: this screen is used both inside HomeShell's Scaffold and
+    // pushed as a standalone route by the SP page's "explore" CTAs. In the pushed case there was
+    // no Material ancestor, so the header's search TextField threw on build.
+    return Material(
       color: AppColors.background,
       child: Column(
         children: [

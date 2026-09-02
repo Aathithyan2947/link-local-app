@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/brand_wordmark.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../data/message_models.dart';
 import '../data/messages_repository.dart';
@@ -38,7 +39,7 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('LinkLocal', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 20)),
+        title: const BrandWordmark(),
       ),
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),

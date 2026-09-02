@@ -3,6 +3,22 @@ import '../../home/data/home_models.dart';
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 double? _asDouble(dynamic v) => v == null ? null : (v is num ? v.toDouble() : double.tryParse('$v'));
 
+/// One joined member, for the Members action on the group profile.
+class GroupMember {
+  const GroupMember({required this.userId, required this.name, this.photoUrl, this.isCreator = false});
+  final int userId;
+  final String name;
+  final String? photoUrl;
+  final bool isCreator;
+
+  factory GroupMember.fromJson(Map<String, dynamic> j) => GroupMember(
+        userId: _asInt(j['userId']),
+        name: j['name'] as String? ?? 'Member',
+        photoUrl: j['photoUrl'] as String?,
+        isCreator: j['isCreator'] as bool? ?? false,
+      );
+}
+
 /// Full interest-group detail backing the Group Profile screen.
 class GroupDetail {
   const GroupDetail({
@@ -24,6 +40,8 @@ class GroupDetail {
     this.isPrivate = false,
     this.maxMembers,
     this.adminApprovalNeeded = false,
+    this.area,
+    this.isMuted = false,
   });
 
   final int id;
@@ -44,6 +62,9 @@ class GroupDetail {
   final bool isPrivate;
   final int? maxMembers;
   final bool adminApprovalNeeded;
+  /// Where the group is anchored — the creator's area. Names the discussions header.
+  final String? area;
+  final bool isMuted;
 
   bool get isMember => isCreator || myStatus == 'joined';
   bool get isPending => myStatus == 'pending_approval';
@@ -74,6 +95,8 @@ class GroupDetail {
       isPrivate: j['isPrivate'] as bool? ?? false,
       maxMembers: j['maxMembers'] != null ? _asInt(j['maxMembers']) : null,
       adminApprovalNeeded: j['adminApprovalNeeded'] as bool? ?? false,
+      area: j['area'] as String?,
+      isMuted: mine?['muted'] as bool? ?? false,
     );
   }
 }

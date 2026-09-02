@@ -126,10 +126,12 @@ class _AreaPickerSheetState extends ConsumerState<_AreaPickerSheet> {
                             itemCount: _results.length,
                             itemBuilder: (context, i) {
                               final area = _results[i];
+                              // No pincode line: every area in a city shares one, so it added a
+                              // row of identical numbers with nothing to tell them apart. Search
+                              // still matches on pincode.
                               return ListTile(
                                 leading: const Icon(Icons.location_on_outlined, color: AppColors.primary),
                                 title: Text(area.areaName),
-                                subtitle: (area.pincode?.isNotEmpty ?? false) ? Text(area.pincode!) : null,
                                 onTap: () => Navigator.of(context).pop(area),
                               );
                             },

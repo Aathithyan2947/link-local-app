@@ -143,6 +143,28 @@ class DiscoveryRepository {
   }
 
   Future<void> joinGroup(int id) async => _dio.post('/groups/$id/join');
+
+  /// Group discussions, optionally narrowed to one area — backs the header dropdown.
+  Future<List<DiscussionItem>> groupDiscussions(int id, {int? areaId}) async {
+    final res = await _dio.get('/groups/$id/discussions',
+        queryParameters: {if (areaId != null) 'areaId': areaId});
+    return ((res.data['data'] as List?) ?? [])
+        .map((e) => DiscussionItem.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<List<GroupMember>> groupMembers(int id) async {
+    final res = await _dio.get('/groups/$id/members');
+    return ((res.data['data'] as List?) ?? [])
+        .map((e) => GroupMember.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> setGroupMuted(int id, bool muted) async =>
+      _dio.post('/groups/$id/mute', data: {'muted': muted});
+
+  /// Hides the group's existing discussions from this member only.
+  Future<void> clearGroupChat(int id) async => _dio.post('/groups/$id/clear-chat');
   Future<void> leaveGroup(int id) async => _dio.post('/groups/$id/leave');
 
   Future<void> payForGroup(int id, {String? couponCode}) async {
@@ -271,6 +293,25 @@ final eventDetailProvider = FutureProvider.family<EventDetail, int>((ref, id) {
 final groupDetailProvider = FutureProvider.family<GroupDetail, int>((ref, id) {
   ref.bindToAccount();
   return ref.watch(discoveryRepositoryProvider).group(id);
+});
+
+/// Group discussions narrowed to one area, keyed by (groupId, areaId) — backs the group
+/// profile's own header dropdown, the same way Home scopes its sections.
+class GroupAreaKey {
+  const GroupAreaKey(this.groupId, this.areaId);
+  final int groupId;
+  final int areaId;
+  @override
+  bool operator ==(Object other) =>
+      other is GroupAreaKey && other.groupId == groupId && other.areaId == areaId;
+  @override
+  int get hashCode => Object.hash(groupId, areaId);
+}
+
+final groupDiscussionsScopedProvider =
+    FutureProvider.family<List<DiscussionItem>, GroupAreaKey>((ref, key) {
+  ref.bindToAccount();
+  return ref.watch(discoveryRepositoryProvider).groupDiscussions(key.groupId, areaId: key.areaId);
 });
 
 /// A member's public profile, keyed by profile id.

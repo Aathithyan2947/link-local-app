@@ -7,7 +7,7 @@ import 'incoming_orders_screen.dart';
 import 'my_orders_screen.dart';
 import 'order_history_screen.dart';
 
-/// Reached from Profile → Transaction History → Orders / Bookings, and (with
+/// Reached from Profile → Transaction History → Order History, and (with
 /// [showOtherProviders] off) from My Shop → Orders. Splits "Orders" into
 /// what's coming in now (SPs only), what's already happened, and — outside
 /// My Shop — what the member has bought from other providers as a resident.

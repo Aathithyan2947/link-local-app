@@ -10,6 +10,20 @@ class HomeRepository {
   HomeRepository(this._dio);
   final Dio _dio;
 
+  /// Community Discussions for one picked area — backs that section's own header dropdown.
+  /// Reads `/feed`, which returns the same Post shape Home embeds, so [DiscussionItem]
+  /// parses it unchanged.
+  Future<List<DiscussionItem>> discussionsScoped(int areaId, {int limit = 3}) async {
+    try {
+      final res = await _dio.get('/feed', queryParameters: {'areaId': areaId, 'pageSize': limit});
+      return ((res.data['data'] as List?) ?? [])
+          .map((e) => DiscussionItem.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
+    }
+  }
+
   Future<HomeFeed> getHome({String scope = 'city', int? areaId}) async {
     try {
       final res = await _dio.get('/home', queryParameters: {
@@ -81,6 +95,15 @@ class SectionAreaNotifier extends Notifier<SectionAreaOverride?> {
 }
 
 final spSectionAreaProvider = NotifierProvider<SectionAreaNotifier, SectionAreaOverride?>(SectionAreaNotifier.new);
+final discussionsSectionAreaProvider =
+    NotifierProvider<SectionAreaNotifier, SectionAreaOverride?>(SectionAreaNotifier.new);
+
+/// Discussions for a single picked area, keyed by areaId — the discussions counterpart to
+/// `spSectionScopedProvider` and friends in discovery_repository.dart.
+final discussionsSectionScopedProvider = FutureProvider.family<List<DiscussionItem>, int>((ref, areaId) {
+  ref.bindToAccount();
+  return ref.watch(homeRepositoryProvider).discussionsScoped(areaId);
+});
 final workshopsSectionAreaProvider =
     NotifierProvider<SectionAreaNotifier, SectionAreaOverride?>(SectionAreaNotifier.new);
 final groupsSectionAreaProvider =

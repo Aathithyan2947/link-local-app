@@ -1,5 +1,9 @@
 import 'package:dio/dio.dart';
 
+/// Shown whenever the app could not complete a round-trip to the server, whatever the
+/// underlying transport failure was.
+const String offlineMessage = 'Your internet seems to be a bit wonky.';
+
 /// Normalised API error with a user-presentable message.
 class ApiException implements Exception {
   ApiException(this.message, {this.statusCode, this.details});
@@ -24,11 +28,10 @@ class ApiException implements Exception {
       }
       return ApiException(message, statusCode: response.statusCode, details: details);
     }
-    if (e.type == DioExceptionType.connectionTimeout ||
-        e.type == DioExceptionType.connectionError) {
-      return ApiException('Cannot reach the server. Check your connection.');
-    }
-    return ApiException(e.message ?? 'Unexpected network error');
+    // No response at all: the request never reached the server, or the reply never came back.
+    // Timeout, DNS failure, refused socket and bad certificate are all the same thing to the
+    // person holding the phone, so they get one message instead of Dio's internal wording.
+    return ApiException(offlineMessage);
   }
 
   /// Pulls the first human-readable message out of a zod `flatten().fieldErrors`-shaped

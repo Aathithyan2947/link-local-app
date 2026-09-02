@@ -35,6 +35,7 @@ import '../../business/presentation/sp_products_screen.dart';
 import '../../services/data/basic_details_fields.dart';
 import '../../services/data/service_profile_repository.dart';
 import '../../services/presentation/category_fields_form_screen.dart';
+import '../../../core/widgets/brand_wordmark.dart';
 import '../data/sp_detail_models.dart';
 import 'sp_menu_listing_screen.dart';
 import '../discovery_repository.dart';
@@ -263,13 +264,26 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final topPad = MediaQuery.of(context).padding.top;
     return Padding(
-      padding: EdgeInsets.fromLTRB(8, topPad + 6, 8, 0),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: IconButton(
-          icon: const Icon(Icons.chevron_left, size: 30, color: AppColors.ink),
-          onPressed: () => Navigator.of(context).maybePop(),
-        ),
+      padding: EdgeInsets.fromLTRB(20, topPad + 10, 8, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const BrandWordmark(),
+          // `chevron_left` draws inside roughly a quarter-box of empty side bearing, so an icon
+          // box flush with the 20pt gutter puts the visible glyph well right of the wordmark
+          // above it and the avatar below. Pull the box out by that bearing so the three line
+          // up; the tap target overhangs into the gutter, which costs nothing.
+          Transform.translate(
+            offset: const Offset(-10, 0),
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              alignment: Alignment.centerLeft,
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 40),
+              icon: const Icon(Icons.chevron_left, size: 30, color: AppColors.ink),
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -336,9 +350,16 @@ class _ProfileHeaderState extends ConsumerState<_ProfileHeader> {
                 children: [
                   GestureDetector(
                     onTap: _viewPhoto,
-                    child: Hero(
-                      tag: 'sp-avatar-${sp.id}',
-                      child: Avatar(name: sp.name, photoUrl: sp.photoUrl, radius: 42),
+                    child: Container(
+                      padding: const EdgeInsets.all(2.5),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.primary, width: 2.5),
+                      ),
+                      child: Hero(
+                        tag: 'sp-avatar-${sp.id}',
+                        child: Avatar(name: sp.name, photoUrl: sp.photoUrl, radius: 42),
+                      ),
                     ),
                   ),
                   if (_uploading)
@@ -435,8 +456,7 @@ class _ContactRow extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('For any inquiry, contact here:',
-            style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+        const Text('Contact here:', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
         const SizedBox(height: 10),
         Row(
           children: [
@@ -458,44 +478,29 @@ class _ContactRow extends ConsumerWidget {
               _iconButton(icon: Icons.call_outlined, onTap: () => launchUrl(Uri(scheme: 'tel', path: sp.publishedPhone))),
             ],
             const SizedBox(width: 10),
-            Expanded(
-              child: sp.hasMenu
-                  ? ElevatedButton.icon(
-                      onPressed: () => Navigator.of(context)
-                          .push(MaterialPageRoute(builder: (_) => SpMenuListingScreen(spId: sp.id))),
-                      icon: const Icon(Icons.shopping_cart_outlined, size: 16),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size(0, 42),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            sp.hasMenu
+                ? ElevatedButton.icon(
+                    onPressed: () => Navigator.of(context)
+                        .push(MaterialPageRoute(builder: (_) => SpMenuListingScreen(spId: sp.id))),
+                    icon: const Icon(Icons.shopping_cart_outlined, size: 16),
+                    style: _ctaStyle,
+                    label: const Text('Order', style: TextStyle(fontWeight: FontWeight.w600)),
+                  )
+                : ElevatedButton(
+                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => ChatScreen(
+                        otherUserId: sp.userId!,
+                        otherName: sp.name,
+                        otherPhoto: sp.photoUrl,
+                        messageType: 'enquiry',
+                        entityType: 'sp_profile',
+                        entityId: sp.id,
                       ),
-                      label: const Text('Order', style: TextStyle(fontWeight: FontWeight.w600)),
-                    )
-                  : ElevatedButton.icon(
-                      onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => ChatScreen(
-                          otherUserId: sp.userId!,
-                          otherName: sp.name,
-                          otherPhoto: sp.photoUrl,
-                          messageType: 'enquiry',
-                          entityType: 'sp_profile',
-                          entityId: sp.id,
-                        ),
-                      )),
-                      icon: const Icon(Icons.help_outline, size: 16),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size(0, 42),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      label: const Text('Enquire', style: TextStyle(fontWeight: FontWeight.w600)),
-                    ),
-            ),
-            const SizedBox(width: 6),
+                    )),
+                    style: _ctaStyle,
+                    child: const Text('Enquire', style: TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+            const Spacer(),
             Builder(
               builder: (btnContext) => _iconButton(
                 icon: Icons.more_vert,
@@ -507,6 +512,15 @@ class _ContactRow extends ConsumerWidget {
       ],
     );
   }
+
+  static final ButtonStyle _ctaStyle = ElevatedButton.styleFrom(
+    backgroundColor: AppColors.primary,
+    foregroundColor: Colors.white,
+    minimumSize: const Size(0, 42),
+    padding: const EdgeInsets.symmetric(horizontal: 20),
+    elevation: 0,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+  );
 
   Widget _iconButton({required IconData icon, required VoidCallback onTap}) => Material(
         color: AppColors.primarySurface,
@@ -811,6 +825,33 @@ class _BasicDetails {
 }
 
 // ── About / Education / Profession ───────────────────────────
+/// Bold sub-heading inside a band (Education / Profession / Additional Details).
+class _SubHeading extends StatelessWidget {
+  const _SubHeading(this.text);
+  final String text;
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(text,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
+      );
+}
+
+/// Placeholder for a section the provider has not filled in — matches the wording About Me
+/// already uses, so an empty profile reads as incomplete rather than as a broken page.
+class _NotAddedYet extends StatelessWidget {
+  const _NotAddedYet();
+  @override
+  Widget build(BuildContext context) => const Text('Not added yet.',
+      style: TextStyle(fontSize: 13.5, color: AppColors.textMuted, fontStyle: FontStyle.italic));
+}
+
+Widget _detailLine(String text) => Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Text(text, style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
+    );
+
+
 class _AboutBlock extends ConsumerWidget {
   const _AboutBlock({required this.sp, required this.isOwner});
   final ServiceProviderDetail sp;
@@ -832,47 +873,27 @@ class _AboutBlock extends ConsumerWidget {
           basic.aboutMe?.isNotEmpty == true ? basic.aboutMe! : 'No description added yet.',
           style: const TextStyle(fontSize: 13.5, height: 1.5, color: AppColors.textSecondary),
         ),
-        if (sp.educations.isNotEmpty) ...[
-          const SizedBox(height: 18),
-          const Text('Education', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
-          const SizedBox(height: 6),
-          ...sp.educations.map((e) => Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(
-                  e.institution != null ? '${e.label} · ${e.institution}' : e.label,
-                  style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary),
-                ),
-              )),
-        ] else if (basic.education != null) ...[
-          const SizedBox(height: 18),
-          const Text('Education', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
-          const SizedBox(height: 6),
-          Text(basic.education!, style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
-        ],
-        if (sp.professions.isNotEmpty) ...[
-          const SizedBox(height: 18),
-          const Text('Profession', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
-          const SizedBox(height: 6),
-          ...sp.professions.map((p) => Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(p.label, style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
-              )),
-        ] else if (basic.profession != null) ...[
-          const SizedBox(height: 18),
-          const Text('Profession', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
-          const SizedBox(height: 6),
-          Text(basic.profession!, style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
-        ],
+        const SizedBox(height: 18),
+        const _SubHeading('Education'),
+        if (sp.educations.isNotEmpty)
+          ...sp.educations.map((e) => _detailLine(
+              e.institution != null ? '${e.label} · ${e.institution}' : e.label))
+        else if (basic.education != null)
+          _detailLine(basic.education!)
+        else
+          const _NotAddedYet(),
+        const SizedBox(height: 18),
+        const _SubHeading('Profession'),
+        if (sp.professions.isNotEmpty)
+          ...sp.professions.map((p) => _detailLine(p.label))
+        else if (basic.profession != null)
+          _detailLine(basic.profession!)
+        else
+          const _NotAddedYet(),
         if (basic.extra.isNotEmpty) ...[
           const SizedBox(height: 18),
-          const Text('Additional Details',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
-          const SizedBox(height: 6),
-          ...basic.extra.map((f) => Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text('${f.fieldName}: ${f.value}',
-                    style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
-              )),
+          const _SubHeading('Additional Details'),
+          ...basic.extra.map((f) => _detailLine('${f.fieldName}: ${f.value}')),
         ],
       ],
     );
@@ -970,16 +991,16 @@ class _AvailabilityBlock extends ConsumerWidget {
         if (travel.willingToTravel) _check('Willing to Travel'),
         if (travel.maxTravelKm != null) _check('Travels up to ${travel.maxTravelKm!.toStringAsFixed(0)} km'),
         if (years != null) _check('$years+ years of experience'),
-        if (travel.schedule != null) ...[
-          const SizedBox(height: 12),
-          const Text('Schedule:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.ink)),
-          const SizedBox(height: 6),
+        const SizedBox(height: 12),
+        const Text('Schedule:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.ink)),
+        const SizedBox(height: 6),
+        if (travel.schedule != null)
           Text(travel.schedule!,
-              style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary, height: 1.5)),
-        ] else if (sp.hasDateBooking && a != null) ...[
-          const SizedBox(height: 12),
-          _scheduleCard(context, a),
-        ],
+              style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary, height: 1.5))
+        else if (sp.hasDateBooking && a != null)
+          _scheduleCard(context, a)
+        else
+          const _NotAddedYet(),
         if (travel.serviceAreas.isNotEmpty) ...[
           const SizedBox(height: 12),
           const Text('Service Areas:',
@@ -1591,7 +1612,18 @@ class _GalleryBlock extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final items = sp.gallery;
-    if (items.isEmpty && !isOwner) return const SizedBox.shrink();
+    // Visitors used to lose this section entirely when a provider had uploaded nothing, so a
+    // half-filled profile looked like the app was missing a feature. Keep the heading and say
+    // so, the same way About Me does.
+    if (items.isEmpty && !isOwner) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(20, 18, 20, 18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [_SectionTitle('Work Gallery'), _NotAddedYet()],
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 0, 18),
       child: Column(

@@ -28,7 +28,7 @@ String _methodLabel(OrderPaymentModel p) {
 }
 
 /// Unified transaction history — payments made (as a buyer) and, for SPs, payments
-/// received — flattened from the same order data already shown in "Orders / Bookings" and
+/// received — flattened from the same order data already shown in "Order History" and
 /// "My Shop → Bookings".
 class PaymentsScreen extends ConsumerWidget {
   const PaymentsScreen({super.key});

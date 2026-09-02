@@ -184,6 +184,46 @@ class ServiceProviderItem {
   }
 }
 
+/// One service-type shortcut above the provider list, with how many providers in scope
+/// offer it — the badge in the Figma design. Counted server-side across the whole scope,
+/// not from the page of providers the feed happened to return.
+class ServiceCount {
+  const ServiceCount({required this.name, required this.count, this.category});
+  final String name;
+  final int count;
+  final String? category;
+  factory ServiceCount.fromJson(Map<String, dynamic> j) => ServiceCount(
+        name: j['name'] as String? ?? '',
+        count: _asInt(j['count']),
+        category: j['category'] as String?,
+      );
+}
+
+/// Result counts for each My Society/Lane/Area/City chip, shown as a badge on the chip.
+class ScopeCounts {
+  const ScopeCounts({this.society = 0, this.lane = 0, this.area = 0, this.city = 0});
+  final int society;
+  final int lane;
+  final int area;
+  final int city;
+
+  /// Looks a count up by the same scope string the chips and API use.
+  int? of(String scope) => switch (scope) {
+        'society' => society,
+        'lane' => lane,
+        'area' => area,
+        'city' => city,
+        _ => null,
+      };
+
+  factory ScopeCounts.fromJson(Map<String, dynamic> j) => ScopeCounts(
+        society: _asInt(j['society']),
+        lane: _asInt(j['lane']),
+        area: _asInt(j['area']),
+        city: _asInt(j['city']),
+      );
+}
+
 class Section<T> {
   const Section({required this.total, required this.items});
   final int total;
@@ -199,6 +239,8 @@ class HomeFeed {
     required this.groups,
     required this.workshops,
     required this.serviceProviders,
+    this.spServices = const [],
+    this.scopeCounts,
   });
 
   final HomeCity? city;
@@ -208,6 +250,10 @@ class HomeFeed {
   final Section<GroupItem> groups;
   final Section<WorkshopItem> workshops;
   final Section<ServiceProviderItem> serviceProviders;
+  final List<ServiceCount> spServices;
+  /// Null against a backend that predates scope counts — the chips then render without
+  /// badges rather than claiming every scope holds zero results.
+  final ScopeCounts? scopeCounts;
 
   factory HomeFeed.fromJson(Map<String, dynamic> j) {
     Section<R> section<R>(String key, R Function(Map<String, dynamic>) fromJson) {
@@ -228,6 +274,12 @@ class HomeFeed {
       groups: section('groups', GroupItem.fromJson),
       workshops: section('workshops', WorkshopItem.fromJson),
       serviceProviders: section('serviceProviders', ServiceProviderItem.fromJson),
+      spServices: (((j['serviceProviders'] as Map<String, dynamic>?)?['services'] as List?) ?? [])
+          .map((e) => ServiceCount.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      scopeCounts: j['scopeCounts'] == null
+          ? null
+          : ScopeCounts.fromJson(j['scopeCounts'] as Map<String, dynamic>),
     );
   }
 }

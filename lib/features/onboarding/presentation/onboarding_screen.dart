@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
+import '../../../core/storage/intro_seen.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/primary_button.dart';
 
@@ -13,14 +15,14 @@ class _Slide {
   final String subtitle;
 }
 
-class OnboardingScreen extends StatefulWidget {
+class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
   @override
-  State<OnboardingScreen> createState() => _OnboardingScreenState();
+  ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _controller = PageController();
   int _page = 0;
 
@@ -45,8 +47,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (_page < _slides.length - 1) {
       _controller.nextPage(duration: const Duration(milliseconds: 320), curve: Curves.easeOut);
     } else {
-      context.go(Routes.register);
+      _leave(Routes.register);
     }
+  }
+
+  /// Every way out of the introduction marks it seen, so a later logout lands on Login.
+  void _leave(String route) {
+    ref.read(introSeenProvider.notifier).markSeen();
+    context.go(route);
   }
 
   @override
@@ -62,7 +70,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               child: Padding(
                 padding: const EdgeInsets.only(right: 16, top: 4),
                 child: TextButton(
-                  onPressed: () => context.go(Routes.register),
+                  onPressed: () => _leave(Routes.register),
                   child: const Text('Skip',
                       style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 16)),
                 ),
@@ -130,7 +138,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 children: [
                   const Text('Already a member? ', style: TextStyle(color: AppColors.textSecondary)),
                   GestureDetector(
-                    onTap: () => context.go(Routes.login),
+                    onTap: () => _leave(Routes.login),
                     child: const Text('Log in',
                         style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
                   ),

@@ -13,6 +13,14 @@ class IdName {
   final int? masterId;
 }
 
+/// One education entry as stored: each part is optional, but at least one is set.
+class EducationEntry {
+  const EducationEntry({this.degree, this.schoolName, this.collegeName});
+  final String? degree;
+  final String? schoolName;
+  final String? collegeName;
+}
+
 class ProfileDetail {
   const ProfileDetail({
     required this.id,
@@ -27,6 +35,7 @@ class ProfileDetail {
     this.onboardingCompletedAt,
     required this.completionPercent,
     required this.educations,
+    this.educationEntries = const [],
     required this.professions,
     required this.hobbies,
     required this.family,
@@ -40,6 +49,8 @@ class ProfileDetail {
     this.address,
     this.email,
     this.mobile,
+    this.servicePhone,
+    this.serviceEmail,
   });
 
   final int id;
@@ -48,6 +59,10 @@ class ProfileDetail {
   final String? photoUrl;
   final String? email;
   final String? mobile;
+
+  /// Public contact details shown to neighbours — not the sign-in credentials above.
+  final String? servicePhone;
+  final String? serviceEmail;
   final String? dateOfBirth;
   final String? gender;
   final String? aboutMe;
@@ -64,6 +79,9 @@ class ProfileDetail {
   final String? address; // profile.address.fullAddress
 
   final List<IdName> educations;
+
+  /// [educations] field by field, in the same order — what the About editor edits.
+  final List<EducationEntry> educationEntries;
   final List<IdName> professions;
   final List<IdName> hobbies;
   final List<IdName> family;
@@ -86,6 +104,8 @@ class ProfileDetail {
       userType: (j['user'] as Map<String, dynamic>?)?['userType'] as String? ?? 'resident',
       email: (j['user'] as Map<String, dynamic>?)?['email'] as String?,
       mobile: (j['user'] as Map<String, dynamic>?)?['mobile'] as String?,
+      servicePhone: j['servicePhone'] as String?,
+      serviceEmail: j['serviceEmail'] as String?,
       photoUrl: j['photoUrl'] as String?,
       dateOfBirth: j['dateOfBirth'] as String?,
       gender: j['gender'] as String?,
@@ -103,6 +123,14 @@ class ProfileDetail {
           e['schoolName'] ?? m?['schoolName'],
         ].whereType<String>().join(' · ');
         return IdName(_asInt(e['id']), label.isEmpty ? 'Education' : label);
+      }).toList(),
+      educationEntries: list('educations').map((e) {
+        final m = e['educationMaster'] as Map<String, dynamic>?;
+        return EducationEntry(
+          degree: e['degree'] as String? ?? m?['degree'] as String?,
+          schoolName: e['schoolName'] as String?,
+          collegeName: e['collegeName'] as String?,
+        );
       }).toList(),
       professions: list('professions').map((e) {
         final master = e['professionMaster'] as Map<String, dynamic>?;

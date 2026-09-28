@@ -4,26 +4,29 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../home/data/home_models.dart';
 import '../../home/data/home_repository.dart';
+import '../../home/presentation/widgets/area_picker_sheet.dart';
+import '../../profile/data/profile_repository.dart';
 import '../discovery_repository.dart';
 import 'event_detail_screen.dart';
 import 'group_profile_screen.dart';
 import 'service_provider_detail_screen.dart';
 import 'widgets/discover_cards.dart';
+import '../../../core/navigation/push_guard.dart';
 
 void openServiceProvider(BuildContext context, int id) {
-  Navigator.of(context).push(
+  context.pushPage(
     MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: id)),
   );
 }
 
 void openEvent(BuildContext context, int id) {
-  Navigator.of(context).push(
+  context.pushPage(
     MaterialPageRoute(builder: (_) => EventDetailScreen(id: id)),
   );
 }
 
 void openGroup(BuildContext context, int id) {
-  Navigator.of(context).push(
+  context.pushPage(
     MaterialPageRoute(builder: (_) => GroupProfileScreen(id: id)),
   );
 }
@@ -72,18 +75,36 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
 
   void _selectTab(int i) => ref.read(discoverTabProvider.notifier).set(i);
 
+  /// The header's area picker (the same sheet as Home's). One choice for the whole screen;
+  /// The whole-city row returns to city-wide.
+  Future<void> _pickArea(String city) async {
+    final current = ref.read(discoverAreaProvider);
+    final picked = await showAreaScopeSheet(
+      context,
+      cityId: ref.read(myProfileProvider).asData?.value.cityId,
+      cityName: city,
+      selectedAreaId: current?.areaId,
+      wholeCitySelected: current == null,
+    );
+    if (picked == null) return;
+    final notifier = ref.read(discoverAreaProvider.notifier);
+    final a = picked.area;
+    a == null ? notifier.clear() : notifier.set(a.id, a.areaName);
+  }
+
   @override
   Widget build(BuildContext context) {
     final tab = ref.watch(discoverTabProvider);
     final query = ref.watch(discoverQueryProvider);
 
-    final eventsAsync = ref.watch(eventsProvider);
-    final spAsync = ref.watch(serviceProvidersProvider);
-    final groupsAsync = ref.watch(groupsProvider);
+    final eventsAsync = ref.watch(discoverEventsProvider);
+    final spAsync = ref.watch(discoverServiceProvidersProvider);
+    final groupsAsync = ref.watch(discoverGroupsProvider);
+    final area = ref.watch(discoverAreaProvider);
 
-    final eventsData = eventsAsync.asData?.value ?? const <WorkshopItem>[];
-    final spData = spAsync.asData?.value ?? const <ServiceProviderItem>[];
-    final groupsData = groupsAsync.asData?.value ?? const <GroupItem>[];
+    final eventsData = eventsAsync.asData?.value.items ?? const <WorkshopItem>[];
+    final spData = spAsync.asData?.value.items ?? const <ServiceProviderItem>[];
+    final groupsData = groupsAsync.asData?.value.items ?? const <GroupItem>[];
 
     // Match across every user-meaningful field so typing a service, a
     // subcategory, a person's name, a location or an organiser all return hits.
@@ -92,6 +113,16 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     final sps = _filter(spData, query, (e) => e.searchText);
     final groups = _filter(groupsData, query, (e) => '${e.title} ${e.ownerName ?? ''}');
     final city = ref.watch(homeFeedProvider).asData?.value.city?.name ?? 'your area';
+    // Counts: the backend's real total, unless a search is narrowing the loaded list.
+    int count<T>(AsyncValue<Section<T>> a, List<T> filtered) =>
+        query.isEmpty ? (a.asData?.value.total ?? filtered.length) : filtered.length;
+    final scope = _Scope(
+      place: area?.label ?? city,
+      eventsCount: count(eventsAsync, events),
+      spsCount: count(spAsync, sps),
+      groupsCount: count(groupsAsync, groups),
+      onPickArea: () => _pickArea(city),
+    );
 
     // Distinguish "still loading" from "genuinely empty" so the initial fetch
     // shows a spinner instead of the "nothing found" state.
@@ -110,7 +141,12 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
             title: _titles[tab],
             controller: _search,
             activeTab: tab,
-            counts: [events.length + sps.length + groups.length, events.length, sps.length, groups.length],
+            counts: [
+              scope.eventsCount + scope.spsCount + scope.groupsCount,
+              scope.eventsCount,
+              scope.spsCount,
+              scope.groupsCount,
+            ],
             onBack: widget.onBack,
             onTab: _selectTab,
             onQuery: (v) => ref.read(discoverQueryProvider.notifier).set(v),
@@ -120,19 +156,19 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
                 ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
                 : (nothingLoaded && anyError)
                     ? _DiscoverError(onRetry: () {
-                        ref.invalidate(eventsProvider);
-                        ref.invalidate(serviceProvidersProvider);
-                        ref.invalidate(groupsProvider);
+                        ref.invalidate(discoverEventsProvider);
+                        ref.invalidate(discoverServiceProvidersProvider);
+                        ref.invalidate(discoverGroupsProvider);
                       })
                     : switch (tab) {
-                        1 => _EventsList(events: events, city: city),
-                        2 => _SpList(sps: sps, city: city),
-                        3 => _GroupsList(groups: groups, city: city),
+                        1 => _EventsList(events: events, scope: scope),
+                        2 => _SpList(sps: sps, scope: scope),
+                        3 => _GroupsList(groups: groups, scope: scope),
                         _ => _AllList(
                             events: events,
                             sps: sps,
                             groups: groups,
-                            city: city,
+                            scope: scope,
                             query: query,
                             onSeeMore: _selectTab,
                           ),
@@ -247,12 +283,19 @@ class _Header extends StatelessWidget {
           // Tab row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            // Each tab shrinks to fit rather than overflowing on a narrow screen, now that the
+            // counts are real totals and can run to several digits.
             children: List.generate(4, (i) {
-              return _TabItem(
-                label: _labels[i],
-                count: counts[i],
-                active: i == activeTab,
-                onTap: () => onTab(i),
+              return Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: _TabItem(
+                    label: _labels[i],
+                    count: counts[i],
+                    active: i == activeTab,
+                    onTap: () => onTab(i),
+                  ),
+                ),
               );
             }),
           ),
@@ -313,34 +356,59 @@ class _TabItem extends StatelessWidget {
 
 // ── Section header with location dropdown ────────────────────
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.prefix, required this.city, required this.count});
+  const _SectionHeader({required this.prefix, required this.place, required this.count, required this.onTap});
   final String prefix;
-  final String city;
+
+  /// The city, or the area picked from this header.
+  final String place;
   final int count;
+
+  /// Opens the area picker — the ▼ promises a choice, so the whole header is tappable.
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-      child: Row(
-        children: [
-          Flexible(
-            child: RichText(
-              text: TextSpan(
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: AppColors.ink),
-                children: [
-                  TextSpan(text: '$prefix '),
-                  TextSpan(text: '$city($count)', style: const TextStyle(color: AppColors.primary)),
-                ],
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+        child: Row(
+          children: [
+            Flexible(
+              child: RichText(
+                text: TextSpan(
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: AppColors.ink),
+                  children: [
+                    TextSpan(text: '$prefix '),
+                    TextSpan(text: '$place($count)', style: const TextStyle(color: AppColors.primary)),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 4),
-          const Icon(Icons.keyboard_arrow_down, color: AppColors.primary, size: 22),
-        ],
+            const SizedBox(width: 4),
+            const Icon(Icons.keyboard_arrow_down, color: AppColors.primary, size: 22),
+          ],
+        ),
       ),
     );
   }
+}
+
+/// What every Discover section header shows and does: the place in view, each list's
+/// count, and how to change the area.
+class _Scope {
+  const _Scope({
+    required this.place,
+    required this.eventsCount,
+    required this.spsCount,
+    required this.groupsCount,
+    required this.onPickArea,
+  });
+  final String place;
+  final int eventsCount;
+  final int spsCount;
+  final int groupsCount;
+  final VoidCallback onPickArea;
 }
 
 class _SeeMore extends StatelessWidget {
@@ -402,19 +470,19 @@ class _EmptyState extends StatelessWidget {
 
 // ── Per-tab lists ────────────────────────────────────────────
 class _EventsList extends ConsumerWidget {
-  const _EventsList({required this.events, required this.city});
+  const _EventsList({required this.events, required this.scope});
   final List<WorkshopItem> events;
-  final String city;
+  final _Scope scope;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return RefreshIndicator(
       color: AppColors.primary,
-      onRefresh: () => ref.refresh(eventsProvider.future),
+      onRefresh: () => ref.refresh(discoverEventsProvider.future),
       child: ListView(
         padding: EdgeInsets.only(bottom: 66 + MediaQuery.of(context).padding.bottom + 24),
         children: [
-          _SectionHeader(prefix: 'Events in', city: city, count: events.length),
+          _SectionHeader(prefix: 'Events in', place: scope.place, count: scope.eventsCount, onTap: scope.onPickArea),
           if (events.isEmpty)
             const _EmptyState(icon: Icons.event_busy_outlined, message: 'No events found')
           else
@@ -429,25 +497,25 @@ class _EventsList extends ConsumerWidget {
 }
 
 class _SpList extends ConsumerWidget {
-  const _SpList({required this.sps, required this.city});
+  const _SpList({required this.sps, required this.scope});
   final List<ServiceProviderItem> sps;
-  final String city;
+  final _Scope scope;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return RefreshIndicator(
       color: AppColors.primary,
-      onRefresh: () => ref.refresh(serviceProvidersProvider.future),
+      onRefresh: () => ref.refresh(discoverServiceProvidersProvider.future),
       child: ListView(
         padding: EdgeInsets.only(bottom: 66 + MediaQuery.of(context).padding.bottom + 24),
         children: [
-          _SectionHeader(prefix: 'Service Providers in', city: city, count: sps.length),
+          _SectionHeader(prefix: 'Service Providers in', place: scope.place, count: scope.spsCount, onTap: scope.onPickArea),
           if (sps.isEmpty)
             const _EmptyState(icon: Icons.person_search_outlined, message: 'No service providers found')
           else
             ...sps.map((sp) => Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                  child: SpCard(sp: sp, city: city, onTap: () => openServiceProvider(context, sp.id)),
+                  child: SpCard(sp: sp, city: scope.place, onTap: () => openServiceProvider(context, sp.id)),
                 )),
         ],
       ),
@@ -456,19 +524,19 @@ class _SpList extends ConsumerWidget {
 }
 
 class _GroupsList extends ConsumerWidget {
-  const _GroupsList({required this.groups, required this.city});
+  const _GroupsList({required this.groups, required this.scope});
   final List<GroupItem> groups;
-  final String city;
+  final _Scope scope;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return RefreshIndicator(
       color: AppColors.primary,
-      onRefresh: () => ref.refresh(groupsProvider.future),
+      onRefresh: () => ref.refresh(discoverGroupsProvider.future),
       child: ListView(
         padding: EdgeInsets.only(bottom: 66 + MediaQuery.of(context).padding.bottom + 24),
         children: [
-          _SectionHeader(prefix: 'Groups in', city: city, count: groups.length),
+          _SectionHeader(prefix: 'Groups in', place: scope.place, count: scope.groupsCount, onTap: scope.onPickArea),
           if (groups.isEmpty)
             const _EmptyState(icon: Icons.groups_outlined, message: 'No groups found')
           else
@@ -488,14 +556,14 @@ class _AllList extends StatelessWidget {
     required this.events,
     required this.sps,
     required this.groups,
-    required this.city,
+    required this.scope,
     required this.query,
     required this.onSeeMore,
   });
   final List<WorkshopItem> events;
   final List<ServiceProviderItem> sps;
   final List<GroupItem> groups;
-  final String city;
+  final _Scope scope;
   final String query;
   final ValueChanged<int> onSeeMore;
 
@@ -518,7 +586,7 @@ class _AllList extends StatelessWidget {
                 style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.textPrimary)),
           ),
         if (events.isNotEmpty) ...[
-          _SectionHeader(prefix: 'Events in', city: city, count: events.length),
+          _SectionHeader(prefix: 'Events in', place: scope.place, count: scope.eventsCount, onTap: scope.onPickArea),
           ...events.take(2).map((e) => Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
                 child: EventCard(event: e, onTap: () => openEvent(context, e.id)),
@@ -526,15 +594,15 @@ class _AllList extends StatelessWidget {
           if (events.length > 2) _SeeMore(onTap: () => onSeeMore(1)),
         ],
         if (sps.isNotEmpty) ...[
-          _SectionHeader(prefix: 'Service Providers in', city: city, count: sps.length),
+          _SectionHeader(prefix: 'Service Providers in', place: scope.place, count: scope.spsCount, onTap: scope.onPickArea),
           ...sps.take(2).map((sp) => Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                child: SpCard(sp: sp, city: city, onTap: () => openServiceProvider(context, sp.id)),
+                child: SpCard(sp: sp, city: scope.place, onTap: () => openServiceProvider(context, sp.id)),
               )),
           if (sps.length > 2) _SeeMore(onTap: () => onSeeMore(2)),
         ],
         if (groups.isNotEmpty) ...[
-          _SectionHeader(prefix: 'Groups in', city: city, count: groups.length),
+          _SectionHeader(prefix: 'Groups in', place: scope.place, count: scope.groupsCount, onTap: scope.onPickArea),
           ...groups.take(2).map((g) => Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                 child: GroupCard(group: g, onTap: () => openGroup(context, g.id)),

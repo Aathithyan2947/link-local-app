@@ -2,12 +2,14 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../data/event_detail_models.dart';
 import '../discovery_repository.dart';
+import '../event_lists_refresh.dart';
 import 'widgets/discover_cards.dart';
 
 /// Full event detail — the "Workshop details" frame. Join / pay (mock) / rate.
@@ -37,6 +39,8 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
     try {
       await action();
       if (!mounted) return;
+      // Joins, payments and reviews change counts and ratings shown in the lists too.
+      ref.invalidateEventLists();
       ref.invalidate(eventDetailProvider(widget.id));
       await ref.read(eventDetailProvider(widget.id).future);
       if (!mounted) return;
@@ -204,6 +208,19 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
           if (e.location != null && e.location!.isNotEmpty) ...[
             const SizedBox(height: 8),
             _metaRow(Icons.location_on_outlined, e.location!),
+            // Only for a location picked from place search — typed text has no position.
+            if (e.latitude != null && e.longitude != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 23),
+                child: GestureDetector(
+                  onTap: () => _openInMaps(e),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 4),
+                    child: Text('Open in Maps',
+                        style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 13)),
+                  ),
+                ),
+              ),
           ],
           const SizedBox(height: 8),
           _metaRow(Icons.person_outline, 'Hosted By : ${e.host.name}'),
@@ -212,7 +229,15 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
     );
   }
 
+  Widget _statusChip(String label, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+        child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+      );
+
   Widget _joinButton(EventDetail e) {
+    // The host can't join (or review) their own event.
+    if (e.isHost) return _statusChip('Hosting', AppColors.primary);
     if (_busy) {
       return const SizedBox(
         height: 40,
@@ -223,6 +248,12 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
     if (e.needsPayment) {
       return _filledBtn('Pay ₹${(e.price ?? 0).toStringAsFixed(0)}', () => _pay(e));
     }
+    // Once it has started the event is closed: attendees stay Joined (no withdrawing),
+    // everyone else sees Closed. The backend enforces both.
+    if (e.hasStarted) {
+      return e.isJoined ? const JoinedBadge() : _statusChip('Closed', AppColors.textMuted);
+    }
+    if (e.myStatus == 'pending_approval') return _statusChip('Pending', AppColors.warning);
     if (e.isJoined) {
       return OutlinedButton.icon(
         onPressed: () => _withdraw(e),
@@ -250,6 +281,18 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
         ),
         child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
       );
+
+  /// Google Maps' cross-platform URL: opens the Maps app when installed, else the browser.
+  Future<void> _openInMaps(EventDetail e) async {
+    final uri = Uri.https('www.google.com', '/maps/search/', {
+      'api': '1',
+      'query': '${e.latitude},${e.longitude}',
+      if (e.googlePlaceId != null) 'query_place_id': e.googlePlaceId!,
+    });
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open Maps')));
+    }
+  }
 
   Widget _metaRow(IconData icon, String text) => Row(
         children: [
@@ -313,55 +356,62 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
               const Text('No reviews yet.', style: TextStyle(fontSize: 13, color: AppColors.textMuted))
             else
               ...e.reviews.take(3).map((r) => _reviewTile(r)),
-            const Divider(height: 24, color: AppColors.divider),
-            const Text('Submit a Review', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-            const SizedBox(height: 8),
-            Row(
-              children: List.generate(5, (i) {
-                final filled = i < _stars;
-                return GestureDetector(
-                  onTap: () => setState(() => _stars = i + 1),
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: Icon(filled ? Icons.star_rounded : Icons.star_border_rounded,
-                        color: filled ? AppColors.warning : AppColors.textMuted, size: 28),
-                  ),
-                );
-              }),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _review,
-              minLines: 1,
-              maxLines: 3,
-              decoration: InputDecoration(
-                hintText: 'Share your experience....',
-                filled: true,
-                fillColor: AppColors.field,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.border)),
-                enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.border)),
-                focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.primary, width: 1.4)),
+            // Only people who joined may review, once it has started — never the host.
+            if (e.canReview) ...[
+              const Divider(height: 24, color: AppColors.divider),
+              const Text('Submit a Review', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              const SizedBox(height: 8),
+              Row(
+                children: List.generate(5, (i) {
+                  final filled = i < _stars;
+                  return GestureDetector(
+                    onTap: () => setState(() => _stars = i + 1),
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Icon(filled ? Icons.star_rounded : Icons.star_border_rounded,
+                          color: filled ? AppColors.warning : AppColors.textMuted, size: 28),
+                    ),
+                  );
+                }),
               ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _busy ? null : _submitReview,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(46),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _review,
+                minLines: 1,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText: 'Share your experience....',
+                  filled: true,
+                  fillColor: AppColors.field,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.border)),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.border)),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.primary, width: 1.4)),
                 ),
-                child: const Text('Submit', style: TextStyle(fontWeight: FontWeight.w600)),
               ),
-            ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _busy ? null : _submitReview,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(46),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Submit', style: TextStyle(fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ] else if (e.isJoined && !e.hasStarted) ...[
+              const Divider(height: 24, color: AppColors.divider),
+              const Text('You can review this event after it starts.',
+                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+            ],
           ],
         ),
       );

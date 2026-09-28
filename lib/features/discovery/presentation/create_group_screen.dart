@@ -98,6 +98,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         await repo.updateGroup(id, data);
         if (!mounted) return;
         ref.invalidate(groupsProvider);
+        ref.invalidate(discoverGroupsProvider);
         ref.invalidate(myGroupsProvider);
         ref.invalidate(groupDetailProvider(id));
         await ref.read(groupDetailProvider(id).future);
@@ -107,6 +108,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         final id = await repo.createGroup(data);
         if (!mounted) return;
         ref.invalidate(groupsProvider);
+        ref.invalidate(discoverGroupsProvider);
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => GroupProfileScreen(id: id)),
         );

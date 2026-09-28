@@ -95,9 +95,10 @@ class BusinessRepository {
     return (res.data['data'] as Map<String, dynamic>)['providerKind'] as String? ?? 'service';
   }
 
-  /// Returns {hasMenu, hasDateBooking} derived from the SP's subcategory types.
+  /// Returns {hasMenu, hasDateBooking} derived from the SP's subcategory types — from a
+  /// dedicated endpoint, rather than downloading the whole profile for two flags.
   Future<({bool hasMenu, bool hasDateBooking})> myProviderFeatures() async {
-    final res = await _dio.get('/profiles/me');
+    final res = await _dio.get('/profiles/me/features');
     final d = res.data['data'] as Map<String, dynamic>;
     final hasMenu = d['hasMenu'] as bool? ?? false;
     final hasDateBooking = d['hasDateBooking'] as bool? ?? false;

@@ -6,6 +6,7 @@ import '../../auth/application/auth_controller.dart';
 import 'incoming_orders_screen.dart';
 import 'my_orders_screen.dart';
 import 'order_history_screen.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// Reached from Profile → Transaction History → Order History, and (with
 /// [showOtherProviders] off) from My Shop → Orders. Splits "Orders" into
@@ -24,19 +25,19 @@ class OrdersHubScreen extends ConsumerWidget {
         _RowData(
           icon: Icons.shopping_cart_outlined,
           label: 'Incoming Order',
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const IncomingOrdersScreen())),
+          onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => const IncomingOrdersScreen())),
         ),
       if (isSp)
         _RowData(
           icon: Icons.receipt_long_outlined,
           label: 'Order History',
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const OrderHistoryScreen())),
+          onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => const OrderHistoryScreen())),
         ),
       if (showOtherProviders)
         _RowData(
           icon: Icons.storefront_outlined,
           label: 'Orders from Other Providers',
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyOrdersScreen())),
+          onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => const MyOrdersScreen())),
         ),
     ];
 

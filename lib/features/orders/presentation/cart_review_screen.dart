@@ -13,6 +13,7 @@ import '../data/order_models.dart';
 import '../data/orders_repository.dart';
 import 'order_success_screen.dart';
 import 'product_details_screen.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// Reviews the cart and places the order — the "Cart Review" frame.
 class CartReviewScreen extends ConsumerStatefulWidget {
@@ -104,7 +105,7 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
       });
       if (!mounted) return;
       // Route through the Payment method + UPI pages (mock gateway).
-      final paid = await Navigator.of(context).push<bool>(
+      final paid = await context.pushPage<bool>(
         MaterialPageRoute(builder: (_) => PaymentMethodScreen(orderId: order.id, total: order.amountDue)),
       );
       if (!mounted) return;
@@ -295,7 +296,7 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
                           child: InkWell(
                             customBorder: const CircleBorder(),
                             onTap: () => hasCustomization
-                                ? Navigator.of(context).push(MaterialPageRoute(
+                                ? context.pushPage(MaterialPageRoute(
                                     builder: (_) => ProductDetailsScreen(product: p, spId: cart.spProfileId!, spName: cart.spName ?? ''),
                                   ))
                                 : notifier.add(cart.spProfileId!, cart.spName ?? '', p),

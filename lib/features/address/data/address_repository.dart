@@ -12,10 +12,10 @@ class AddressRepository {
   AddressRepository(this._dio);
   final Dio _dio;
 
-  /// Directory autocomplete (curated Address Master localities) from the backend.
-  Future<DirectoryResults> searchDirectory(String q) async {
+  /// Directory autocomplete (curated Address Master localities in [cityId]) from the backend.
+  Future<DirectoryResults> searchDirectory(String q, {required int cityId}) async {
     try {
-      final res = await _dio.get('/addresses/directory', queryParameters: {'q': q});
+      final res = await _dio.get('/addresses/directory', queryParameters: {'q': q, 'cityId': cityId});
       final data = res.data['data'] as Map<String, dynamic>;
       return DirectoryResults(
         localities: ((data['localities'] as List?) ?? [])
@@ -52,6 +52,43 @@ class AddressRepository {
       return GeoAddress.fromJson(res.data['data'] as Map<String, dynamic>);
     } on DioException {
       return GeoAddress(latitude: lat, longitude: lng);
+    }
+  }
+
+  /// Google place suggestions for typed text, restricted to [cityId]'s service area.
+  /// [sessionToken] groups the keystrokes and the eventual [placeDetails] call
+  /// into one billed session.
+  Future<List<PlaceSuggestion>> autocomplete(
+    String q, {
+    required String sessionToken,
+    required int cityId,
+  }) async {
+    try {
+      final res = await _dio.get('/geo/autocomplete', queryParameters: {
+        'q': q,
+        'sessionToken': sessionToken,
+        'cityId': cityId,
+      });
+      return ((res.data['data'] as List?) ?? [])
+          .map((e) => PlaceSuggestion.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
+    }
+  }
+
+  /// Resolves a picked suggestion to coordinates + address fields. Null when the
+  /// backend could not resolve it; the caller falls back to the map pin.
+  Future<PlaceAddress?> placeDetails(String placeId, {String? sessionToken}) async {
+    try {
+      final res = await _dio.get('/geo/place', queryParameters: {
+        'placeId': placeId,
+        'sessionToken': ?sessionToken,
+      });
+      final data = res.data['data'] as Map<String, dynamic>?;
+      return data == null ? null : PlaceAddress.fromJson(data);
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
     }
   }
 

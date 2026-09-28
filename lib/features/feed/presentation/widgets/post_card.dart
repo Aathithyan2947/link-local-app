@@ -8,6 +8,7 @@ import '../../../discovery/presentation/user_profile_screen.dart';
 import '../../../home/presentation/widgets/home_widgets.dart';
 import '../../data/feed_repository.dart';
 import '../../data/post_models.dart';
+import '../../../../core/navigation/push_guard.dart';
 
 /// A community post card: author + type chip · text · media · like/comment/share.
 /// Manages its own like state optimistically so the whole feed needn't refresh.
@@ -47,7 +48,7 @@ class _PostCardState extends ConsumerState<PostCard> {
   void _openAuthor() {
     final pid = widget.post.authorProfileId;
     if (pid == null) return;
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => UserProfileScreen(id: pid)));
+    context.pushPage(MaterialPageRoute(builder: (_) => UserProfileScreen(id: pid)));
   }
 
   Future<void> _share() async {

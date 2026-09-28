@@ -169,3 +169,40 @@ class GeoAddress {
   /// be re-checked later without geocoding its free-text fields again.
   final String? googlePlaceId;
 }
+
+/// A Google place suggestion for typed text — shown when the curated directory
+/// has no match. Carries no coordinates; picking one fetches [PlaceAddress].
+class PlaceSuggestion {
+  const PlaceSuggestion({required this.placeId, required this.primaryText, this.secondaryText});
+
+  factory PlaceSuggestion.fromJson(Map<String, dynamic> j) => PlaceSuggestion(
+        placeId: j['placeId'] as String,
+        primaryText: j['primaryText'] as String? ?? '',
+        secondaryText: j['secondaryText'] as String?,
+      );
+
+  final String placeId;
+  final String primaryText;
+  final String? secondaryText;
+}
+
+/// A picked Google place, resolved to coordinates plus the same fields a map pin gives.
+class PlaceAddress {
+  const PlaceAddress({required this.geo, required this.isPrecise, required this.isNamed});
+
+  factory PlaceAddress.fromJson(Map<String, dynamic> j) => PlaceAddress(
+        geo: GeoAddress.fromJson(j),
+        isPrecise: j['isPrecise'] as bool? ?? false,
+        isNamed: j['isNamed'] as bool? ?? false,
+      );
+
+  final GeoAddress geo;
+
+  /// True when the coordinates mark the building/business itself; false for an
+  /// area or road, whose pin is only a centre point the member should check.
+  final bool isPrecise;
+
+  /// True for a named building or business, whose suggestion text is its name
+  /// (as opposed to a street line) and so can fill the building field.
+  final bool isNamed;
+}

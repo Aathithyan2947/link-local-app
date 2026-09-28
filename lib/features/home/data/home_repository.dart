@@ -92,6 +92,9 @@ class SectionAreaNotifier extends Notifier<SectionAreaOverride?> {
     return null;
   }
   void set(int areaId, String label) => state = SectionAreaOverride(areaId: areaId, label: label);
+
+  /// Back to the section's default, city-wide slice.
+  void clear() => state = null;
 }
 
 final spSectionAreaProvider = NotifierProvider<SectionAreaNotifier, SectionAreaOverride?>(SectionAreaNotifier.new);

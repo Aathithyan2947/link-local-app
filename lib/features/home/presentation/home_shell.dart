@@ -9,6 +9,7 @@ import '../../discovery/presentation/discover_screen.dart';
 import '../../feed/presentation/create_post_screen.dart';
 import 'home_feed_screen.dart';
 import 'tabs/profile_tab.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// App shell: Home feed + the unified Discover surface, under a custom bottom
 /// bar (Home · Services · ➕ · Events · Groups) with a raised center FAB.
@@ -32,7 +33,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   }
 
   void _openProfile() {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ProfileTab()));
+    context.pushPage(MaterialPageRoute(builder: (_) => const ProfileTab()));
   }
 
   /// Which bottom-nav slot is highlighted (0 Home · 1 Services · 3 Events · 4 Groups).
@@ -88,15 +89,15 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             ),
             const SizedBox(height: 8),
             _createTile(ctx, Icons.post_add_rounded, 'Create a Post', 'Ask, offer help or share an update',
-                onTap: () => Navigator.of(context).push(
+                onTap: () => context.pushPage(
                       MaterialPageRoute(builder: (_) => const CreatePostScreen()),
                     )),
             _createTile(ctx, Icons.event_rounded, 'Host an Event', 'Organise a workshop or meetup',
-                onTap: () => Navigator.of(context).push(
+                onTap: () => context.pushPage(
                       MaterialPageRoute(builder: (_) => const CreateEventScreen()),
                     )),
             _createTile(ctx, Icons.groups_rounded, 'Start a Group', 'Bring neighbours together',
-                onTap: () => Navigator.of(context).push(
+                onTap: () => context.pushPage(
                       MaterialPageRoute(builder: (_) => const CreateGroupScreen()),
                     )),
             const SizedBox(height: 8),

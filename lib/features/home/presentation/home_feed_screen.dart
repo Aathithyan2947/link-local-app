@@ -12,6 +12,7 @@ import '../../discovery/discovery_repository.dart';
 import '../../discovery/presentation/event_detail_screen.dart';
 import '../../discovery/presentation/group_profile_screen.dart';
 import '../../discovery/presentation/service_provider_detail_screen.dart';
+import '../../members/presentation/members_screen.dart';
 import '../../feed/presentation/feed_screen.dart';
 import '../../feed/presentation/post_detail_screen.dart';
 import '../../discovery/presentation/widgets/discover_cards.dart';
@@ -28,6 +29,7 @@ import '../data/home_repository.dart';
 import 'widgets/area_picker_sheet.dart';
 import 'widgets/home_widgets.dart';
 import 'widgets/service_icons.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// The SP's home-banner-relevant fields — Basic Details + Travel + (menu SPs only) Service
 /// Type + Delivery, EXCLUDING Payment and anything else (gallery/education/profession/
@@ -83,25 +85,51 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
     ref.read(discoverQueryProvider.notifier).set('');
   }
 
-  /// The Members counter — the community feed is where neighbours actually surface; the app
-  /// has no standalone member directory to send them to.
-  void _openMembers() =>
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FeedScreen()));
+  /// The Members counter opens the members it counts, starting on the scope Home shows.
+  void _openMembers() {
+    final scope = ref.read(homeScopeProvider);
+    context.pushPage(MaterialPageRoute(
+      builder: (_) => MembersScreen(initialScope: scope.scope, areaId: scope.overrideAreaId),
+    ));
+  }
 
   void _toggleCategory(String c) => setState(() => _selectedCategory = _selectedCategory == c ? null : c);
 
+  String get _cityName => ref.read(homeFeedProvider).asData?.value.city?.name ?? 'your city';
+
   Future<void> _pickArea() async {
     final cityId = ref.read(myProfileProvider).asData?.value.cityId;
-    final picked = await showAreaPickerSheet(context, cityId: cityId);
-    if (picked != null) ref.read(homeScopeProvider.notifier).setArea(picked.id, picked.areaName);
+    final scope = ref.read(homeScopeProvider);
+    final picked = await showAreaScopeSheet(
+      context,
+      cityId: cityId,
+      cityName: _cityName,
+      selectedAreaId: scope.overrideAreaId,
+      wholeCitySelected: scope.overrideAreaId == null && scope.scope == 'city',
+    );
+    if (picked == null) return;
+    final notifier = ref.read(homeScopeProvider.notifier);
+    final area = picked.area;
+    // The whole-city row is the same as the City chip.
+    area == null ? notifier.setScope('city') : notifier.setArea(area.id, area.areaName);
   }
 
   /// Per-section pickers — unlike [_pickArea] (whole-feed scope), these only re-fetch the
-  /// one section whose header dropdown was tapped.
+  /// one section whose header dropdown was tapped. The whole-city row drops the section's
+  /// override, back to its city-wide default.
   Future<void> _pickSectionArea(NotifierProvider<SectionAreaNotifier, SectionAreaOverride?> provider) async {
     final cityId = ref.read(myProfileProvider).asData?.value.cityId;
-    final picked = await showAreaPickerSheet(context, cityId: cityId);
-    if (picked != null) ref.read(provider.notifier).set(picked.id, picked.areaName);
+    final current = ref.read(provider);
+    final picked = await showAreaScopeSheet(
+      context,
+      cityId: cityId,
+      cityName: _cityName,
+      selectedAreaId: current?.areaId,
+      wholeCitySelected: current == null,
+    );
+    if (picked == null) return;
+    final area = picked.area;
+    area == null ? ref.read(provider.notifier).clear() : ref.read(provider.notifier).set(area.id, area.areaName);
   }
 
   @override
@@ -209,7 +237,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                   onExploreMore: () => _goToDiscover(2),
                 ),
                 const SizedBox(height: 12),
-                ...visibleSps.map((sp) => _SpCard(sp: sp, city: feed.city?.name ?? '')),
+                ...visibleSps.map((sp) => _SpCard(sp: sp)),
               ] else
                 _EmptyScopedSection(
                   label: 'No service providers in ${spOverride?.label ?? feed.city?.name ?? 'this area'} yet.',
@@ -225,14 +253,14 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                 ),
                 ...discussions.map((d) => _DiscussionCard(
                       item: d,
-                      onTap: () => Navigator.of(context).push(
+                      onTap: () => context.pushPage(
                         MaterialPageRoute(builder: (_) => PostDetailScreen(id: d.id)),
                       ),
                     )),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
                   child: GestureDetector(
-                    onTap: () => Navigator.of(context).push(
+                    onTap: () => context.pushPage(
                       MaterialPageRoute(builder: (_) => const FeedScreen()),
                     ),
                     child: const Text('See all discussions',
@@ -750,13 +778,12 @@ class _CategoryCard extends StatelessWidget {
 }
 
 class _SpCard extends StatelessWidget {
-  const _SpCard({required this.sp, required this.city});
+  const _SpCard({required this.sp});
   final ServiceProviderItem sp;
-  final String city;
 
   @override
   Widget build(BuildContext context) {
-    void open() => Navigator.of(context).push(
+    void open() => context.pushPage(
           MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: sp.id)),
         );
 
@@ -803,8 +830,9 @@ class _SpCard extends StatelessWidget {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
+                      // The provider's own area/city and rounded distance, not the feed's city.
                       Expanded(
-                        child: Text('$city | 300m',
+                        child: Text(sp.locationLine,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
@@ -919,7 +947,7 @@ class _WorkshopRow extends StatelessWidget {
           final date = w.date != null ? DateFormat('EEE, MMM d').format(w.date!) : '';
           final time = eventTimeRange(w);
           return GestureDetector(
-            onTap: () => Navigator.of(context).push(
+            onTap: () => context.pushPage(
               MaterialPageRoute(builder: (_) => EventDetailScreen(id: w.id)),
             ),
             child: Container(
@@ -988,7 +1016,13 @@ class _WorkshopRow extends StatelessWidget {
                                     fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.textSecondary)),
                           ),
                           const SizedBox(width: 6),
-                          const JoinButton(),
+                          // Join opens the event (where joining happens); otherwise a status.
+                          EventActionBadge(
+                            event: w,
+                            onJoin: () => context.pushPage(
+                              MaterialPageRoute(builder: (_) => EventDetailScreen(id: w.id)),
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -1024,7 +1058,7 @@ class _GroupsRow extends StatelessWidget {
         itemBuilder: (context, i) {
           final g = items[i];
           return GestureDetector(
-            onTap: () => Navigator.of(context).push(
+            onTap: () => context.pushPage(
               MaterialPageRoute(builder: (_) => GroupProfileScreen(id: g.id)),
             ),
             child: SizedBox(
@@ -1155,23 +1189,64 @@ class _ReferralBanner extends StatelessWidget {
 }
 
 // ── "Complete your profile" hero prompt (SPs only, until fully filled in) ────
-class _ProfileCompletionBanner extends ConsumerWidget {
+class _ProfileCompletionBanner extends ConsumerStatefulWidget {
   const _ProfileCompletionBanner();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ProfileCompletionBanner> createState() => _ProfileCompletionBannerState();
+}
+
+class _ProfileCompletionBannerState extends ConsumerState<_ProfileCompletionBanner> {
+  /// True while working out where to go; further taps are ignored meanwhile.
+  bool _busy = false;
+
+  /// Opens the first unfinished onboarding step. Home already holds the fields and the
+  /// menu flag (it needs them to decide whether to show this banner), so normally this is
+  /// instant; only if they aren't loaded yet does it fetch them — in parallel, with a
+  /// spinner, and ignoring repeat taps. With nothing left to fill in it opens the profile
+  /// rather than doing nothing.
+  Future<void> _open() async {
+    if (_busy) return;
+    var fields = ref.read(customFieldsProvider).asData?.value;
+    var hasMenu = ref.read(myProviderFeaturesProvider).asData?.value.hasMenu;
+    if (fields == null || hasMenu == null) {
+      setState(() => _busy = true);
+      try {
+        final results = await Future.wait([
+          ref.read(customFieldsProvider.future),
+          ref.read(myProviderFeaturesProvider.future).then((f) => f.hasMenu).catchError((_) => false),
+        ]);
+        fields = results[0] as List<CustomField>;
+        hasMenu = results[1] as bool;
+      } catch (_) {
+        if (mounted) {
+          setState(() => _busy = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Couldn't load your profile steps. Please try again.")),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _busy = false);
+    }
+
+    final cats = onboardingCategories(fields, hasMenu: hasMenu);
+    if (cats.isNotEmpty) {
+      await pushOnboardingStep(context, ref, cats);
+      return;
+    }
+    final myId = ref.read(myProfileProvider).asData?.value.id;
+    if (myId != null) {
+      await context.pushPage(MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: myId)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: () async {
-        final fields = await ref.read(serviceProfileRepositoryProvider).getCustomFields();
-        var hasMenu = false;
-        try {
-          hasMenu = (await ref.read(businessRepositoryProvider).myProviderFeatures()).hasMenu;
-        } catch (_) {}
-        final cats = onboardingCategories(fields, hasMenu: hasMenu);
-        if (cats.isEmpty || !context.mounted) return;
-        await pushOnboardingStep(context, ref, cats);
-      },
+      onTap: _busy ? null : _open,
       child: Container(
         margin: const EdgeInsets.fromLTRB(20, 0, 20, 8),
         padding: const EdgeInsets.all(14),
@@ -1182,7 +1257,14 @@ class _ProfileCompletionBanner extends ConsumerWidget {
               child: Text('Complete your profile and let neighbours find you',
                   style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5, color: AppColors.ink)),
             ),
-            const Icon(Icons.chevron_right, color: AppColors.ink),
+            if (_busy)
+              const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.ink),
+              )
+            else
+              const Icon(Icons.chevron_right, color: AppColors.ink),
           ],
         ),
       ),
@@ -1275,7 +1357,7 @@ class _DocReminderBanner extends ConsumerWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
           onTap: () async {
-            await Navigator.of(context).push(
+            await context.pushPage(
               MaterialPageRoute(builder: (_) => const AddressProofScreen()),
             );
             ref.invalidate(myAddressProofProvider);

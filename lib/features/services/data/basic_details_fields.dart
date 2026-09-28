@@ -46,6 +46,18 @@ String? prefillForBasicDetailsField(
   return null;
 }
 
+/// The live public contact value for a Service Phone / Service Email field, or null.
+///
+/// Those answers mirror the profile's `servicePhone` / `serviceEmail`, which the profile's
+/// contact sheet edits directly — so the profile's value wins over an older saved answer,
+/// or re-saving this form would write the stale one back over it.
+String? liveServiceContact(String fieldName, ProfileDetail? profile) {
+  String? clean(String? v) => (v != null && v.trim().isNotEmpty) ? v.trim() : null;
+  if (kBasicPhonePattern.hasMatch(fieldName)) return clean(profile?.servicePhone);
+  if (kBasicEmailPattern.hasMatch(fieldName)) return clean(profile?.serviceEmail);
+  return null;
+}
+
 /// The profile columns implied by a saved `basic_details` answer set.
 ///
 /// "Service Phone No." / "Service Email" are collected during onboarding but the profile shows

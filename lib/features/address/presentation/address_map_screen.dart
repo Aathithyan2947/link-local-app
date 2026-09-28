@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +10,7 @@ import '../../../core/location/location_providers.dart';
 import '../../../core/location/location_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../reference/reference_models.dart';
 import '../data/address_models.dart';
 import '../data/address_repository.dart';
 
@@ -25,11 +27,15 @@ class MapPinResult {
 /// Lets the member pin their building on a map, converging on the most accurate
 /// device fix available and showing them how much to trust it.
 class AddressMapScreen extends ConsumerStatefulWidget {
-  const AddressMapScreen({super.key, this.initial});
+  const AddressMapScreen({super.key, this.initial, this.city});
 
   /// When provided, the map opens on this pin (e.g. returning to fix a small
   /// mistake) instead of relocating from scratch.
   final LatLng? initial;
+
+  /// The member's chosen city. With a service area, the map shows it, keeps the
+  /// camera near it, and only lets a pin inside it be confirmed.
+  final City? city;
 
   @override
   ConsumerState<AddressMapScreen> createState() => _AddressMapScreenState();
@@ -74,9 +80,18 @@ class _AddressMapScreenState extends ConsumerState<AddressMapScreen> {
   String? _notice;
   LocationPermissionOutcome? _permission;
 
+  City? get _city => widget.city;
+  bool get _cityHasArea => _city?.hasArea ?? false;
+
+  /// Whether the pin sits in the city's service area. True when there is no
+  /// area to check against; the capture screen then matches the city by name.
+  bool get _pinInCity => _city?.contains(_center.latitude, _center.longitude) ?? true;
+
   @override
   void initState() {
     super.initState();
+    final city = _city;
+    if (city != null && city.hasArea) _center = LatLng(city.centerLat!, city.centerLng!);
     final initial = widget.initial;
     if (initial != null) {
       _center = initial;
@@ -121,6 +136,20 @@ class _AddressMapScreenState extends ConsumerState<AddressMapScreen> {
     _locating = service.acquire().listen(
       (fix) {
         if (!mounted) return;
+        // A fix outside the chosen city is no use as a pin: leave the map on the
+        // city and tell the member why, rather than dropping them elsewhere.
+        if (_city?.contains(fix.latitude, fix.longitude) == false) {
+          // A replayed last-known position may be stale; wait for a live fix.
+          if (fix.source == LocationSource.cached) return;
+          _locating?.cancel();
+          setState(() {
+            _fix = null;
+            _searching = false;
+            _notice = "You're outside ${_city!.name}, so the map is showing ${_city!.name}. "
+                'Move it to your building.';
+          });
+          return;
+        }
         setState(() => _fix = fix);
         // Never yank the camera away from someone already placing their pin.
         if (_movedByUser) return;
@@ -156,6 +185,8 @@ class _AddressMapScreenState extends ConsumerState<AddressMapScreen> {
   }
 
   Future<void> _confirm() async {
+    // Belt and braces: the button is disabled while the pin is outside the city.
+    if (!_pinInCity) return;
     // Converge, then warn. A poor fix the member never adjusted is the one case
     // worth a second look — but never a hard block, since plenty of people
     // register indoors where the device genuinely cannot do better.
@@ -231,6 +262,38 @@ class _AddressMapScreenState extends ConsumerState<AddressMapScreen> {
     };
   }
 
+  /// The chosen city's service area, drawn so the member can see where a pin
+  /// may go. Turns red while the pin sits outside it.
+  Set<Circle> get _cityCircle {
+    final city = _city;
+    if (city == null || !city.hasArea) return const {};
+    final color = _pinInCity ? AppColors.primary : AppColors.error;
+    return {
+      Circle(
+        circleId: const CircleId('city'),
+        center: LatLng(city.centerLat!, city.centerLng!),
+        radius: city.radiusKm! * 1000,
+        fillColor: color.withValues(alpha: 0.04),
+        strokeColor: color.withValues(alpha: 0.6),
+        strokeWidth: 2,
+      ),
+    };
+  }
+
+  /// Keeps the camera around the city, with a little room beyond its edge so a
+  /// pin near the boundary can still be placed comfortably.
+  CameraTargetBounds get _cameraBounds {
+    final city = _city;
+    if (city == null || !city.hasArea) return CameraTargetBounds.unbounded;
+    final reachKm = city.radiusKm! * 1.2;
+    final dLat = reachKm / 111.32;
+    final dLng = reachKm / (111.32 * math.cos(city.centerLat! * math.pi / 180));
+    return CameraTargetBounds(LatLngBounds(
+      southwest: LatLng(city.centerLat! - dLat, city.centerLng! - dLng),
+      northeast: LatLng(city.centerLat! + dLat, city.centerLng! + dLng),
+    ));
+  }
+
   (String, Color) get _accuracyChip {
     final fix = _fix;
     if (fix == null) {
@@ -267,7 +330,8 @@ class _AddressMapScreenState extends ConsumerState<AddressMapScreen> {
             tiltGesturesEnabled: false,
             rotateGesturesEnabled: false,
             buildingsEnabled: true,
-            circles: _accuracyCircle,
+            circles: {..._cityCircle, ..._accuracyCircle},
+            cameraTargetBounds: _cameraBounds,
             onCameraMoveStarted: () {
               if (_programmaticMove || _movedByUser) return;
               setState(() => _movedByUser = true);
@@ -343,13 +407,23 @@ class _AddressMapScreenState extends ConsumerState<AddressMapScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    _notice ?? 'Move the map to position the pin on your building',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: _notice != null ? AppColors.warning : AppColors.textSecondary,
+                  if (!_pinInCity)
+                    Text(
+                      'This pin is outside ${_city!.name}. Move it inside the highlighted area.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.w500),
+                    )
+                  else
+                    Text(
+                      _notice ??
+                          (_cityHasArea
+                              ? 'Move the map to position the pin on your building in ${_city!.name}'
+                              : 'Move the map to position the pin on your building'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: _notice != null ? AppColors.warning : AppColors.textSecondary,
+                      ),
                     ),
-                  ),
                   // Permission problems are fixable, but only in Settings — so
                   // offer the trip rather than leaving the member stuck.
                   if (_permission?.isFixableInSettings ?? false) ...[
@@ -363,7 +437,7 @@ class _AddressMapScreenState extends ConsumerState<AddressMapScreen> {
                   PrimaryButton(
                     label: 'Confirm location',
                     loading: _resolving,
-                    onPressed: _confirm,
+                    onPressed: _pinInCity ? _confirm : null,
                   ),
                 ],
               ),

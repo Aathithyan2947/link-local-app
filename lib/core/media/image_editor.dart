@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:crop_your_image/crop_your_image.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
+import '../navigation/push_guard.dart';
 
 /// Writes edited image bytes to a temp file and returns its path — for call
 /// sites that keep a file path in local state (preview + eventual upload)
@@ -23,7 +24,7 @@ Future<Uint8List?> editPickedImageBytes(
   Uint8List bytes, {
   bool lockToSquare = false,
 }) {
-  return Navigator.of(context).push<Uint8List>(
+  return context.pushPage<Uint8List>(
     MaterialPageRoute(
       builder: (_) => _ImageEditScreen(bytes: bytes, lockToSquare: lockToSquare),
       fullscreenDialog: true,

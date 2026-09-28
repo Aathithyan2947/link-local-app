@@ -6,6 +6,7 @@ import '../../auth/application/auth_controller.dart';
 import '../../payments/presentation/payment_method_screen.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// Order/booking status timeline — the "Accepted (Buyer)" frame.
 /// Opened by the buyer from their orders list; an accepted booking can be confirmed & paid here.
@@ -14,7 +15,7 @@ class OrderTrackingScreen extends ConsumerWidget {
   final int orderId;
 
   Future<void> _confirmAndPay(BuildContext context, WidgetRef ref, OrderModel o) async {
-    final paid = await Navigator.of(context).push<bool>(
+    final paid = await context.pushPage<bool>(
       MaterialPageRoute(builder: (_) => PaymentMethodScreen(orderId: o.id, total: o.amountDue)),
     );
     if (paid == true) {

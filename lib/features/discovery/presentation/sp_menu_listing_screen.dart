@@ -13,6 +13,7 @@ import '../data/sp_detail_models.dart';
 import '../discovery_repository.dart';
 import 'service_provider_detail_screen.dart' show CartBar;
 import 'widgets/discover_cards.dart';
+import '../../../core/navigation/push_guard.dart';
 
 String? _customFieldValue(ServiceProviderDetail sp, String category, String fieldName) {
   for (final f in sp.customFields) {
@@ -186,7 +187,7 @@ class _ContactIcons extends StatelessWidget {
       children: [
         _iconBtn(
           icon: Icons.chat_bubble_outline,
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          onTap: () => context.pushPage(MaterialPageRoute(
             builder: (_) => ChatScreen(
               otherUserId: sp.userId!,
               otherName: sp.name,
@@ -230,7 +231,7 @@ class _ListingItem extends ConsumerWidget {
     final notifier = ref.read(cartProvider.notifier);
     final qty = cart.spProfileId == spId ? (cart.lines[product.id]?.qty ?? 0) : 0;
 
-    void openDetails() => Navigator.of(context).push(MaterialPageRoute(
+    void openDetails() => context.pushPage(MaterialPageRoute(
           builder: (_) => ProductDetailsScreen(product: product, spId: spId, spName: spName),
         ));
 

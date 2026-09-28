@@ -6,9 +6,12 @@ import '../theme/app_colors.dart';
 enum BannerTone { error, warning }
 
 class ErrorBanner extends StatelessWidget {
-  const ErrorBanner({super.key, required this.message, this.tone = BannerTone.error});
+  const ErrorBanner({super.key, required this.message, this.tone = BannerTone.error, this.action});
   final String message;
   final BannerTone tone;
+
+  /// Optional fix-it action shown under the message (e.g. "Switch to Pune").
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -21,11 +24,17 @@ class ErrorBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Icon(isWarning ? Icons.warning_amber_rounded : Icons.error_outline, color: color, size: 20),
-          const SizedBox(width: 10),
-          Expanded(child: Text(message, style: TextStyle(color: color))),
+          Row(
+            children: [
+              Icon(isWarning ? Icons.warning_amber_rounded : Icons.error_outline, color: color, size: 20),
+              const SizedBox(width: 10),
+              Expanded(child: Text(message, style: TextStyle(color: color))),
+            ],
+          ),
+          ?action,
         ],
       ),
     );

@@ -6,6 +6,7 @@ import '../../orders/presentation/orders_hub_screen.dart';
 import '../data/business_repository.dart';
 import 'sp_products_screen.dart';
 import 'sp_rates_screen.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// The SP's business hub — trimmed to just the two things they do day-to-day:
 /// manage what they sell (Catalogue) and manage what comes in (Orders).
@@ -29,7 +30,7 @@ class SpDashboardScreen extends ConsumerWidget {
           _Row(
             icon: Icons.shopping_cart_outlined,
             label: 'Catalogue',
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            onTap: () => context.pushPage(MaterialPageRoute(
               builder: (_) => hasMenu ? const SpProductsScreen() : const SpRatesScreen(),
             )),
           ),

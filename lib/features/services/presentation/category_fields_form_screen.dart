@@ -25,6 +25,7 @@ import '../../profile/data/profile_repository.dart';
 import '../data/basic_details_fields.dart';
 import '../data/service_profile_repository.dart';
 import 'area_picker_screen.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// Fixed category order/labels matching the Figma "Tutor Flow" onboarding screens.
 const kCategoryOrder = ['basic_details', 'travel', 'payment', 'service_type', 'delivery'];
@@ -129,7 +130,7 @@ Future<void> pushOnboardingStep(
   // Service Type is an ordinary step now. It used to be replaced wholesale by the products
   // screen for menu SPs, which meant any other field an admin configured there was never
   // shown; the menu marker renders inside the step instead.
-  await Navigator.of(context).push(MaterialPageRoute(
+  await context.pushPage(MaterialPageRoute(
     builder: (_) => CategoryFieldsFormScreen(
       category: cat,
       categoryLabel: kCategoryLabels[cat] ?? cat,
@@ -200,7 +201,7 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
       final profile = widget.category == 'basic_details' ? await _profileForPrefill() : null;
       final user = ref.read(authControllerProvider).user;
       for (final f in fields) {
-        var text = f.value ?? '';
+        var text = liveServiceContact(f.fieldName, profile) ?? f.value ?? '';
         // Only ever seed a blank field — a saved answer is authoritative.
         if (text.trim().isEmpty && widget.category == 'basic_details') {
           final suggested = prefillForBasicDetailsField(f.fieldName, user: user, profile: profile);
@@ -276,7 +277,7 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
 
   Future<void> _pickAreas(CustomField f) async {
     final myProfile = ref.read(myProfileProvider).asData?.value;
-    final result = await Navigator.of(context).push<List<SelectedArea>>(MaterialPageRoute(
+    final result = await context.pushPage<List<SelectedArea>>(MaterialPageRoute(
       builder: (_) => AreaPickerScreen(
         initialSelection: _pincodeSelections[f.fieldId] ?? [],
         cityId: myProfile?.cityId,
@@ -394,7 +395,7 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
   /// template and feature flags, so they're fetched first; a failure just opens it empty.
   Future<void> _openMarkerEditor(bool isMenu) async {
     if (isMenu) {
-      final proceed = await Navigator.of(context).push<bool>(MaterialPageRoute(
+      final proceed = await context.pushPage<bool>(MaterialPageRoute(
         builder: (_) => SpProductsScreen(fromOnboarding: widget.nextCategories != null),
       ));
       if (proceed == true && mounted) await _save();
@@ -410,7 +411,7 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
       // Fall through with what we have.
     }
     if (!mounted) return;
-    await Navigator.of(context).push(MaterialPageRoute(
+    await context.pushPage(MaterialPageRoute(
       builder: (_) => SpSetupWizardScreen(
         initialAvailability: availability?.availability,
         hasMenu: features?.hasMenu ?? false,

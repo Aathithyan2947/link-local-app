@@ -48,6 +48,21 @@ class ProfileRepository {
 
   Future<void> deleteMedia(int id) => _wrap(() => _dio.delete('/profiles/me/media/$id'), (_) {});
 
+  /// Saves About Me plus the whole education and profession sets in one call.
+  Future<void> setAbout({
+    required String aboutMe,
+    required List<Map<String, dynamic>> educations,
+    required List<Map<String, dynamic>> professions,
+  }) =>
+      _wrap(
+        () => _dio.put('/profiles/me/about', data: {
+          'aboutMe': aboutMe,
+          'educations': educations,
+          'professions': professions,
+        }),
+        (_) {},
+      );
+
   Future<void> addEducation(Map<String, dynamic> data) =>
       _wrap(() => _dio.post('/profiles/me/education', data: data), (_) {});
 

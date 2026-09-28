@@ -30,6 +30,9 @@ import '../../orders/presentation/cart_review_screen.dart';
 import '../../payments/presentation/payment_method_screen.dart';
 import '../../profile/data/profile_repository.dart';
 import '../../profile/presentation/sections/basic_sections.dart';
+import '../../address/presentation/address_capture_screen.dart';
+import '../../profile/presentation/sections/about_editor_sheet.dart';
+import '../../profile/presentation/sections/contact_field_sheet.dart';
 import '../../business/presentation/setup/sp_setup_wizard_screen.dart';
 import '../../business/presentation/sp_products_screen.dart';
 import '../../services/data/basic_details_fields.dart';
@@ -41,6 +44,7 @@ import 'sp_menu_listing_screen.dart';
 import '../discovery_repository.dart';
 import 'discover_screen.dart';
 import 'widgets/discover_cards.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// Full service-provider profile. Opened by tapping any SP card.
 class ServiceProviderDetailScreen extends ConsumerStatefulWidget {
@@ -328,7 +332,7 @@ class _ProfileHeaderState extends ConsumerState<_ProfileHeader> {
 
   void _viewPhoto() {
     if (widget.sp.photoUrl == null || widget.sp.photoUrl!.isEmpty) return;
-    Navigator.of(context).push(MaterialPageRoute(
+    context.pushPage(MaterialPageRoute(
       builder: (_) => _ImageViewerScreen(url: widget.sp.photoUrl!, heroTag: 'sp-avatar-${widget.sp.id}'),
     ));
   }
@@ -416,18 +420,26 @@ class _ProfileHeaderState extends ConsumerState<_ProfileHeader> {
                           style: const TextStyle(
                               color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 14)),
                     ],
-                    if (sp.locationLabel != null) ...[
+                    if (sp.locationLabel != null || isOwner) ...[
                       const SizedBox(height: 6),
                       Row(
                         children: [
                           const Icon(Icons.location_on, size: 14, color: AppColors.textMuted),
                           const SizedBox(width: 3),
                           Flexible(
-                            child: Text(sp.locationLabel!,
+                            child: Text(sp.locationLabel ?? 'Add your address',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
                           ),
+                          // The address flow (with its city checks) in edit mode; it ends on
+                          // proof upload and returns here, where didPopNext refetches.
+                          if (isOwner)
+                            _EditIconButton(
+                              onTap: () => context.pushPage(
+                                MaterialPageRoute(builder: (_) => const AddressCaptureScreen(editing: true)),
+                              ),
+                            ),
                         ],
                       ),
                     ],
@@ -462,7 +474,7 @@ class _ContactRow extends ConsumerWidget {
           children: [
             _iconButton(
               icon: Icons.chat_bubble_outline,
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              onTap: () => context.pushPage(MaterialPageRoute(
                 builder: (_) => ChatScreen(
                   otherUserId: sp.userId!,
                   otherName: sp.name,
@@ -487,7 +499,7 @@ class _ContactRow extends ConsumerWidget {
                     label: const Text('Order', style: TextStyle(fontWeight: FontWeight.w600)),
                   )
                 : ElevatedButton(
-                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    onPressed: () => context.pushPage(MaterialPageRoute(
                       builder: (_) => ChatScreen(
                         otherUserId: sp.userId!,
                         otherName: sp.name,
@@ -583,7 +595,7 @@ class _OwnerBanner extends ConsumerWidget {
 
 /// Opens the item editor, then refreshes the profile so added items show without a reload.
 Future<void> _editProducts(BuildContext context) async {
-  await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpProductsScreen()));
+  await context.pushPage(MaterialPageRoute(builder: (_) => const SpProductsScreen()));
 }
 
 /// Opens the onboarding step a section's content was collected in, then refreshes the profile.
@@ -625,7 +637,7 @@ Future<void> _editSection(
               category: category,
               categoryLabel: kCategoryLabels[category] ?? category,
             );
-  await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  await context.pushPage(MaterialPageRoute(builder: (_) => screen));
   // No invalidate here: ServiceProviderDetailScreen refreshes itself in didPopNext(), which
   // works even if this widget's ref was disposed while the editor was open.
 }
@@ -652,16 +664,24 @@ class _ContactInfoBlock extends ConsumerWidget {
         const Text('Shown to neighbours. Your sign-in details stay private.',
             style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
         const SizedBox(height: 10),
-        // Both live on the Basic Details step ("Service Phone No." / "Service Email"), which
-        // writes them through to the profile — so that's the form the pencil opens.
+        // Each opens its own one-field sheet writing the profile's public servicePhone /
+        // serviceEmail (the Basic Details form reads those back, so the two can't diverge).
         _line(context, 'Mobile: ${phone?.isNotEmpty == true ? phone : '—'}',
-            onEdit: () => _editSection(context, ref, sp, 'basic_details')),
+            onEdit: () => _editContact(context, ref, ContactField.phone)),
         const SizedBox(height: 6),
         _line(context, 'Email: ${email?.isNotEmpty == true ? email : '—'}',
-            onEdit: () => _editSection(context, ref, sp, 'basic_details')),
+            onEdit: () => _editContact(context, ref, ContactField.email)),
       ],
     );
   }
+
+  Future<void> _editContact(BuildContext context, WidgetRef ref, ContactField field) => showContactFieldEditor(
+        context,
+        field: field,
+        current: field == ContactField.phone ? sp.servicePhone : sp.serviceEmail,
+        signInValue: field == ContactField.phone ? sp.mobile : sp.email,
+        afterSave: () => ref.refresh(serviceProviderDetailProvider(sp.id).future),
+      );
 
   Widget _line(BuildContext context, String text, {required VoidCallback onEdit}) => Row(
         children: [
@@ -825,17 +845,27 @@ class _BasicDetails {
 }
 
 // ── About / Education / Profession ───────────────────────────
-/// Bold sub-heading inside a band (Education / Profession / Additional Details).
+/// Bold sub-heading inside a band (Education / Profession / Additional Details), with an
+/// optional trailing action such as the owner's edit pencil.
 class _SubHeading extends StatelessWidget {
-  const _SubHeading(this.text);
+  const _SubHeading(this.text, {this.trailing});
   final String text;
+  final Widget? trailing;
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
-        child: Text(text,
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(text,
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.ink)),
+            ),
+            ?trailing,
+          ],
+        ),
       );
 }
+
 
 /// Placeholder for a section the provider has not filled in — matches the wording About Me
 /// already uses, so an empty profile reads as incomplete rather than as a broken page.
@@ -860,13 +890,22 @@ class _AboutBlock extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final basic = _BasicDetails.fromFields(sp);
+    final hasBasicFields = sp.customFields.any((f) => f.category == 'basic_details');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // One pencil for the whole block: About Me, Education and Profession are edited
+        // together on a sheet over this screen, which refetches before the sheet closes.
         _SectionTitle(
           'About Me',
           trailing: isOwner
-              ? _EditIconButton(onTap: () => _editSection(context, ref, sp, 'basic_details'))
+              ? _EditIconButton(
+                  onTap: () => showAboutEditor(
+                    context,
+                    fallbackAboutMe: basic.aboutMe,
+                    afterSave: () => ref.refresh(serviceProviderDetailProvider(sp.id).future),
+                  ),
+                )
               : null,
         ),
         Text(
@@ -890,10 +929,20 @@ class _AboutBlock extends ConsumerWidget {
           _detailLine(basic.profession!)
         else
           const _NotAddedYet(),
-        if (basic.extra.isNotEmpty) ...[
+        // The admin-configured Basic Details answers (years of experience and the like)
+        // keep their own form, reached from here now that About Me has its own editor.
+        if (basic.extra.isNotEmpty || (isOwner && hasBasicFields)) ...[
           const SizedBox(height: 18),
-          const _SubHeading('Additional Details'),
-          ...basic.extra.map((f) => _detailLine('${f.fieldName}: ${f.value}')),
+          _SubHeading(
+            'Additional Details',
+            trailing: isOwner && hasBasicFields
+                ? _EditIconButton(onTap: () => _editSection(context, ref, sp, 'basic_details'))
+                : null,
+          ),
+          if (basic.extra.isEmpty)
+            const _NotAddedYet()
+          else
+            ...basic.extra.map((f) => _detailLine('${f.fieldName}: ${f.value}')),
         ],
       ],
     );
@@ -1183,7 +1232,7 @@ class _ChargesBlock extends StatelessWidget {
           'Charges',
           trailing: isOwner
               ? _EditIconButton(
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpRatesScreen())))
+                  onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => const SpRatesScreen())))
               : null,
         ),
         if (rates.isEmpty)
@@ -1463,7 +1512,7 @@ class _MenuBlock extends ConsumerWidget {
               trailing: isOwner
                   ? _EditIconButton(onTap: () => _editProducts(context))
                   : InkWell(
-                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      onTap: () => context.pushPage(MaterialPageRoute(
                         builder: (_) => SpMenuListingScreen(spId: spId),
                       )),
                       child: const Row(
@@ -1583,7 +1632,7 @@ class CartBar extends ConsumerWidget {
             borderRadius: BorderRadius.circular(14),
             child: InkWell(
               borderRadius: BorderRadius.circular(14),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CartReviewScreen())),
+              onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => const CartReviewScreen())),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                 child: Row(
@@ -1681,7 +1730,7 @@ class _GalleryTile extends StatelessWidget {
           GestureDetector(
             onTap: item.isVideo
                 ? null
-                : () => Navigator.of(context).push(MaterialPageRoute(
+                : () => context.pushPage(MaterialPageRoute(
                       builder: (_) => _ImageViewerScreen(url: item.url, heroTag: 'gallery-${item.id}'),
                     )),
             child: ClipRRect(
@@ -2538,7 +2587,7 @@ Future<void> _makePayment(BuildContext context, WidgetRef ref, ServiceProviderDe
 /// Pays an existing booking from the SP's profile. The flow pops itself when it finishes, so
 /// this lands back here either way; the result isn't needed.
 void _openPayment(BuildContext context, OrderModel order) {
-  Navigator.of(context).push(MaterialPageRoute(
+  context.pushPage(MaterialPageRoute(
     builder: (_) => PaymentMethodScreen(orderId: order.id, total: order.amountDue),
   ));
 }

@@ -121,9 +121,11 @@ class PillField extends StatelessWidget {
     this.keyboardType,
     this.maxLength,
     this.inputFormatters,
+    this.enabled = true,
   });
   final TextEditingController controller;
   final String hint;
+  final bool enabled;
   final IconData? icon;
   final bool obscure;
   final TextInputType? keyboardType;
@@ -134,6 +136,7 @@ class PillField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      enabled: enabled,
       obscureText: obscure,
       keyboardType: keyboardType,
       maxLength: maxLength,

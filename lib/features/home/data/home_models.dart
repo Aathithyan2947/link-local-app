@@ -109,6 +109,9 @@ class WorkshopItem {
     this.creatorName,
     this.ratingAvg,
     this.creatorId,
+    this.myStatus,
+    this.isHost = false,
+    this.serverHasStarted,
   });
   final int id;
   final String title;
@@ -122,6 +125,35 @@ class WorkshopItem {
   final String? creatorName;
   final double? ratingAvg;
   final int? creatorId;
+
+  /// The viewer's attendance: joined | pending_approval | null.
+  final String? myStatus;
+
+  /// The viewer created this event.
+  final bool isHost;
+
+  /// From the backend, which owns the rule (an event closes when it starts, in India time).
+  final bool? serverHasStarted;
+
+  /// Whether the event has started — closed for joining. Falls back to the device clock
+  /// only for a response that predates the backend field.
+  bool get hasStarted {
+    final fromServer = serverHasStarted;
+    if (fromServer != null) return fromServer;
+    final d = date;
+    if (d == null) return false;
+    final t = startTime;
+    return DateTime(d.year, d.month, d.day, t?.hour ?? 0, t?.minute ?? 0).isBefore(DateTime.now());
+  }
+
+  /// What a card's action shows, most specific first.
+  EventAction get action {
+    if (isHost) return EventAction.hosting;
+    if (myStatus == 'joined') return EventAction.joined;
+    if (myStatus == 'pending_approval') return EventAction.pending;
+    if (hasStarted) return EventAction.closed;
+    return EventAction.join;
+  }
 
   factory WorkshopItem.fromJson(Map<String, dynamic> j) {
     final count = j['_count'] as Map<String, dynamic>?;
@@ -140,9 +172,15 @@ class WorkshopItem {
       creatorName: profile?['name'] as String?,
       ratingAvg: _asDouble(j['ratingAvg']),
       creatorId: creator?['id'] != null ? _asInt(creator!['id']) : null,
+      myStatus: j['myStatus'] as String?,
+      isHost: j['isHost'] as bool? ?? false,
+      serverHasStarted: j['hasStarted'] as bool?,
     );
   }
 }
+
+/// The one action an event card offers the viewer.
+enum EventAction { hosting, joined, pending, closed, join }
 
 class ServiceProviderItem {
   const ServiceProviderItem({
@@ -153,6 +191,9 @@ class ServiceProviderItem {
     this.services = const [],
     required this.ratingCount,
     this.ratingAvg,
+    this.areaName,
+    this.cityName,
+    this.distanceLabel,
   });
   final int id;
   final String name;
@@ -161,6 +202,19 @@ class ServiceProviderItem {
   final List<String> services; // every service subcategory (used for search)
   final int ratingCount;
   final double? ratingAvg;
+
+  /// The provider's own area and city — never their street or building.
+  final String? areaName;
+  final String? cityName;
+
+  /// Rounded distance from the viewer ("< 500 m", "1.5 km", "10+ km"); null when unknown.
+  final String? distanceLabel;
+
+  /// "Pai Nagar, Mumbai | 1.5 km", dropping whichever parts are missing; empty when none.
+  String get locationLine {
+    final place = [areaName, cityName].where((s) => s != null && s.trim().isNotEmpty).join(', ');
+    return [place, distanceLabel ?? ''].where((s) => s.isNotEmpty).join(' | ');
+  }
 
   /// Lower-cased haystack for search: provider name + every service/subcategory.
   String get searchText => '$name ${services.join(' ')}'.toLowerCase();
@@ -180,6 +234,9 @@ class ServiceProviderItem {
       services: services,
       ratingCount: _asInt(count?['ratings']),
       ratingAvg: _asDouble(j['ratingAvg']),
+      areaName: j['areaName'] as String?,
+      cityName: j['cityName'] as String?,
+      distanceLabel: j['distanceLabel'] as String?,
     );
   }
 }

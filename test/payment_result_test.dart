@@ -43,7 +43,8 @@ void main() {
   test('the intermediate screens forward the result upward', () {
     for (final path in [paymentScreens[2], paymentScreens[3]]) {
       final source = File(path).readAsStringSync();
-      expect(source.contains('push<bool>'), isTrue,
+      // pushPage is the double-tap-safe push (lib/core/navigation/push_guard.dart).
+      expect(RegExp(r'push(Page)?<bool>').hasMatch(source), isTrue,
           reason: '$path must await the outcome of the screen it opens');
       expect(RegExp(r'Navigator\.of\(context\)\.pop\(').hasMatch(source), isTrue,
           reason: '$path must pass that outcome on to its own caller');

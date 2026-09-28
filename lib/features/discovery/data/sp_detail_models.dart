@@ -79,7 +79,8 @@ class SpEvent {
   final String relation; // hosting | attending
 
   bool get isHosting => relation == 'hosting';
-  bool get isPast => event.date != null && event.date!.isBefore(DateTime.now());
+  /// Closed once the event has started — the backend's rule, shared by every event card.
+  bool get isPast => event.hasStarted;
 
   factory SpEvent.fromJson(Map<String, dynamic> j) => SpEvent(
         event: WorkshopItem.fromJson(j),

@@ -9,6 +9,7 @@ import '../../orders/data/orders_repository.dart';
 import '../../orders/presentation/order_tracking_screen.dart';
 import '../data/notification_models.dart';
 import '../data/notifications_repository.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// The notifications inbox — the "Tutor/Student Notifcation" frames.
 /// Booking requests (to an SP) are actionable inline (Accept/Reject).
@@ -90,7 +91,7 @@ class NotificationsScreen extends ConsumerWidget {
                   }
                   final id = items[i].entityId;
                   if (context.mounted && items[i].entityType == 'order' && id != null) {
-                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: id)));
+                    context.pushPage(MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: id)));
                   }
                 },
                 onAccept: () => _accept(context, ref, items[i].entityId!),

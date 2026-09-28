@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../storage/intro_seen.dart';
 import '../../features/auth/application/auth_controller.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/register_screen.dart';
@@ -37,6 +38,7 @@ final appRouteObserver = RouteObserver<ModalRoute<void>>();
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier(0);
   ref.listen(authControllerProvider, (_, _) => refresh.value++);
+  ref.listen(introSeenProvider, (_, _) => refresh.value++);
   ref.onDispose(refresh.dispose);
 
   return GoRouter(
@@ -47,10 +49,11 @@ final routerProvider = Provider<GoRouter>((ref) {
     observers: [appRouteObserver],
     redirect: (context, state) {
       final auth = ref.read(authControllerProvider);
+      final introSeen = ref.read(introSeenProvider);
       final loc = state.matchedLocation;
 
-      // Still bootstrapping → keep showing the splash.
-      if (auth.status == AuthStatus.unknown) {
+      // Still bootstrapping (session restore, or the introduction flag) → keep the splash.
+      if (auth.status == AuthStatus.unknown || introSeen == null) {
         return loc == Routes.splash ? null : Routes.splash;
       }
 
@@ -65,8 +68,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       };
 
       if (!loggedIn) {
-        // Logged out: stay on an auth screen, otherwise (incl. splash) go to onboarding.
-        return authScreens.contains(loc) ? null : Routes.onboarding;
+        // Logged out: stay on an auth screen; otherwise (incl. splash, and after a logout) go
+        // to Login — or to the introduction on a device that has never been through it.
+        if (authScreens.contains(loc)) return null;
+        return introSeen ? Routes.login : Routes.onboarding;
       }
 
       // Logged in but address not yet captured → push the onboarding-address flow.

@@ -6,6 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../orders/data/orders_repository.dart';
 import 'payment_failed_screen.dart';
 import 'payment_success_screen.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// UPI payment detail — the "Payment - 2" frame. MOCK: any app/QR tap "pays".
 class PaymentUpiScreen extends ConsumerStatefulWidget {
@@ -28,14 +29,14 @@ class _PaymentUpiScreenState extends ConsumerState<PaymentUpiScreen> {
     try {
       await ref.read(ordersRepositoryProvider).pay(widget.orderId, paymentMethod: 'upi', paymentSubMethod: app);
       if (!mounted) return;
-      final done = await Navigator.of(context).push<bool>(
+      final done = await context.pushPage<bool>(
         MaterialPageRoute(builder: (_) => PaymentSuccessScreen(amount: widget.total)),
       );
       if (mounted) Navigator.of(context).pop(done ?? true);
     } catch (_) {
       if (!mounted) return;
       // The failed screen can still end in success via Retry, so forward whatever it reports.
-      final retried = await Navigator.of(context).push<bool>(
+      final retried = await context.pushPage<bool>(
         MaterialPageRoute(builder: (_) => PaymentFailedScreen(orderId: widget.orderId, amount: widget.total)),
       );
       if (mounted && retried == true) Navigator.of(context).pop(true);

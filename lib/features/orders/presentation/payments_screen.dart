@@ -8,6 +8,7 @@ import '../../feed/data/post_models.dart' show relativeTime;
 import 'order_tracking_screen.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
+import '../../../core/navigation/push_guard.dart';
 
 const _terminalStatuses = {'completed', 'cancelled', 'rejected'};
 
@@ -196,7 +197,7 @@ class _PaymentTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: o.id))),
+        onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: o.id))),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
@@ -273,7 +274,7 @@ class _PendingTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: order.id))),
+        onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: order.id))),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(

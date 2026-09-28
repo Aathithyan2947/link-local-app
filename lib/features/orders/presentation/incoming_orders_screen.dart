@@ -11,6 +11,7 @@ import '../../home/presentation/widgets/home_widgets.dart';
 import '../../messages/presentation/chat_screen.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
+import '../../../core/navigation/push_guard.dart';
 
 const _needsActionStatuses = {'placed', 'requested'};
 const _ongoingStatuses = {'accepted', 'confirmed', 'in_progress', 'delivered'};
@@ -237,7 +238,7 @@ class _NewOrderCard extends StatelessWidget {
               if (order.buyerId != null)
                 InkWell(
                   borderRadius: BorderRadius.circular(20),
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  onTap: () => context.pushPage(MaterialPageRoute(
                     builder: (_) => ChatScreen(otherUserId: order.buyerId!, otherName: order.buyerName, otherPhoto: order.buyerPhoto),
                   )),
                   child: const Padding(

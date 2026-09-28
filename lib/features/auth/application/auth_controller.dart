@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_scope.dart';
+import '../../../core/storage/intro_seen.dart';
 import '../../../core/storage/token_storage.dart';
 import '../data/auth_models.dart';
 import '../data/auth_repository.dart';
@@ -29,6 +30,9 @@ class AuthController extends Notifier<AuthState> {
   void _setAuthState(AuthState next) {
     state = next;
     ref.read(authScopeProvider.notifier).setUserId(next.user?.id);
+    // Anyone who has been signed in on this device is past the introduction — including
+    // people already signed in when this flag was introduced, via the startup restore.
+    if (next.status == AuthStatus.authenticated) ref.read(introSeenProvider.notifier).markSeen();
   }
 
   @override

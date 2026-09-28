@@ -5,6 +5,7 @@ import '../../core/network/dio_client.dart';
 import '../business/data/availability_models.dart';
 import '../../core/auth/auth_scope.dart';
 import '../home/data/home_models.dart';
+import '../home/data/home_repository.dart';
 import 'data/blocked_user_models.dart';
 import 'data/event_detail_models.dart';
 import 'data/group_detail_models.dart';
@@ -15,6 +16,30 @@ import 'data/sp_detail_models.dart';
 class DiscoveryRepository {
   DiscoveryRepository(this._dio);
   final Dio _dio;
+
+  /// One page of a Discover list with the backend's real total: city-wide, or narrowed to
+  /// [areaId] when one is picked from the section header.
+  Future<Section<T>> _discoverPage<T>(
+    String path,
+    T Function(Map<String, dynamic>) fromJson, {
+    int? areaId,
+  }) async {
+    final res = await _dio.get(path, queryParameters: {
+      'pageSize': 50,
+      if (areaId != null) ...{'scope': 'area', 'areaId': areaId},
+    });
+    return Section(
+      total: ((res.data['meta'] as Map?)?['total'] as num?)?.toInt() ?? (res.data['data'] as List).length,
+      items: (res.data['data'] as List).map((e) => fromJson(e as Map<String, dynamic>)).toList(),
+    );
+  }
+
+  Future<Section<ServiceProviderItem>> discoverServiceProviders({int? areaId}) =>
+      _discoverPage('/service-providers', ServiceProviderItem.fromJson, areaId: areaId);
+  Future<Section<WorkshopItem>> discoverEvents({int? areaId}) =>
+      _discoverPage('/events', WorkshopItem.fromJson, areaId: areaId);
+  Future<Section<GroupItem>> discoverGroups({int? areaId}) =>
+      _discoverPage('/groups', GroupItem.fromJson, areaId: areaId);
 
   Future<List<ServiceProviderItem>> serviceProviders({String? q}) async {
     final res = await _dio.get('/service-providers',
@@ -238,6 +263,26 @@ class DiscoveryRepository {
 
 final discoveryRepositoryProvider = Provider<DiscoveryRepository>((ref) {
   return DiscoveryRepository(ref.watch(dioProvider));
+});
+
+/// The area picked from a Discover section header — one choice for the whole screen, so
+/// Services, Events and Groups stay in step. Null means the whole city.
+final discoverAreaProvider = NotifierProvider<SectionAreaNotifier, SectionAreaOverride?>(SectionAreaNotifier.new);
+
+final discoverServiceProvidersProvider = FutureProvider<Section<ServiceProviderItem>>((ref) {
+  ref.bindToAccount();
+  final area = ref.watch(discoverAreaProvider);
+  return ref.watch(discoveryRepositoryProvider).discoverServiceProviders(areaId: area?.areaId);
+});
+final discoverEventsProvider = FutureProvider<Section<WorkshopItem>>((ref) {
+  ref.bindToAccount();
+  final area = ref.watch(discoverAreaProvider);
+  return ref.watch(discoveryRepositoryProvider).discoverEvents(areaId: area?.areaId);
+});
+final discoverGroupsProvider = FutureProvider<Section<GroupItem>>((ref) {
+  ref.bindToAccount();
+  final area = ref.watch(discoverAreaProvider);
+  return ref.watch(discoveryRepositoryProvider).discoverGroups(areaId: area?.areaId);
 });
 
 final serviceProvidersProvider = FutureProvider<List<ServiceProviderItem>>((ref) {

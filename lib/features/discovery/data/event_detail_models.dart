@@ -70,6 +70,9 @@ class EventDetail {
     this.durationMinutes,
     required this.mode,
     this.location,
+    this.latitude,
+    this.longitude,
+    this.googlePlaceId,
     this.onlineLink,
     this.isPaid = false,
     this.price,
@@ -82,6 +85,9 @@ class EventDetail {
     required this.host,
     this.myStatus,
     this.myPaymentStatus,
+    this.isHost = false,
+    this.hasStarted = false,
+    this.canReview = false,
   });
 
   final int id;
@@ -93,6 +99,11 @@ class EventDetail {
   final int? durationMinutes;
   final String mode;
   final String? location;
+
+  /// Map position of [location] when it was picked from place search.
+  final double? latitude;
+  final double? longitude;
+  final String? googlePlaceId;
   final String? onlineLink;
   final bool isPaid;
   final double? price;
@@ -105,6 +116,13 @@ class EventDetail {
   final EventHost host;
   final String? myStatus; // joined | withdrawn | pending_approval | null
   final String? myPaymentStatus; // paid | unpaid | null
+
+  /// The viewer created this event.
+  final bool isHost;
+  final bool hasStarted;
+
+  /// Decided by the backend: the viewer joined, the event has started, and they aren't the host.
+  final bool canReview;
 
   bool get isJoined => myStatus == 'joined';
   bool get needsPayment => isPaid && isJoined && myPaymentStatus != 'paid';
@@ -122,6 +140,9 @@ class EventDetail {
       durationMinutes: j['durationMinutes'] != null ? _asInt(j['durationMinutes']) : null,
       mode: j['mode'] as String? ?? 'offline',
       location: j['location'] as String?,
+      latitude: _asDouble(j['latitude']),
+      longitude: _asDouble(j['longitude']),
+      googlePlaceId: j['googlePlaceId'] as String?,
       onlineLink: j['onlineLink'] as String?,
       isPaid: j['isPaid'] as bool? ?? false,
       price: _asDouble(j['price']),
@@ -138,6 +159,9 @@ class EventDetail {
           .toList(),
       host: EventHost.fromJson(j['creator'] as Map<String, dynamic>?),
       myStatus: mine?['status'] as String?,
+      isHost: j['isHost'] as bool? ?? false,
+      hasStarted: j['hasStarted'] as bool? ?? false,
+      canReview: j['canReview'] as bool? ?? false,
       myPaymentStatus: mine?['paymentStatus'] as String?,
     );
   }

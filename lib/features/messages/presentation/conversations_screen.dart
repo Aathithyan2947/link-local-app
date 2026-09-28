@@ -8,6 +8,7 @@ import '../../home/presentation/widgets/home_widgets.dart';
 import '../data/message_models.dart';
 import '../data/messages_repository.dart';
 import 'chat_screen.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// The user's conversation list — tap a row to open the chat.
 class ConversationsScreen extends ConsumerStatefulWidget {
@@ -131,7 +132,7 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                             ],
                           ),
                           onTap: () async {
-                            await Navigator.of(context).push(MaterialPageRoute(
+                            await context.pushPage(MaterialPageRoute(
                               builder: (_) => ChatScreen(otherUserId: c.otherId, otherName: c.otherName, otherPhoto: c.otherPhoto),
                             ));
                             ref.invalidate(conversationsProvider);

@@ -26,6 +26,7 @@ import '../../../profile/presentation/profile_visibility_screen.dart';
 import '../../../profile/presentation/sections/basic_sections.dart';
 import '../../../referrals/presentation/referrals_screen.dart';
 import '../widgets/home_widgets.dart';
+import '../../../../core/navigation/push_guard.dart';
 
 /// SP → their service subcategory (e.g. "Home Baker"); resident → their
 /// profession if set; otherwise omitted, same as the other optional card lines.
@@ -42,7 +43,7 @@ String? _roleLabel(ProfileDetail? profile) {
 void _openMyProfile(BuildContext context, WidgetRef ref) {
   final myId = ref.read(myProfileProvider).asData?.value.id;
   if (myId == null) return;
-  Navigator.of(context).push(MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: myId)));
+  context.pushPage(MaterialPageRoute(builder: (_) => ServiceProviderDetailScreen(id: myId)));
 }
 
 /// The user's own profile — a settings hub (Profile Page frame): identity card
@@ -67,7 +68,7 @@ class ProfileTab extends ConsumerWidget {
         : [
             if (hasDateBooking)
               _MenuItem(Icons.event_available_outlined, 'Availability & schedule', () async {
-                await Navigator.of(context).push(MaterialPageRoute(
+                await context.pushPage(MaterialPageRoute(
                   builder: (_) => SpSetupWizardScreen(
                     initialAvailability: availability,
                     initialName: user?.name,
@@ -79,7 +80,7 @@ class ProfileTab extends ConsumerWidget {
               }),
             if (hasDateBooking)
               _MenuItem(Icons.event_busy_outlined, 'Off days',
-                  () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BlackoutDatesScreen()))),
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const BlackoutDatesScreen()))),
           ];
     return Scaffold(
       backgroundColor: AppColors.primarySurface,
@@ -97,7 +98,7 @@ class ProfileTab extends ConsumerWidget {
               if (user?.isServiceProvider == true) {
                 _openMyProfile(context, ref);
               } else {
-                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BasicInfoScreen()));
+                context.pushPage(MaterialPageRoute(builder: (_) => const BasicInfoScreen()));
               }
             },
           ),
@@ -106,41 +107,41 @@ class ProfileTab extends ConsumerWidget {
           _PlainSection([
             if (user?.isServiceProvider == true)
               _MenuItem(Icons.storefront_outlined, 'My Shop',
-                  () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SpDashboardScreen()))),
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const SpDashboardScreen()))),
             _MenuItem(Icons.account_circle_outlined, 'My Profile', () => _openMyProfile(context, ref)),
           ]),
           if (shopSettingsItems.isNotEmpty) _Section('My Shop Settings', shopSettingsItems),
           _Section('Personal', [
             _MenuItem(Icons.event_outlined, 'My Events',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyEventsScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const MyEventsScreen()))),
             _MenuItem(Icons.groups_outlined, 'My Groups',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyGroupsScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const MyGroupsScreen()))),
             _MenuItem(Icons.star_border_rounded, 'My Reviews',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyReviewsScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const MyReviewsScreen()))),
             _MenuItem(Icons.chat_bubble_outline, 'My Posts',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FeedScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const FeedScreen()))),
             _MenuItem(Icons.attach_money_rounded, 'My Referrals',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ReferralsScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const ReferralsScreen()))),
           ]),
           _Section('Transaction History', [
             _MenuItem(Icons.credit_card_outlined, 'Payments',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PaymentsScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const PaymentsScreen()))),
             _MenuItem(Icons.receipt_long_outlined, 'Order History',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const OrdersHubScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const OrdersHubScreen()))),
             _MenuItem(Icons.forum_outlined, 'Messages',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ConversationsScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const ConversationsScreen()))),
           ]),
           _Section('Privacy', [
             _MenuItem(Icons.visibility_outlined, 'Profile visibility',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ProfileVisibilityScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const ProfileVisibilityScreen()))),
             _MenuItem(Icons.lock_outline, 'Log In & Change Password',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoginSecurityScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const LoginSecurityScreen()))),
             _MenuItem(Icons.notifications_none_rounded, 'Notifications & Alerts',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()))),
             _MenuItem(Icons.block_outlined, 'Blocked users',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BlockedUsersScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const BlockedUsersScreen()))),
             _MenuItem(Icons.contact_phone_outlined, 'Contact Details Visiblity',
-                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ContactVisibilityScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const ContactVisibilityScreen()))),
           ]),
           const SizedBox(height: 8),
           Padding(

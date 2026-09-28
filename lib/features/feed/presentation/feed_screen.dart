@@ -6,6 +6,7 @@ import '../data/feed_repository.dart';
 import 'create_post_screen.dart';
 import 'post_detail_screen.dart';
 import 'widgets/post_card.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// The community feed — full list of neighbourhood posts (from the Home
 /// "Community Discussions" section). Like / comment / share / create.
@@ -22,7 +23,7 @@ class FeedScreen extends ConsumerWidget {
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         onPressed: () async {
-          await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CreatePostScreen()));
+          await context.pushPage(MaterialPageRoute(builder: (_) => const CreatePostScreen()));
           ref.invalidate(feedProvider);
         },
         icon: const Icon(Icons.edit_outlined),
@@ -53,7 +54,7 @@ class FeedScreen extends ConsumerWidget {
               itemBuilder: (context, i) {
                 final p = posts[i];
                 void open() async {
-                  await Navigator.of(context).push(
+                  await context.pushPage(
                     MaterialPageRoute(builder: (_) => PostDetailScreen(id: p.id)),
                   );
                   ref.invalidate(feedProvider);

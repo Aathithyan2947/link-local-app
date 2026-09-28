@@ -7,16 +7,21 @@ import '../../address/presentation/address_proof_screen.dart';
 import '../../services/presentation/service_category_screen.dart';
 import '../data/profile_models.dart';
 import '../data/profile_repository.dart';
+import 'sections/about_editor_sheet.dart';
 import 'sections/basic_sections.dart';
 import 'sections/list_sections.dart';
+import '../../../core/navigation/push_guard.dart';
 
 class _Section {
-  const _Section(this.icon, this.title, this.done, this.summary, this.builder);
+  const _Section(this.icon, this.title, this.done, this.summary, this.builder, {this.open});
   final IconData icon;
   final String title;
   final bool done;
   final String summary;
-  final Widget Function() builder;
+  final Widget Function()? builder;
+
+  /// Opens the section some other way than a pushed page (e.g. a sheet).
+  final Future<void> Function(BuildContext context)? open;
 }
 
 class ProfileCompletionScreen extends ConsumerWidget {
@@ -53,7 +58,12 @@ class ProfileCompletionScreen extends ConsumerWidget {
               ...sections.map((s) => _SectionCard(
                     section: s,
                     onTap: () async {
-                      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => s.builder()));
+                      final open = s.open;
+                      if (open != null) {
+                        await open(context);
+                      } else {
+                        await context.pushPage(MaterialPageRoute(builder: (_) => s.builder!()));
+                      }
                       ref.invalidate(myProfileProvider);
                       ref.invalidate(myAddressProofProvider);
                     },
@@ -68,8 +78,9 @@ class ProfileCompletionScreen extends ConsumerWidget {
   List<_Section> _sectionsFor(ProfileDetail p) {
     final base = <_Section>[
       _Section(Icons.person_outline, 'Basic Info', p.photoUrl != null, p.photoUrl != null ? 'Photo added' : 'Add photo, DOB, gender, about', () => const BasicInfoScreen()),
-      _Section(Icons.school_outlined, 'Education', p.educations.isNotEmpty, p.educations.isNotEmpty ? '${p.educations.length} added' : 'Add education', () => const EducationScreen()),
-      _Section(Icons.work_outline, 'Profession', p.professions.isNotEmpty, p.professions.isNotEmpty ? '${p.professions.length} added' : 'Add profession', () => const ProfessionScreen()),
+      // Both live on the single About editor sheet, as on the profile itself.
+      _Section(Icons.school_outlined, 'Education', p.educations.isNotEmpty, p.educations.isNotEmpty ? '${p.educations.length} added' : 'Add education', null, open: (ctx) => showAboutEditor(ctx)),
+      _Section(Icons.work_outline, 'Profession', p.professions.isNotEmpty, p.professions.isNotEmpty ? '${p.professions.length} added' : 'Add profession', null, open: (ctx) => showAboutEditor(ctx)),
       _Section(Icons.favorite_border, 'Hobbies', p.hobbies.isNotEmpty, p.hobbies.isNotEmpty ? '${p.hobbies.length} added' : 'Add hobbies', () => const HobbiesScreen()),
       _Section(Icons.family_restroom_outlined, 'Family', p.family.isNotEmpty, p.family.isNotEmpty ? '${p.family.length} added' : 'Optional', () => const FamilyScreen()),
       _Section(Icons.pets_outlined, 'Pets', p.pets.isNotEmpty, p.pets.isNotEmpty ? '${p.pets.length} added' : 'Optional', () => const PetsScreen()),

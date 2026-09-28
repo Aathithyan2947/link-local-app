@@ -59,6 +59,40 @@ class JoinButton extends StatelessWidget {
   }
 }
 
+/// The action area of an event card, driven by [WorkshopItem.action]: a tappable Join only
+/// while the event is open to the viewer, otherwise a status — Hosting, Joined, Pending
+/// (awaiting the host's approval) or Closed (already started). [onJoin] runs on Join.
+class EventActionBadge extends StatelessWidget {
+  const EventActionBadge({super.key, required this.event, this.onJoin});
+  final WorkshopItem event;
+  final VoidCallback? onJoin;
+
+  @override
+  Widget build(BuildContext context) => switch (event.action) {
+        EventAction.join => JoinButton(onTap: onJoin),
+        EventAction.joined => const JoinedBadge(),
+        EventAction.hosting => const _StatusBadge('Hosting', AppColors.primary),
+        EventAction.pending => const _StatusBadge('Pending', AppColors.warning),
+        EventAction.closed => const _StatusBadge('Closed', AppColors.textMuted),
+      };
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge(this.label, this.color);
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 12)),
+      );
+}
+
 /// Non-interactive "Joined" badge — same visual weight as [JoinButton], but a
 /// status marker rather than an action, for items the user already belongs to.
 class JoinedBadge extends StatelessWidget {
@@ -239,7 +273,8 @@ class EventCard extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            trailing ?? JoinButton(onTap: onJoin),
+                            // Without a join handler, Join opens the event (where it can be joined).
+                            trailing ?? EventActionBadge(event: event, onJoin: onJoin ?? onTap),
                           ],
                         ),
                       ],
@@ -295,22 +330,12 @@ class SpCard extends StatelessWidget {
                       Text(sp.service ?? 'Service Provider',
                           style: const TextStyle(fontSize: 14, color: AppColors.textSecondary)),
                       const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Text(city,
-                              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-                          if (distance != null) ...[
-                            Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 8),
-                              height: 13,
-                              width: 1,
-                              color: AppColors.divider,
-                            ),
-                            Text(distance!,
-                                style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-                          ],
-                        ],
-                      ),
+                      // The provider's own area/city and rounded distance; [city] only
+                      // stands in for an older response without them.
+                      Text(sp.locationLine.isNotEmpty ? sp.locationLine : [city, ?distance].join(' | '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
                     ],
                   ),
                 ),

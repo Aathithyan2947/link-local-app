@@ -8,6 +8,7 @@ import '../../discovery/discovery_repository.dart';
 import '../data/business_repository.dart';
 import '../data/product_models.dart';
 import 'add_product_screen.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// The SP's product manager — the "Your Items" frame. Edit / delete / add. When
 /// Reached from the Service Type onboarding step's "Manage items" link and from My Shop.
@@ -23,12 +24,12 @@ class SpProductsScreen extends ConsumerWidget {
   final bool fromOnboarding;
 
   Future<void> _add(BuildContext context, WidgetRef ref) async {
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AddProductScreen()));
+    await context.pushPage(MaterialPageRoute(builder: (_) => const AddProductScreen()));
     ref.invalidate(myProductsProvider);
   }
 
   Future<void> _edit(BuildContext context, WidgetRef ref, SpProduct p) async {
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => AddProductScreen(product: p)));
+    await context.pushPage(MaterialPageRoute(builder: (_) => AddProductScreen(product: p)));
     ref.invalidate(myProductsProvider);
   }
 

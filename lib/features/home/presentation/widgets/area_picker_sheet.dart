@@ -9,21 +9,70 @@ import '../../../services/data/service_profile_repository.dart';
 /// Bottom sheet letting the resident pick a different area within their own city — re-scopes
 /// the Home feed to that area (see `homeScopeProvider.setArea`). Single-select; distinct from
 /// the full-screen multi-select `AreaPickerScreen` used for SP service-area configuration.
-Future<SelectedArea?> showAreaPickerSheet(BuildContext context, {required int? cityId}) {
-  return showModalBottomSheet<SelectedArea>(
+Future<SelectedArea?> showAreaPickerSheet(BuildContext context, {required int? cityId}) async =>
+    (await _show(context, cityId: cityId))?.area;
+
+/// What [showAreaScopeSheet] picked: one area, or the whole city when [area] is null.
+class AreaScopeChoice {
+  const AreaScopeChoice(this.area);
+  final SelectedArea? area;
+  bool get isWholeCity => area == null;
+}
+
+/// [showAreaPickerSheet] with a leading "All of [cityName]" row, so a narrowed view can be
+/// widened back to the city. Ticks the current choice: [selectedAreaId], or the city row
+/// when [wholeCitySelected]. Null when dismissed.
+Future<AreaScopeChoice?> showAreaScopeSheet(
+  BuildContext context, {
+  required int? cityId,
+  required String cityName,
+  int? selectedAreaId,
+  bool wholeCitySelected = false,
+}) =>
+    _show(
+      context,
+      cityId: cityId,
+      wholeCityName: cityName,
+      selectedAreaId: selectedAreaId,
+      wholeCitySelected: wholeCitySelected,
+    );
+
+Future<AreaScopeChoice?> _show(
+  BuildContext context, {
+  required int? cityId,
+  String? wholeCityName,
+  int? selectedAreaId,
+  bool wholeCitySelected = false,
+}) {
+  return showModalBottomSheet<AreaScopeChoice>(
     context: context,
     isScrollControlled: true,
     backgroundColor: AppColors.surface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (_) => _AreaPickerSheet(cityId: cityId),
+    builder: (_) => _AreaPickerSheet(
+      cityId: cityId,
+      wholeCityName: wholeCityName,
+      selectedAreaId: selectedAreaId,
+      wholeCitySelected: wholeCitySelected,
+    ),
   );
 }
 
 class _AreaPickerSheet extends ConsumerStatefulWidget {
-  const _AreaPickerSheet({required this.cityId});
+  const _AreaPickerSheet({
+    required this.cityId,
+    this.wholeCityName,
+    this.selectedAreaId,
+    this.wholeCitySelected = false,
+  });
   final int? cityId;
+
+  /// When set, a leading "All of …" row that picks the whole city.
+  final String? wholeCityName;
+  final int? selectedAreaId;
+  final bool wholeCitySelected;
 
   @override
   ConsumerState<_AreaPickerSheet> createState() => _AreaPickerSheetState();
@@ -117,6 +166,16 @@ class _AreaPickerSheetState extends ConsumerState<_AreaPickerSheet> {
                 ),
               ),
               const SizedBox(height: 8),
+              if (widget.wholeCityName != null) ...[
+                ListTile(
+                  leading: const Icon(Icons.location_city_outlined, color: AppColors.primary),
+                  title: Text('All of ${widget.wholeCityName}',
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  trailing: widget.wholeCitySelected ? const Icon(Icons.check, color: AppColors.primary) : null,
+                  onTap: () => Navigator.of(context).pop(const AreaScopeChoice(null)),
+                ),
+                const Divider(height: 1, indent: 20, endIndent: 20),
+              ],
               Expanded(
                 child: _loading
                     ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
@@ -132,7 +191,10 @@ class _AreaPickerSheetState extends ConsumerState<_AreaPickerSheet> {
                               return ListTile(
                                 leading: const Icon(Icons.location_on_outlined, color: AppColors.primary),
                                 title: Text(area.areaName),
-                                onTap: () => Navigator.of(context).pop(area),
+                                trailing: area.id == widget.selectedAreaId
+                                    ? const Icon(Icons.check, color: AppColors.primary)
+                                    : null,
+                                onTap: () => Navigator.of(context).pop(AreaScopeChoice(area)),
                               );
                             },
                           ),

@@ -14,6 +14,7 @@ import '../discovery_repository.dart';
 import 'event_detail_screen.dart';
 import 'group_profile_screen.dart';
 import 'widgets/discover_cards.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// A member's public profile — the "User" frame. About / Education / Profession
 /// / Events / Posts / Interest Groups, with a Message CTA.
@@ -184,7 +185,7 @@ class UserProfileScreen extends ConsumerWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                onPressed: () => context.pushPage(MaterialPageRoute(
                   builder: (_) => ChatScreen(otherUserId: p.userId, otherName: p.name, otherPhoto: p.photoUrl),
                 )),
                 icon: const Icon(Icons.chat_bubble_outline, size: 18),
@@ -265,7 +266,7 @@ class UserProfileScreen extends ConsumerWidget {
     final closed = item.isPast;
     final label = closed ? 'Closed' : (item.isHosting ? 'Hosting' : 'Attending');
     return GestureDetector(
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => EventDetailScreen(id: e.id))),
+      onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => EventDetailScreen(id: e.id))),
       child: Container(
         width: 180,
         decoration: BoxDecoration(

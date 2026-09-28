@@ -5,9 +5,11 @@ import '../../../core/theme/app_colors.dart';
 import '../../home/data/home_models.dart';
 import '../data/my_activity_models.dart';
 import '../discovery_repository.dart';
+import '../event_lists_refresh.dart';
 import 'create_event_screen.dart';
 import 'event_detail_screen.dart';
 import 'widgets/discover_cards.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// The current user's own events — hosted, joined, and nearby. Reached from
 /// Profile → Personal → Events.
@@ -23,13 +25,13 @@ class _MyEventsScreenState extends ConsumerState<MyEventsScreen> {
   bool _joinedExpanded = false;
   bool _nearbyExpanded = false;
 
-  void _openDetail(int id) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => EventDetailScreen(id: id)));
+  void _openDetail(int id) => context.pushPage(MaterialPageRoute(builder: (_) => EventDetailScreen(id: id)));
 
   Future<void> _edit(int id) async {
     try {
       final detail = await ref.read(discoveryRepositoryProvider).event(id);
       if (!mounted) return;
-      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => CreateEventScreen(event: detail)));
+      await context.pushPage(MaterialPageRoute(builder: (_) => CreateEventScreen(event: detail)));
     } catch (_) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open event')));
     }
@@ -38,18 +40,11 @@ class _MyEventsScreenState extends ConsumerState<MyEventsScreen> {
   Future<void> _join(int id) async {
     try {
       await ref.read(discoveryRepositoryProvider).joinEvent(id);
-      ref.invalidate(eventsProvider);
-      ref.invalidate(myEventsProvider);
+      ref.invalidateEventLists();
       await ref.read(eventsProvider.future);
     } catch (_) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not join event')));
     }
-  }
-
-  bool _isPast(WorkshopItem e) {
-    if (e.date == null) return false;
-    final today = DateTime.now();
-    return e.date!.isBefore(DateTime(today.year, today.month, today.day));
   }
 
   @override
@@ -75,7 +70,7 @@ class _MyEventsScreenState extends ConsumerState<MyEventsScreen> {
               cardBuilder: (e) => EventCard(
                 event: e,
                 onTap: () => _openDetail(e.id),
-                trailing: _isPast(e)
+                trailing: e.hasStarted
                     ? Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(color: AppColors.field, borderRadius: BorderRadius.circular(8)),

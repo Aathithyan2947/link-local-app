@@ -10,8 +10,11 @@ import '../../../core/config/app_config.dart';
 import '../../../core/media/image_editor.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/input_formatters.dart';
+import '../../address/presentation/widgets/place_search_field.dart';
+import '../../profile/data/profile_repository.dart';
 import '../data/event_detail_models.dart';
 import '../discovery_repository.dart';
+import '../event_lists_refresh.dart';
 import 'event_detail_screen.dart';
 
 /// Form to host a new event, or edit one you already host when [event] is passed.
@@ -35,6 +38,9 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   final _price = TextEditingController();
   final _maxAttendees = TextEditingController();
   final _duration = TextEditingController(text: '60');
+
+  /// Map position of the location when picked from place search; null when typed.
+  PickedPlace? _place;
   final List<TextEditingController> _materials = [TextEditingController()];
 
   DateTime? _date;
@@ -53,6 +59,9 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
     _title.text = e.title;
     _description.text = e.description ?? '';
     _location.text = e.location ?? '';
+    if (e.latitude != null && e.longitude != null) {
+      _place = PickedPlace(latitude: e.latitude!, longitude: e.longitude!, googlePlaceId: e.googlePlaceId);
+    }
     _onlineLink.text = e.onlineLink ?? '';
     _price.text = e.price != null ? e.price!.toStringAsFixed(0) : '';
     _maxAttendees.text = e.maxAttendees?.toString() ?? '';
@@ -111,6 +120,12 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
         if (_duration.text.trim().isNotEmpty) 'durationMinutes': int.tryParse(_duration.text.trim()),
         'mode': _mode,
         if (_mode == 'offline' && _location.text.trim().isNotEmpty) 'location': _location.text.trim(),
+        // Sent explicitly (null included) so an edit that switches to typed text clears them.
+        if (_mode == 'offline') ...{
+          'latitude': _place?.latitude,
+          'longitude': _place?.longitude,
+          'googlePlaceId': _place?.googlePlaceId,
+        },
         if (_mode == 'online' && _onlineLink.text.trim().isNotEmpty) 'onlineLink': _onlineLink.text.trim(),
         'isPaid': _isPaid,
         if (_isPaid && _price.text.trim().isNotEmpty) 'price': double.tryParse(_price.text.trim()),
@@ -122,8 +137,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
         final id = widget.event!.id;
         await repo.updateEvent(id, data);
         if (!mounted) return;
-        ref.invalidate(eventsProvider);
-        ref.invalidate(myEventsProvider);
+        ref.invalidateEventLists();
         ref.invalidate(eventDetailProvider(id));
         await ref.read(eventDetailProvider(id).future);
         if (!mounted) return;
@@ -131,7 +145,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
       } else {
         final id = await repo.createEvent(data);
         if (!mounted) return;
-        ref.invalidate(eventsProvider);
+        ref.invalidateEventLists();
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => EventDetailScreen(id: id)),
         );
@@ -172,7 +186,12 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
             _modeSelector(),
             const SizedBox(height: 12),
             if (_mode == 'offline')
-              _field(_location, 'Location')
+              PlaceSearchField(
+                controller: _location,
+                // Suggestions come from the host's own city.
+                cityId: ref.watch(myProfileProvider).asData?.value.cityId,
+                onChanged: (p) => _place = p,
+              )
             else
               _field(_onlineLink, 'Online link'),
             const SizedBox(height: 16),

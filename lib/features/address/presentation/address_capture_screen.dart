@@ -1,25 +1,54 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/location/location_models.dart';
+import '../../../core/location/place_session_token.dart';
+import '../../../core/validation/locality_rules.dart';
 import '../../../core/location/location_providers.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/auth_header.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../feed/data/feed_repository.dart';
+import '../../home/data/home_repository.dart';
+import '../../profile/data/profile_repository.dart';
 import '../../reference/reference_models.dart';
 import '../../reference/reference_repository.dart';
 import '../data/address_models.dart';
 import '../data/address_repository.dart';
 import 'address_map_screen.dart';
+import 'address_proof_screen.dart';
+import '../../../core/navigation/push_guard.dart';
+
+/// Which way a location was captured — the wording of a city mismatch depends on it.
+enum _Origin { search, currentLocation, map }
+
+/// Why a location can't be used with the selected city, and how to fix it.
+class _CityIssue {
+  const _CityIssue(this.message, {this.switchTo, this.retry});
+  final String message;
+
+  /// Another served city the location is in, offered as a one-tap switch.
+  final City? switchTo;
+
+  /// Re-runs the rejected location once [switchTo] is selected.
+  final Future<void> Function()? retry;
+}
 
 class AddressCaptureScreen extends ConsumerStatefulWidget {
-  const AddressCaptureScreen({super.key});
+  const AddressCaptureScreen({super.key, this.editing = false});
+
+  /// Changing an existing address from the profile, rather than capturing the first one
+  /// during onboarding: starts on the member's current city, confirms a move to another
+  /// city, and then goes to proof upload for the new address (verification belongs to an
+  /// address, so a changed one starts unverified) instead of continuing onboarding.
+  final bool editing;
 
   @override
   ConsumerState<AddressCaptureScreen> createState() => _AddressCaptureScreenState();
@@ -64,14 +93,78 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
 
   Timer? _debounce;
   List<MasterSuggestion> _suggestions = [];
+  /// Google place suggestions, shown after the curated ones.
+  List<PlaceSuggestion> _places = [];
   bool _searching = false;
+  /// Set when a search came back empty from both sources, so the member is told
+  /// instead of being left looking at nothing.
+  bool _noMatches = false;
+  String? _searchError;
+  /// Bumped per search so a slow response can't overwrite a newer one.
+  int _searchSeq = 0;
+  /// The last search text acted on. The controller also notifies on cursor moves,
+  /// and on the label written into the box when a suggestion is picked; neither
+  /// should start a search.
+  String _lastTerm = '';
+  /// Google autocomplete session: one token from the first keystroke until a
+  /// place is picked, so the whole search is billed as a single session.
+  String? _placesSession;
+  /// A location that doesn't belong to the selected city. Shown instead of
+  /// prefilling the form, since the chosen city is authoritative.
+  _CityIssue? _cityIssue;
   String? _error;
+
+  /// The city of the address being replaced (edit mode), to spot a move between cities.
+  int? _originalCityId;
 
   @override
   void initState() {
     super.initState();
     // Try to auto-select the city from the device location once cities have loaded.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _autoDetectCity());
+    // Editing starts on the member's current city instead; auto-detection never
+    // overrides a city that's already set, but still warms up GPS.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (widget.editing) await _startFromCurrentCity();
+      _autoDetectCity();
+    });
+  }
+
+  Future<void> _startFromCurrentCity() async {
+    try {
+      await ref.read(citiesProvider.future);
+      final profile = await ref.read(myProfileProvider.future);
+      _originalCityId = profile.cityId;
+      final city = _cityById(profile.cityId);
+      if (city == null || !mounted || _city != null) return;
+      setState(() {
+        _city = city;
+        _state = city.state ?? _state;
+      });
+      await _loadFields();
+    } catch (_) {
+      // The member can still pick the city themselves.
+    }
+  }
+
+  /// Edit mode only: confirms moving to a different city, which changes the member's
+  /// neighbourhood, groups and feed. True to go ahead.
+  Future<bool> _confirmCityMove() async {
+    final from = _cityById(_originalCityId);
+    final to = _city;
+    if (!widget.editing || from == null || to == null || from.id == to.id) return true;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Move to ${to.name}?'),
+        content: Text('Moving from ${from.name} to ${to.name} changes your neighbourhood, '
+            'groups and feed.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text('Move to ${to.name}')),
+        ],
+      ),
+    );
+    return ok ?? false;
   }
 
   @override
@@ -133,22 +226,104 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
   }
 
   void _onSearchChanged(String q) {
+    final term = q.trim();
+    if (term == _lastTerm) return;
+    _lastTerm = term;
     _debounce?.cancel();
-    if (q.trim().length < 2) {
-      setState(() => _suggestions = []);
+    if (term.length < 2) {
+      setState(_clearSearchResults);
       return;
     }
-    _debounce = Timer(const Duration(milliseconds: 350), () async {
-      setState(() => _searching = true);
-      try {
-        final res = await ref.read(addressRepositoryProvider).searchDirectory(q.trim());
-        if (mounted) setState(() => _suggestions = res.localities);
-      } catch (_) {
-        if (mounted) setState(() => _suggestions = []);
-      } finally {
-        if (mounted) setState(() => _searching = false);
-      }
+    _debounce = Timer(const Duration(milliseconds: 350), () => _runSearch(term));
+  }
+
+  /// Searches the curated directory and Google together. Each source degrades on
+  /// its own, so one failing never hides the other's results.
+  Future<void> _runSearch(String term) async {
+    final city = _city;
+    if (city == null) return; // the search box is disabled until a city is chosen
+    final seq = ++_searchSeq;
+    final repo = ref.read(addressRepositoryProvider);
+    final session = _placesSession ??= newPlaceSessionToken();
+    setState(() => _searching = true);
+
+    Object? failure;
+    final directory = repo.searchDirectory(term, cityId: city.id).then((r) => r.localities).catchError((Object e) {
+      failure = e;
+      return <MasterSuggestion>[];
     });
+    // Google needs a little more text before its suggestions are worth a request.
+    final google = term.length < 3
+        ? Future.value(<PlaceSuggestion>[])
+        : repo
+            .autocomplete(term, sessionToken: session, cityId: city.id)
+            .catchError((Object e) {
+            failure ??= e;
+            return <PlaceSuggestion>[];
+          });
+
+    final localities = await directory;
+    final places = await google;
+    if (!mounted || seq != _searchSeq) return;
+    setState(() {
+      _searching = false;
+      _suggestions = localities;
+      _places = places;
+      _noMatches = localities.isEmpty && places.isEmpty;
+      _searchError = _noMatches ? failure?.toString() : null;
+    });
+  }
+
+  /// Drops shown results and any search still in flight.
+  void _clearSearchResults() {
+    _searchSeq++;
+    _debounce?.cancel();
+    _suggestions = [];
+    _places = [];
+    _noMatches = false;
+    _searchError = null;
+    _searching = false;
+  }
+
+  /// Picks a Google suggestion: resolves it to coordinates + address fields, then
+  /// runs the same flow as a map pin, so nearby curated localities still win.
+  Future<void> _applyPlace(PlaceSuggestion s) async {
+    // Fetching details closes the Google session; the next search starts a new one.
+    final session = _placesSession;
+    _placesSession = null;
+    _lastTerm = s.primaryText;
+    _search.text = s.primaryText;
+    setState(() {
+      _clearSearchResults();
+      _error = null;
+      _cityIssue = null;
+      _searching = true;
+    });
+    try {
+      final place = await ref.read(addressRepositoryProvider).placeDetails(s.placeId, sessionToken: session);
+      if (!mounted) return;
+      if (place == null) {
+        setState(() => _error = "We couldn't load that place. Pin your location on the map instead.");
+        return;
+      }
+      final geo = place.geo;
+      await _resolveLocation(
+        geo.latitude,
+        geo.longitude,
+        origin: _Origin.search,
+        fix: LocationFix.fromPlace(latitude: geo.latitude, longitude: geo.longitude),
+        geo: geo,
+        building: place.isNamed ? s.primaryText : null,
+        warning: place.isPrecise
+            ? null
+            : '"${s.primaryText}" is an area, not a single building, so the pin is only approximate. '
+                'Check the details below, or pin your building on the map.',
+      );
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
   }
 
   /// Applies a curated Address Master locality: sets city/state, prefills the lane/area/
@@ -172,12 +347,13 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
       ..['pincode'] = s.pincode ?? '';
     _city = _cityById(s.cityId) ?? _cityByName(s.city) ?? _city;
     _state = _city?.state ?? s.state ?? _state;
-    setState(() => _suggestions = []);
+    setState(_clearSearchResults);
     await _loadFields();
     if (openSheet && mounted) _openConfirmSheet();
   }
 
   Future<void> _applySuggestion(MasterSuggestion s) async {
+    _lastTerm = s.title;
     _search.text = s.title;
     await _applyMaster(s);
   }
@@ -243,20 +419,28 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
 
   /// Resolves a fix to a serviceable city and selects it, silently.
   Future<void> _detectCityFrom(LocationFix fix) async {
+    // A city the member picked themselves is never overridden.
+    if (_city != null) return;
     try {
       final repo = ref.read(addressRepositoryProvider);
-      // Curated master gives the serviceable city directly (best-effort; endpoint optional).
-      City? found;
-      try {
-        final near = await repo.nearbyMaster(fix.latitude, fix.longitude);
-        if (near.isNotEmpty) found = _cityById(near.first.cityId) ?? _cityByName(near.first.city);
-      } catch (_) {}
-      // Fall back to map data (reverse geocoding) for the city name.
-      found ??= _cityByName((await repo.reverseGeocode(fix.latitude, fix.longitude)).city);
+      // A service area settles it without any lookups.
+      var found = _servedCityAt(fix.latitude, fix.longitude);
+      if (found == null) {
+        // Curated master gives the serviceable city directly (best-effort; endpoint optional).
+        MasterSuggestion? hit;
+        try {
+          final near = await repo.nearbyMaster(fix.latitude, fix.longitude);
+          if (near.isNotEmpty) hit = near.first;
+        } catch (_) {}
+        // Fall back to map data (reverse geocoding) for the city name.
+        final geoCity = hit == null ? (await repo.reverseGeocode(fix.latitude, fix.longitude)).city : null;
+        found = _servedCityAt(fix.latitude, fix.longitude, hit: hit, geoCity: geoCity);
+      }
 
-      // Only auto-select when it's a city Link Local actually serves.
+      // Only auto-select when it's a city Link Local actually serves, and the
+      // member hasn't picked one while we were looking.
       final city = found;
-      if (city == null || !mounted) return;
+      if (city == null || !mounted || _city != null) return;
       setState(() {
         _city = city;
         _state = city.state ?? _state;
@@ -272,11 +456,12 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
   Future<void> _useCurrentLocation() async {
     setState(() {
       _error = null;
+      _cityIssue = null;
       _locating = true;
     });
     try {
       final fix = await _deviceFix();
-      await _resolveLocation(fix.latitude, fix.longitude, fix: fix);
+      await _resolveLocation(fix.latitude, fix.longitude, origin: _Origin.currentLocation, fix: fix);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -284,10 +469,23 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
     }
   }
 
-  /// Resolves a GPS pin to a serviceable city using the curated master (preferred) and map
-  /// data (fallback). Prefills + locks the city/state ONLY when the location falls in a city
-  /// Link Local serves; otherwise it tells the user and leaves the city for manual selection.
-  Future<void> _resolveLocation(double lat, double lng, {LocationFix? fix}) async {
+  /// Resolves a location to the address form. The selected city is authoritative: a
+  /// location outside it is rejected with a [_CityIssue] (offering a switch when it is
+  /// in another served city) instead of being prefilled. Only "Use Current Location"
+  /// can arrive with no city selected; the city is then detected from the location.
+  ///
+  /// Callers that already resolved the location pass its [geo] (saving a reverse
+  /// geocode); a picked named place passes its [building] name, and a [warning] when
+  /// its pin is only an area's centre.
+  Future<void> _resolveLocation(
+    double lat,
+    double lng, {
+    required _Origin origin,
+    LocationFix? fix,
+    GeoAddress? geo,
+    String? building,
+    String? warning,
+  }) async {
     final repo = ref.read(addressRepositoryProvider);
 
     // 1) Curated Address Master within 2 km → the serviceable city directly (best-effort).
@@ -311,35 +509,63 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
       // Endpoint optional/unavailable — fall through to map data.
     }
 
-    // Reverse-geocode for prefill (lane/area/pincode) and, only if needed, city detection.
-    final geo = await repo.reverseGeocode(lat, lng);
+    // Reverse-geocode for prefill (lane/area/pincode) and city checks.
+    final resolved = geo ?? await repo.reverseGeocode(lat, lng);
+    if (!mounted) return;
 
-    // Prefer the city the user already chose; only auto-detect when none is selected — this
-    // avoids the false "couldn't find a Link Local city" after they picked a city manually.
-    final City? city = _city ??
-        (hit != null ? (_cityById(hit.cityId) ?? _cityByName(hit.city)) : null) ??
-        _cityByName(geo.city);
-
-    if (city == null) {
-      final detected = geo.city;
-      setState(() => _error = (detected != null && detected.isNotEmpty)
-          ? "Link Local isn't available in $detected yet. Please pick a city from the list."
-          : "We couldn't find a Link Local city at your location. Please pick your city.");
-      return;
+    final selected = _city;
+    if (selected == null) {
+      final detected = _servedCityAt(lat, lng, hit: hit, geoCity: resolved.city);
+      if (detected == null) {
+        final name = resolved.city;
+        setState(() => _error = (name != null && name.isNotEmpty)
+            ? "Link Local isn't available in $name yet. Please pick a city from the list."
+            : "We couldn't find a Link Local city at your location. Please pick your city.");
+        return;
+      }
+      _city = detected;
+      _state = detected.state ?? resolved.state ?? _state;
+    } else {
+      final issue = _cityIssueFor(
+        selected,
+        lat,
+        lng,
+        origin: origin,
+        fix: fix,
+        hit: hit,
+        geoCity: resolved.city,
+        retry: () => _resolveLocation(
+          lat,
+          lng,
+          origin: origin,
+          fix: fix,
+          geo: resolved,
+          building: building,
+          warning: warning,
+        ),
+      );
+      if (issue != null) {
+        setState(() => _cityIssue = issue);
+        return;
+      }
     }
-
-    _city = city;
-    _state = city.state ?? geo.state ?? _state;
+    // Curated neighbours from across the city line can't describe this address.
+    if (hit != null && hit.cityId != _city!.id) {
+      hit = null;
+      tied = const [];
+    }
+    _cityIssue = null;
     _picked = LatLng(lat, lng);
     _fix = fix ?? _fix;
-    _placeId = geo.googlePlaceId ?? _placeId;
+    _placeId = resolved.googlePlaceId ?? _placeId;
     // Converge-then-warn applies on this path too: the member never sees the map
     // here, so the sheet is the only place left to tell them the fix was coarse.
     final f = _fix;
-    _accuracyWarning = (f != null && !f.isConfirmable)
+    _accuracyWarning = warning ??
+        ((f != null && !f.isConfirmable)
         ? 'Your location was only accurate to ${f.accuracyLabel ?? 'an unknown radius'}. '
             'Check the details below, or pin your building on the map.'
-        : null;
+        : null);
     // Two independent guards before a curated value is trusted. Distance: a
     // locality 1.9 km away is still the nearest, but its lane is not the
     // member's lane, and an unknown distance counts as too far. Agreement: the
@@ -352,14 +578,119 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
 
     _prefill
       // GPS / map pin never fills the building — we can't know the exact complex.
-      ..['building'] = ''
-      ..['lane1'] = (laneOk ? _agreed(tied, (m) => m.lane1) : null) ?? geo.lane1 ?? ''
-      ..['lane2'] = (laneOk ? _agreed(tied, (m) => m.lane2) : null) ?? geo.locality ?? ''
-      ..['area'] = (areaOk ? _agreed(tied, (m) => m.area) : null) ?? geo.area ?? geo.locality ?? ''
-      ..['suburb'] = (areaOk ? _agreed(tied, (m) => m.suburb) : null) ?? geo.suburb ?? ''
-      ..['pincode'] = (areaOk ? _agreed(tied, (m) => m.pincode) : null) ?? geo.pincode ?? '';
+      // A searched named place (a society, a farm) is the exception: the member picked it.
+      ..['building'] = building ?? ''
+      ..['lane1'] = (laneOk ? _agreed(tied, (m) => m.lane1) : null) ?? resolved.lane1 ?? ''
+      ..['lane2'] = (laneOk ? _agreed(tied, (m) => m.lane2) : null) ?? resolved.locality ?? ''
+      ..['area'] = (areaOk ? _agreed(tied, (m) => m.area) : null) ?? resolved.area ?? resolved.locality ?? ''
+      ..['suburb'] = (areaOk ? _agreed(tied, (m) => m.suburb) : null) ?? resolved.suburb ?? ''
+      ..['pincode'] = (areaOk ? _agreed(tied, (m) => m.pincode) : null) ?? resolved.pincode ?? '';
     await _loadFields();
     if (mounted) _openConfirmSheet();
+  }
+
+  /// The served city a point falls in: by service area first, then — for cities
+  /// without one — the nearest curated locality's city or the geocoder's city name.
+  /// A city whose service area excludes the point is never returned.
+  City? _servedCityAt(double lat, double lng, {MasterSuggestion? hit, String? geoCity}) {
+    for (final c in _cities) {
+      if (c.contains(lat, lng) == true) return c;
+    }
+    bool plausible(City? c) => c != null && c.contains(lat, lng) != false;
+    final byHit = hit == null ? null : (_cityById(hit.cityId) ?? _cityByName(hit.city));
+    if (plausible(byHit)) return byHit;
+    final byName = _cityByName(geoCity);
+    return plausible(byName) ? byName : null;
+  }
+
+  /// Null when the location belongs to [city]; otherwise what's wrong, worded for
+  /// how it was captured, with a switch offered when it is in another served city.
+  _CityIssue? _cityIssueFor(
+    City city,
+    double lat,
+    double lng, {
+    required _Origin origin,
+    required Future<void> Function() retry,
+    LocationFix? fix,
+    MasterSuggestion? hit,
+    String? geoCity,
+  }) {
+    final name = city.name;
+    final inArea = city.contains(lat, lng);
+
+    bool inCity;
+    if (inArea != null) {
+      inCity = inArea;
+    } else {
+      // No service area: judge by name. A location nothing can name is let
+      // through — the backend has nothing to judge it by either.
+      final named = (hit != null ? _cityById(hit.cityId) : null) ?? _cityByName(geoCity);
+      inCity = named?.id == city.id || (named == null && (geoCity == null || geoCity.isEmpty));
+    }
+
+    if (inCity) {
+      // A GPS fix whose error circle crosses the edge can't prove it's inside.
+      final acc = fix?.accuracyM;
+      final d = city.distanceFromCenterKm(lat, lng);
+      final measured = fix != null && fix.source != LocationSource.manualPin && fix.source != LocationSource.place;
+      if (origin == _Origin.currentLocation && measured && acc != null && d != null && d + acc / 1000 > city.radiusKm!) {
+        return _CityIssue("Your location isn't precise enough to confirm you're in $name. "
+            'Pin your building on the map instead.');
+      }
+      return null;
+    }
+
+    final other = _servedCityAt(lat, lng, hit: hit, geoCity: geoCity);
+    if (other != null && other.id != city.id) {
+      return _CityIssue(
+        switch (origin) {
+          _Origin.search => 'That address is in ${other.name}, not $name.',
+          _Origin.currentLocation => "You're currently in ${other.name}, not $name. "
+              'To register an address in $name, search for it or pin it on the map.',
+          _Origin.map => 'That pin is in ${other.name}, not $name.',
+        },
+        switchTo: other,
+        retry: retry,
+      );
+    }
+    return _CityIssue(switch (origin) {
+      _Origin.search => 'That address is outside $name. Pick an address in $name, or change your city.',
+      _Origin.currentLocation => "Your current location is outside $name. If you're registering your "
+          '$name address from elsewhere, search for it or pin it on the map.',
+      _Origin.map => 'That pin is outside $name. Move it into $name, or change your city.',
+    });
+  }
+
+  /// Takes the switch offered by a [_CityIssue], then re-applies the location.
+  Future<void> _switchCity(_CityIssue issue) async {
+    final city = issue.switchTo!;
+    setState(() {
+      _city = city;
+      _state = city.state ?? _state;
+      _cityIssue = null;
+    });
+    await issue.retry?.call();
+  }
+
+  /// A manual city change: anything captured for the previous city is dropped,
+  /// so its address can't be saved under the new one.
+  void _onCityChanged(City? city) {
+    setState(() {
+      _city = city;
+      _state = city?.state ?? _state;
+      _error = null; // a manual city choice clears the "not available" notice
+      _cityIssue = null;
+      _prefill.clear();
+      _picked = null;
+      _fix = null;
+      _placeId = null;
+      _accuracyWarning = null;
+      _placesSession = null;
+      _lastTerm = '';
+      _search.clear();
+      _clearSearchResults();
+    });
+    _loadFields();
   }
 
   /// The one value every tied candidate agrees on, or null when they disagree —
@@ -378,13 +709,22 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
       setState(() => _error = 'Select your city first, or tap "Use Current Location".');
       return;
     }
-    final result = await Navigator.of(context).push<MapPinResult>(
+    final result = await context.pushPage<MapPinResult>(
       // Reopen on the existing pin so a small correction doesn't restart the map.
-      MaterialPageRoute(builder: (_) => AddressMapScreen(initial: _picked)),
+      MaterialPageRoute(builder: (_) => AddressMapScreen(initial: _picked, city: _city)),
     );
     if (result == null) return;
-    setState(() => _error = null);
-    await _resolveLocation(result.fix.latitude, result.fix.longitude, fix: result.fix);
+    setState(() {
+      _error = null;
+      _cityIssue = null;
+    });
+    await _resolveLocation(
+      result.fix.latitude,
+      result.fix.longitude,
+      origin: _Origin.map,
+      fix: result.fix,
+      geo: result.address, // the map already reverse-geocoded the pin
+    );
   }
 
   Future<void> _next() async {
@@ -403,18 +743,26 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
     }
     // Required-field validation per the city's config.
     for (final f in _fields) {
-      if (f.isRequired && (_fieldCtrls[f.fieldKey]?.text.trim().isEmpty ?? true)) {
+      final text = _fieldCtrls[f.fieldKey]?.text ?? '';
+      if (f.isRequired && text.trim().isEmpty) {
         setSheet(() => _error = '${f.label} is required');
+        return;
+      }
+      // Same length/character rules the backend applies to addresses and localities.
+      final problem = addressFieldError(f.fieldKey, f.label, text);
+      if (problem != null) {
+        setSheet(() => _error = problem);
         return;
       }
     }
     setSheet(() => _error = null);
-    String v(String key) => _fieldCtrls[key]?.text.trim() ?? '';
+    String v(String key) => normalizeLocality(_fieldCtrls[key]?.text ?? '');
 
     final ordered = _fields.map((f) => v(f.fieldKey)).where((s) => s.isNotEmpty).toList();
     // State is derived from the city (never user-entered) so it can never disagree with it.
     final full = [...ordered, _city!.name, ?_state].join(', ');
 
+    if (!await _confirmCityMove()) return;
     try {
       await ref.read(addressRepositoryProvider).createAddress(
             cityId: _city!.id,
@@ -432,8 +780,17 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
             locationSource: _fix?.sourceWireValue,
             googlePlaceId: _placeId,
           );
-      if (mounted) {
-        Navigator.pop(context);
+      if (!mounted) return;
+      Navigator.pop(context); // the confirm sheet
+      if (widget.editing) {
+        // Everything location-scoped now describes the old address.
+        ref.invalidate(myProfileProvider);
+        ref.invalidate(myAddressProofProvider);
+        ref.invalidate(homeFeedProvider);
+        ref.invalidate(feedProvider);
+        // Straight on to proving the new address; that screen returns to the profile.
+        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const AddressProofScreen()));
+      } else {
         context.go(Routes.verifyAddress);
       }
     } catch (e) {
@@ -500,7 +857,13 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
                 // Dynamic fields from the city's configured form format.
                 for (final f in _fields) ...[
                   _label(f.label, required: f.isRequired),
-                  PillField(controller: _fieldCtrls[f.fieldKey]!, hint: f.label),
+                  PillField(
+                    controller: _fieldCtrls[f.fieldKey]!,
+                    hint: f.label,
+                    maxLength: addressFieldMaxLength(f.fieldKey),
+                    keyboardType: f.fieldKey == 'pincode' ? TextInputType.number : null,
+                    inputFormatters: f.fieldKey == 'pincode' ? [FilteringTextInputFormatter.digitsOnly] : null,
+                  ),
                   const SizedBox(height: 16),
                 ],
                 // City + State are determined from the chosen city / detected location and
@@ -600,15 +963,23 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
     final citiesAsync = ref.watch(citiesProvider);
     return Scaffold(
       backgroundColor: AppColors.background,
+      // Onboarding has no way back; editing from the profile does.
+      appBar: widget.editing ? AppBar(title: const Text('Change address')) : null,
       body: Column(
         children: [
-          const AuthHeader(),
+          if (!widget.editing) const AuthHeader(),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
               child: Column(
                 children: [
-                  const AuthHeading(title: 'Connect Locally', highlight: 'Locally', subtitle: 'Enter your address to connect locally'),
+                  widget.editing
+                      ? const AuthHeading(
+                          title: 'Your new Address',
+                          highlight: 'Address',
+                          subtitle: "You'll upload proof for it next, as your address is verified",
+                        )
+                      : const AuthHeading(title: 'Connect Locally', highlight: 'Locally', subtitle: 'Enter your address to connect locally'),
                   const SizedBox(height: 22),
                   _label('City', required: true),
                   citiesAsync.when(
@@ -619,14 +990,7 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
                       isExpanded: true,
                       decoration: _dropDecoration('Select your city'),
                       items: cities.map((c) => DropdownMenuItem(value: c, child: Text(c.label))).toList(),
-                      onChanged: (c) {
-                        setState(() {
-                          _city = c;
-                          _state = c?.state ?? _state;
-                          _error = null; // a manual city choice clears the "not available" notice
-                        });
-                        _loadFields();
-                      },
+                      onChanged: _onCityChanged,
                     ),
                   ),
                   const SizedBox(height: 18),
@@ -640,7 +1004,12 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
                     ],
                   ),
                   const SizedBox(height: 18),
-                  PillField(controller: _search, hint: 'Search your lane / area / locality', icon: Icons.location_on_outlined),
+                  PillField(
+                    controller: _search,
+                    enabled: _city != null,
+                    hint: _city == null ? 'Select your city first' : 'Search in ${_city!.name}',
+                    icon: Icons.location_on_outlined,
+                  ),
                   _SearchListener(controller: _search, onChanged: _onSearchChanged),
                   if (_searching) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator()),
                   ..._suggestions.map((s) => ListTile(
@@ -653,8 +1022,52 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
                         subtitle: Text(s.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
                         onTap: () => _applySuggestion(s),
                       )),
+                  ..._places.map((p) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.place_outlined, color: AppColors.primary),
+                        title: Text(p.primaryText, style: const TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: p.secondaryText == null
+                            ? null
+                            : Text(p.secondaryText!, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        onTap: () => _applyPlace(p),
+                      )),
+                  // Google's terms require attribution wherever its suggestions show without a map.
+                  if (_places.isNotEmpty)
+                    const Align(
+                      alignment: Alignment.centerRight,
+                      child: Text('Powered by Google', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                    ),
+                  if (_noMatches && !_searching)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _searchError ??
+                                  'No matches in ${_city?.name ?? 'your city'}. '
+                                      'Try a different spelling, or pin it on the map.',
+                              style: const TextStyle(color: AppColors.textSecondary),
+                            ),
+                          ),
+                          TextButton(onPressed: _pickOnMap, child: const Text('Pin on map')),
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 16),
                   _MapPreview(picked: _picked, onTap: _pickOnMap),
+                  if (_cityIssue case final issue?) ...[
+                    const SizedBox(height: 14),
+                    ErrorBanner(
+                      message: issue.message,
+                      action: issue.switchTo == null
+                          ? null
+                          : TextButton(
+                              onPressed: () => _switchCity(issue),
+                              child: Text('Switch to ${issue.switchTo!.name}'),
+                            ),
+                    ),
+                  ],
                   if (_error != null) ...[const SizedBox(height: 14), ErrorBanner(message: _error!)],
                   const SizedBox(height: 20),
                   PrimaryButton(label: 'Next', loading: _fieldsLoading, onPressed: _next),

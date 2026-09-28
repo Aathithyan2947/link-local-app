@@ -9,6 +9,7 @@ import 'event_detail_screen.dart';
 import 'group_profile_screen.dart';
 import 'service_provider_detail_screen.dart';
 import 'widgets/discover_cards.dart';
+import '../../../core/navigation/push_guard.dart';
 
 String _timeAgo(DateTime dt) {
   final diff = DateTime.now().difference(dt);
@@ -74,7 +75,7 @@ class _MyReviewsScreenState extends ConsumerState<MyReviewsScreen> {
                   onSeeMore: () => setState(() => _eventsExpanded = true),
                   circular: false,
                   fallbackIcon: Icons.celebration_rounded,
-                  onTap: (id) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => EventDetailScreen(id: id))),
+                  onTap: (id) => context.pushPage(MaterialPageRoute(builder: (_) => EventDetailScreen(id: id))),
                 ),
                 const SizedBox(height: 20),
                 _Section(
@@ -84,7 +85,7 @@ class _MyReviewsScreenState extends ConsumerState<MyReviewsScreen> {
                   onSeeMore: () => setState(() => _groupsExpanded = true),
                   circular: true,
                   fallbackIcon: Icons.groups_rounded,
-                  onTap: (id) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => GroupProfileScreen(id: id))),
+                  onTap: (id) => context.pushPage(MaterialPageRoute(builder: (_) => GroupProfileScreen(id: id))),
                 ),
               ],
             ),

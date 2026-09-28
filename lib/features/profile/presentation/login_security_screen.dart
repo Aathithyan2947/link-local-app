@@ -7,6 +7,7 @@ import '../data/profile_repository.dart';
 import 'change_password_screen.dart';
 import 'manage_email_screen.dart';
 import 'manage_phone_screen.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// "Log In & Change Password" — hub linking to the My Email / My Phone Number / Change
 /// Password pages.
@@ -31,13 +32,13 @@ class LoginSecurityScreen extends ConsumerWidget {
           child: Column(
             children: [
               _row(context, Icons.mail_outline, 'My Email',
-                  () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ManageEmailScreen()))),
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const ManageEmailScreen()))),
               const Divider(height: 1, color: AppColors.border, indent: 20),
               _row(context, Icons.phone_outlined, 'My Phone Number',
-                  () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ManagePhoneScreen()))),
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const ManagePhoneScreen()))),
               const Divider(height: 1, color: AppColors.border, indent: 20),
               _row(context, Icons.lock_outline, 'Change Password',
-                  () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ChangePasswordScreen()))),
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const ChangePasswordScreen()))),
             ],
           ),
         ),

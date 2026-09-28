@@ -7,6 +7,7 @@ import '../../home/presentation/widgets/home_widgets.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
 import 'order_tracking_screen.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// The buyer's orders — status, items and totals.
 class MyOrdersScreen extends ConsumerWidget {
@@ -33,7 +34,7 @@ class MyOrdersScreen extends ConsumerWidget {
               itemBuilder: (_, i) => OrderCard(
                 order: orders[i],
                 showSeller: true,
-                onTap: () => Navigator.of(context).push(
+                onTap: () => context.pushPage(
                   MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: orders[i].id)),
                 ),
               ),

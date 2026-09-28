@@ -8,6 +8,7 @@ import '../discovery_repository.dart';
 import 'create_group_screen.dart';
 import 'group_profile_screen.dart';
 import 'widgets/discover_cards.dart';
+import '../../../core/navigation/push_guard.dart';
 
 /// The current user's own groups — owned, joined, and nearby. Reached from
 /// Profile → Personal → Groups.
@@ -23,13 +24,13 @@ class _MyGroupsScreenState extends ConsumerState<MyGroupsScreen> {
   bool _joinedExpanded = false;
   bool _nearbyExpanded = false;
 
-  void _openDetail(int id) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => GroupProfileScreen(id: id)));
+  void _openDetail(int id) => context.pushPage(MaterialPageRoute(builder: (_) => GroupProfileScreen(id: id)));
 
   Future<void> _edit(int id) async {
     try {
       final detail = await ref.read(discoveryRepositoryProvider).group(id);
       if (!mounted) return;
-      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => CreateGroupScreen(group: detail)));
+      await context.pushPage(MaterialPageRoute(builder: (_) => CreateGroupScreen(group: detail)));
     } catch (_) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open group')));
     }
@@ -39,6 +40,7 @@ class _MyGroupsScreenState extends ConsumerState<MyGroupsScreen> {
     try {
       await ref.read(discoveryRepositoryProvider).joinGroup(id);
       ref.invalidate(groupsProvider);
+      ref.invalidate(discoverGroupsProvider);
       ref.invalidate(myGroupsProvider);
       await ref.read(groupsProvider.future);
     } catch (_) {

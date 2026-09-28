@@ -16,7 +16,10 @@ enum LocationSource {
   manualPin('manual_pin'),
 
   /// Carried over from a curated Address Master locality.
-  master('master');
+  master('master'),
+
+  /// The coordinates of a Google place the member picked from address search.
+  place('place');
 
   const LocationSource(this.wireValue);
 
@@ -86,6 +89,17 @@ class LocationFix {
         source: LocationSource.master,
       );
 
+  /// Coordinates of a Google place picked from address search. Not a device
+  /// measurement, so like [LocationFix.manual] it carries no accuracy radius.
+  factory LocationFix.fromPlace({required double latitude, required double longitude}) =>
+      LocationFix(
+        latitude: latitude,
+        longitude: longitude,
+        accuracyM: null,
+        timestamp: DateTime.now(),
+        source: LocationSource.place,
+      );
+
   final double latitude;
   final double longitude;
 
@@ -113,8 +127,10 @@ class LocationFix {
   /// Whether this fix is precise enough to accept without asking the member to
   /// check the pin. A hand-placed pin always is; a cached one never is, since
   /// confirming an address on a stale network fix defeats the whole exercise.
+  /// A picked place is: the member chose it by name, and the capture screen
+  /// warns separately when the place is an area rather than a building.
   bool get isConfirmable => switch (source) {
-        LocationSource.manualPin || LocationSource.master => true,
+        LocationSource.manualPin || LocationSource.master || LocationSource.place => true,
         LocationSource.cached => false,
         _ => tier != null && tier != AccuracyTier.poor,
       };

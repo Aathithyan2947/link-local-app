@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
-import '../../orders/data/orders_repository.dart';
+import '../data/payment_charge.dart';
 import 'payment_success_screen.dart';
 
 /// The "Failed" frame — matches the Figma copy exactly ("Payment Failed" / "Your payment has
 /// failed to transfer" / "Retry Payment"). Retry re-attempts the same charge in place, per
 /// Figma, rather than navigating back to method selection.
 class PaymentFailedScreen extends ConsumerStatefulWidget {
-  const PaymentFailedScreen({super.key, required this.orderId, required this.amount, this.paymentMethod = 'upi'});
-  final int orderId;
+  const PaymentFailedScreen({super.key, required this.charge, required this.amount, this.paymentMethod = 'upi'});
+  final PaymentCharge charge;
   final double amount;
   final String paymentMethod;
 
@@ -24,7 +24,7 @@ class _PaymentFailedScreenState extends ConsumerState<PaymentFailedScreen> {
   Future<void> _retry() async {
     setState(() => _retrying = true);
     try {
-      await ref.read(ordersRepositoryProvider).pay(widget.orderId, paymentMethod: widget.paymentMethod);
+      await widget.charge(ref, widget.paymentMethod, null);
       if (!mounted) return;
       // Replaces this screen, so the success screen's `true` flows straight to our caller.
       await Navigator.of(context).pushReplacement<bool, void>(

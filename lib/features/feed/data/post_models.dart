@@ -1,3 +1,5 @@
+import '../../../core/time/server_time.dart';
+
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
 /// Post types → human labels for the type chip.
@@ -24,6 +26,10 @@ class PostComment {
     this.authorPhoto,
     this.createdAt,
     this.replies = const [],
+    this.likes = 0,
+    this.liked = false,
+    this.parentId,
+    this.replyCount = 0,
   });
   final int id;
   final String comment;
@@ -31,6 +37,25 @@ class PostComment {
   final String? authorPhoto;
   final DateTime? createdAt;
   final List<PostComment> replies;
+  final int likes;
+  final bool liked;
+  /// The top-level comment this replies to; null for a top-level comment.
+  final int? parentId;
+  /// How many replies the thread has (sent with the comments panel's pages).
+  final int replyCount;
+
+  PostComment copyWith({bool? liked, int? likes, int? replyCount}) => PostComment(
+        id: id,
+        comment: comment,
+        authorName: authorName,
+        authorPhoto: authorPhoto,
+        createdAt: createdAt,
+        replies: replies,
+        likes: likes ?? this.likes,
+        liked: liked ?? this.liked,
+        parentId: parentId,
+        replyCount: replyCount ?? this.replyCount,
+      );
 
   factory PostComment.fromJson(Map<String, dynamic> j) {
     final profile = (j['user'] as Map<String, dynamic>?)?['profile'] as Map<String, dynamic>?;
@@ -39,10 +64,39 @@ class PostComment {
       comment: j['comment'] as String? ?? '',
       authorName: profile?['name'] as String? ?? 'Neighbour',
       authorPhoto: profile?['photoUrl'] as String?,
-      createdAt: j['createdAt'] != null ? DateTime.tryParse(j['createdAt'] as String) : null,
+      createdAt: parseServerTime(j['createdAt']),
       replies: ((j['replies'] as List?) ?? [])
           .map((e) => PostComment.fromJson(e as Map<String, dynamic>))
           .toList(),
+      likes: _asInt(j['likes']),
+      liked: j['viewerLiked'] as bool? ?? false,
+      parentId: j['parentCommentId'] != null ? _asInt(j['parentCommentId']) : null,
+      replyCount: _asInt(j['replyCount']),
+    );
+  }
+}
+
+/// One page of a post's top-level comments, for the comments panel.
+class CommentPage {
+  const CommentPage({
+    required this.items,
+    required this.hasMore,
+    required this.totalComments,
+    required this.canInteract,
+  });
+  final List<PostComment> items;
+  final bool hasMore;
+  /// Every comment and reply on the post — the panel's "Comments · N".
+  final int totalComments;
+  final bool canInteract;
+
+  factory CommentPage.fromJson(Map<String, dynamic> j) {
+    final meta = j['meta'] as Map<String, dynamic>?;
+    return CommentPage(
+      items: ((j['items'] as List?) ?? []).map((e) => PostComment.fromJson(e as Map<String, dynamic>)).toList(),
+      hasMore: _asInt(meta?['page']) < _asInt(meta?['totalPages']),
+      totalComments: _asInt(j['totalComments']),
+      canInteract: j['canInteract'] as bool? ?? true,
     );
   }
 }
@@ -63,6 +117,9 @@ class PostItem {
     this.liked = false,
     this.createdAt,
     this.commentList = const [],
+    this.groupId,
+    this.groupTitle,
+    this.canInteract = true,
   });
 
   final int id;
@@ -79,6 +136,11 @@ class PostItem {
   final bool liked;
   final DateTime? createdAt;
   final List<PostComment> commentList; // populated on detail only
+  /// Set when the post belongs to a group (detail only).
+  final int? groupId;
+  final String? groupTitle;
+  /// False for a group post viewed by a non-member: they may read but not like or reply.
+  final bool canInteract;
 
   String get typeLabel => postTypeLabels[postType] ?? 'Update';
 
@@ -97,12 +159,16 @@ class PostItem {
         liked: liked ?? this.liked,
         createdAt: createdAt,
         commentList: commentList,
+        groupId: groupId,
+        groupTitle: groupTitle,
+        canInteract: canInteract,
       );
 
   factory PostItem.fromJson(Map<String, dynamic> j) {
     final user = j['user'] as Map<String, dynamic>?;
     final profile = user?['profile'] as Map<String, dynamic>?;
     final count = j['_count'] as Map<String, dynamic>?;
+    final group = j['group'] as Map<String, dynamic>?;
     return PostItem(
       id: _asInt(j['id']),
       postType: j['postType'] as String? ?? 'share_update',
@@ -118,10 +184,13 @@ class PostItem {
       comments: _asInt(count?['comments']),
       shares: _asInt(count?['shares']),
       liked: j['viewerLiked'] as bool? ?? false,
-      createdAt: j['createdAt'] != null ? DateTime.tryParse(j['createdAt'] as String) : null,
+      createdAt: parseServerTime(j['createdAt']),
       commentList: ((j['comments'] as List?) ?? [])
           .map((e) => PostComment.fromJson(e as Map<String, dynamic>))
           .toList(),
+      groupId: group != null ? _asInt(group['id']) : null,
+      groupTitle: group?['title'] as String?,
+      canInteract: j['canInteract'] as bool? ?? true,
     );
   }
 }

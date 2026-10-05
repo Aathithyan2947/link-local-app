@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../payments/presentation/payment_method_screen.dart';
+import '../../payments/data/payment_charge.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
 import '../../../core/navigation/push_guard.dart';
@@ -16,7 +17,7 @@ class OrderTrackingScreen extends ConsumerWidget {
 
   Future<void> _confirmAndPay(BuildContext context, WidgetRef ref, OrderModel o) async {
     final paid = await context.pushPage<bool>(
-      MaterialPageRoute(builder: (_) => PaymentMethodScreen(orderId: o.id, total: o.amountDue)),
+      MaterialPageRoute(builder: (_) => PaymentMethodScreen(charge: orderCharge(o.id), total: o.amountDue)),
     );
     if (paid == true) {
       ref.invalidate(orderByIdProvider(orderId));
@@ -154,7 +155,10 @@ class OrderTrackingScreen extends ConsumerWidget {
                   ],
                 ),
                 const SizedBox(width: 14),
-                Padding(
+                // Takes the remaining width so a long step description (or larger system
+                // text) wraps instead of overflowing the row.
+                Expanded(
+                  child: Padding(
                   padding: const EdgeInsets.only(bottom: 22),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -164,6 +168,7 @@ class OrderTrackingScreen extends ConsumerWidget {
                       Text(steps[i].$3, style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
                     ],
                   ),
+                ),
                 ),
               ],
             ),

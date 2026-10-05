@@ -4,17 +4,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/navigation/push_guard.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../home/data/home_models.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../../home/data/home_repository.dart';
 import '../../home/presentation/widgets/area_picker_sheet.dart';
+import '../../feed/presentation/post_detail_screen.dart';
+import '../../feed/presentation/widgets/discussion_card.dart';
+import '../../payments/data/payment_charge.dart';
+import '../../payments/presentation/payment_method_screen.dart';
 import '../../profile/data/profile_repository.dart';
 import '../data/group_detail_models.dart';
 import '../discovery_repository.dart';
 
-/// Full interest-group profile — the "Group Info" frame. Join / pay (mock) /
-/// leave, post to the group, and view group discussions.
+/// Full interest-group profile — the "Group Info" frame. Join (a paid group through the
+/// payment flow) / leave, post to the group, and view group discussions.
 class GroupProfileScreen extends ConsumerStatefulWidget {
   const GroupProfileScreen({super.key, required this.id});
   final int id;
@@ -46,10 +51,34 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
     }
   }
 
-  Future<void> _join(GroupDetail g) => _run(() async {
-        await _repo.joinGroup(g.id);
-        if (g.isPaid) await _repo.payForGroup(g.id); // MOCK payment
-      }, g.isPaid ? 'Joined — payment successful' : 'You have joined!');
+  /// A free group joins at once. A paid one opens the payment flow, and the backend makes
+  /// the user a member only once that charge succeeds — Join itself never admits them.
+  Future<void> _join(GroupDetail g) async {
+    if (!g.isPaid) return _run(() => _repo.joinGroup(g.id), 'You have joined!');
+    final paid = await context.pushPage<bool>(MaterialPageRoute(
+      builder: (_) => PaymentMethodScreen(charge: groupCharge(g.id), total: g.price ?? 0),
+    ));
+    if (!mounted) return;
+    if (paid == true) {
+      await _run(() async {}, g.adminApprovalNeeded ? 'Paid — waiting for approval' : 'You have joined!');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Payment not completed — you haven't joined")),
+      );
+    }
+  }
+
+  /// Opens a discussion's thread; counts may have changed on return.
+  Future<void> _openDiscussion(DiscussionItem d) async {
+    await context.pushPage(MaterialPageRoute(builder: (_) => PostDetailScreen(id: d.id)));
+    if (mounted) _refreshDiscussions();
+  }
+
+  /// Counts and the top-comment preview may have changed.
+  void _refreshDiscussions() {
+    ref.invalidate(groupDetailProvider(widget.id));
+    ref.invalidate(groupDiscussionsScopedProvider);
+  }
 
   Future<void> _leave(GroupDetail g) async {
     final ok = await showDialog<bool>(
@@ -105,13 +134,22 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
   }
 
   /// Same picker Home uses for its per-section area scoping.
+  /// The same area sheet as Home's: one area, or "All of [city]" to widen back out.
   Future<void> _pickArea(GroupDetail g) async {
     final cityId = ref.read(myProfileProvider).asData?.value.cityId;
-    final picked = await showAreaPickerSheet(context, cityId: cityId);
-    if (picked != null && mounted) {
-      setState(() => _areaFilter = SectionAreaOverride(areaId: picked.id, label: picked.areaName));
-    }
+    final picked = await showAreaScopeSheet(
+      context,
+      cityId: cityId,
+      cityName: _cityName,
+      selectedAreaId: _areaFilter?.areaId,
+      wholeCitySelected: _areaFilter == null,
+    );
+    if (picked == null || !mounted) return;
+    final area = picked.area;
+    setState(() => _areaFilter = area == null ? null : SectionAreaOverride(areaId: area.id, label: area.areaName));
   }
+
+  String get _cityName => ref.read(homeFeedProvider).asData?.value.city?.name ?? 'your city';
 
   Future<void> _setMuted(GroupDetail g, bool muted) =>
       _run(() => _repo.setGroupMuted(g.id, muted), muted ? 'Notifications muted' : 'Notifications on');
@@ -353,9 +391,11 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
                 ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                 : Text(g.isPending
                     ? 'Requested — pending approval'
-                    : g.isPaid
-                        ? 'Join for ₹${(g.price ?? 0).toStringAsFixed(0)}'
-                        : 'Join Group'),
+                    : g.needsPayment
+                        ? 'Pay ₹${(g.price ?? 0).toStringAsFixed(0)} to join'
+                        : g.isPaid
+                            ? 'Join for ₹${(g.price ?? 0).toStringAsFixed(0)}'
+                            : 'Join Group'),
           ),
         ),
       );
@@ -368,7 +408,8 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
         ? ref.watch(groupDiscussionsScopedProvider(GroupAreaKey(g.id, _areaFilter!.areaId)))
         : null;
     final discussions = scoped?.asData?.value ?? g.discussions;
-    final areaLabel = _areaFilter?.label ?? g.area;
+    // Unfiltered, the list spans every area, so the header names the city — as on Home.
+    final areaLabel = _areaFilter?.label ?? ref.watch(homeFeedProvider).asData?.value.city?.name;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
@@ -431,48 +472,20 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
               ),
             )
           else
-            ...discussions.map((d) => _discussionTile(d)),
+            ...discussions.map((d) => _discussionTile(g, d)),
         ],
       ),
     );
   }
 
-  Widget _discussionTile(DiscussionItem d) => Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Avatar(name: d.authorName, photoUrl: d.authorPhoto, radius: 16),
-                const SizedBox(width: 10),
-                Text(d.authorName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-              ],
-            ),
-            if (d.text.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(d.text, style: const TextStyle(fontSize: 14, color: AppColors.textPrimary)),
-            ],
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.favorite_border, size: 16, color: AppColors.textSecondary),
-                const SizedBox(width: 5),
-                Text('${d.likes}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
-                const SizedBox(width: 16),
-                const Icon(Icons.mode_comment_outlined, size: 15, color: AppColors.textSecondary),
-                const SizedBox(width: 5),
-                Text('${d.comments} Replies', style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
-              ],
-            ),
-          ],
-        ),
+  /// Like, comment and share right on the card; tapping the post opens it in full. A
+  /// non-member sees it read-only, with Join offered.
+  Widget _discussionTile(GroupDetail g, DiscussionItem d) => DiscussionCard(
+        key: ValueKey('discussion-${d.id}'),
+        item: d,
+        onOpen: () => _openDiscussion(d),
+        onJoin: g.isMember ? null : () => _join(g),
+        onChanged: _refreshDiscussions,
       );
 
   // ── Mute notifications ─────────────────────────────────────

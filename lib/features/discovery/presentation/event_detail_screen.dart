@@ -5,14 +5,18 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/navigation/push_guard.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
+import '../../payments/data/payment_charge.dart';
+import '../../payments/presentation/payment_method_screen.dart';
 import '../data/event_detail_models.dart';
 import '../discovery_repository.dart';
 import '../event_lists_refresh.dart';
 import 'widgets/discover_cards.dart';
 
-/// Full event detail — the "Workshop details" frame. Join / pay (mock) / rate.
+/// Full event detail — the "Workshop details" frame. Join (a paid event through the payment
+/// flow) / rate.
 class EventDetailScreen extends ConsumerStatefulWidget {
   const EventDetailScreen({super.key, required this.id});
   final int id;
@@ -53,12 +57,24 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
     }
   }
 
-  Future<void> _join(EventDetail e) => _run(() async {
-        await _repo.joinEvent(e.id);
-        if (e.isPaid) await _repo.payForEvent(e.id); // MOCK payment
-      }, e.isPaid ? 'Joined — payment successful' : 'You have joined!');
+  /// A free event joins at once. A paid one opens the payment flow, and the backend adds the
+  /// attendee only once that charge succeeds — Join itself never admits them.
+  Future<void> _join(EventDetail e) =>
+      e.isPaid ? _pay(e) : _run(() => _repo.joinEvent(e.id), 'You have joined!');
 
-  Future<void> _pay(EventDetail e) => _run(() => _repo.payForEvent(e.id), 'Payment successful');
+  Future<void> _pay(EventDetail e) async {
+    final paid = await context.pushPage<bool>(MaterialPageRoute(
+      builder: (_) => PaymentMethodScreen(charge: eventCharge(e.id), total: e.price ?? 0),
+    ));
+    if (!mounted) return;
+    if (paid == true) {
+      await _run(() async {}, e.adminApprovalNeeded ? 'Paid — waiting for approval' : 'You have joined!');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Payment not completed — you haven't joined")),
+      );
+    }
+  }
   Future<void> _withdraw(EventDetail e) => _run(() => _repo.withdrawEvent(e.id), 'You have withdrawn');
 
   Future<void> _submitReview() async {

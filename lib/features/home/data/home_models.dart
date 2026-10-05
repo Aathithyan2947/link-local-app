@@ -1,3 +1,6 @@
+import '../../../core/time/server_time.dart';
+import '../../feed/data/post_models.dart';
+
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 double? _asDouble(dynamic v) => v == null ? null : (v is num ? v.toDouble() : double.tryParse('$v'));
 
@@ -42,6 +45,13 @@ class DiscussionItem {
     this.authorPhoto,
     required this.likes,
     required this.comments,
+    this.liked = false,
+    this.shares = 0,
+    this.createdAt,
+    this.canInteract = true,
+    this.groupId,
+    this.groupTitle,
+    this.topComment,
   });
   final int id;
   final String text;
@@ -49,6 +59,17 @@ class DiscussionItem {
   final String? authorPhoto;
   final int likes;
   final int comments;
+  final int shares;
+  /// Whether the viewer has liked it.
+  final bool liked;
+  final DateTime? createdAt;
+  /// False for a group post the viewer can't join in on (not a member): read-only.
+  final bool canInteract;
+  /// Set when the post belongs to a group.
+  final int? groupId;
+  final String? groupTitle;
+  /// The most-liked (then newest) comment, previewed on the card.
+  final PostComment? topComment;
 
   factory DiscussionItem.fromJson(Map<String, dynamic> j) {
     final user = j['user'] as Map<String, dynamic>?;
@@ -61,6 +82,17 @@ class DiscussionItem {
       authorPhoto: profile?['photoUrl'] as String?,
       likes: _asInt(count?['likes']),
       comments: _asInt(count?['comments']),
+      shares: _asInt(count?['shares']),
+      liked: j['viewerLiked'] as bool? ?? false,
+      createdAt: parseServerTime(j['createdAt']),
+      canInteract: j['canInteract'] as bool? ?? true,
+      groupId: (j['group'] as Map<String, dynamic>?)?['id'] != null
+          ? _asInt((j['group'] as Map<String, dynamic>)['id'])
+          : null,
+      groupTitle: (j['group'] as Map<String, dynamic>?)?['title'] as String?,
+      topComment: j['topComment'] != null
+          ? PostComment.fromJson(j['topComment'] as Map<String, dynamic>)
+          : null,
     );
   }
 }
@@ -162,6 +194,8 @@ class WorkshopItem {
     return WorkshopItem(
       id: _asInt(j['id']),
       title: j['title'] as String? ?? '',
+      // Calendar values (a day and a clock time), not instants: kept as sent — unlike
+      // timestamps, which go through parseServerTime.
       date: j['date'] != null ? DateTime.tryParse(j['date'] as String) : null,
       attendees: _asInt(count?['attendees']),
       isPaid: j['isPaid'] as bool? ?? false,
@@ -298,9 +332,14 @@ class HomeFeed {
     required this.serviceProviders,
     this.spServices = const [],
     this.scopeCounts,
+    this.scopeLabel,
   });
 
   final HomeCity? city;
+  /// The place every section is filtered by — the picked area, or the member's society /
+  /// lane / area / city per the chip — exactly as the backend applied it (with its fallbacks
+  /// when a society or lane isn't filled in). Null against an older backend.
+  final String? scopeLabel;
   final HomeStats stats;
   final ReferralInfo referral;
   final List<DiscussionItem> discussions;
@@ -337,6 +376,7 @@ class HomeFeed {
       scopeCounts: j['scopeCounts'] == null
           ? null
           : ScopeCounts.fromJson(j['scopeCounts'] as Map<String, dynamic>),
+      scopeLabel: j['scopeLabel'] as String?,
     );
   }
 }

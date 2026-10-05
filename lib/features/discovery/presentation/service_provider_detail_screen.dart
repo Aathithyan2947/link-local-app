@@ -28,6 +28,7 @@ import '../../orders/data/order_models.dart';
 import '../../orders/data/orders_repository.dart';
 import '../../orders/presentation/cart_review_screen.dart';
 import '../../payments/presentation/payment_method_screen.dart';
+import '../../payments/data/payment_charge.dart';
 import '../../profile/data/profile_repository.dart';
 import '../../profile/presentation/sections/basic_sections.dart';
 import '../../address/presentation/address_capture_screen.dart';
@@ -1006,7 +1007,8 @@ class _TravelDetails {
 
     return _TravelDetails(
       willingToTravel: sp.willingToTravel || willingField?.toLowerCase() == 'yes',
-      maxTravelKm: sp.availability?.maxTravelKm ?? double.tryParse(distanceField ?? ''),
+      // Custom answers may carry a unit ("10 km"); over-the-limit legacy values aren't shown.
+      maxTravelKm: sp.availability?.maxTravelKm ?? displayableTravelKm(distanceField),
       serviceAreas: serviceAreas,
       schedule: scheduleField,
       extra: extra,
@@ -2588,7 +2590,7 @@ Future<void> _makePayment(BuildContext context, WidgetRef ref, ServiceProviderDe
 /// this lands back here either way; the result isn't needed.
 void _openPayment(BuildContext context, OrderModel order) {
   context.pushPage(MaterialPageRoute(
-    builder: (_) => PaymentMethodScreen(orderId: order.id, total: order.amountDue),
+    builder: (_) => PaymentMethodScreen(charge: orderCharge(order.id), total: order.amountDue),
   ));
 }
 

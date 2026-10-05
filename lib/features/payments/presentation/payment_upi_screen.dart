@@ -3,15 +3,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
-import '../../orders/data/orders_repository.dart';
+import '../data/payment_charge.dart';
 import 'payment_failed_screen.dart';
 import 'payment_success_screen.dart';
 import '../../../core/navigation/push_guard.dart';
 
 /// UPI payment detail — the "Payment - 2" frame. MOCK: any app/QR tap "pays".
 class PaymentUpiScreen extends ConsumerStatefulWidget {
-  const PaymentUpiScreen({super.key, required this.orderId, required this.total});
-  final int orderId;
+  const PaymentUpiScreen({super.key, required this.charge, required this.total});
+  final PaymentCharge charge;
   final double total;
 
   @override
@@ -27,7 +27,7 @@ class _PaymentUpiScreenState extends ConsumerState<PaymentUpiScreen> {
   Future<void> _pay({String? app}) async {
     setState(() => _paying = true);
     try {
-      await ref.read(ordersRepositoryProvider).pay(widget.orderId, paymentMethod: 'upi', paymentSubMethod: app);
+      await widget.charge(ref, 'upi', app);
       if (!mounted) return;
       final done = await context.pushPage<bool>(
         MaterialPageRoute(builder: (_) => PaymentSuccessScreen(amount: widget.total)),
@@ -37,7 +37,7 @@ class _PaymentUpiScreenState extends ConsumerState<PaymentUpiScreen> {
       if (!mounted) return;
       // The failed screen can still end in success via Retry, so forward whatever it reports.
       final retried = await context.pushPage<bool>(
-        MaterialPageRoute(builder: (_) => PaymentFailedScreen(orderId: widget.orderId, amount: widget.total)),
+        MaterialPageRoute(builder: (_) => PaymentFailedScreen(charge: widget.charge, amount: widget.total)),
       );
       if (mounted && retried == true) Navigator.of(context).pop(true);
     } finally {

@@ -70,15 +70,48 @@ final myOrdersProvider = FutureProvider<List<OrderModel>>((ref) {
   return ref.watch(ordersRepositoryProvider).myOrders();
 });
 
-/// Orders received by the current SP.
-final incomingOrdersProvider =
-    FutureProvider<List<OrderModel>>((ref) {
-  ref.bindToAccount();
-  return ref.watch(ordersRepositoryProvider).incoming();
-});
+/// Orders received by the current SP — one list behind both "Your Orders & Bookings" and
+/// Order History, so a status change shows in both.
+class IncomingOrders extends AsyncNotifier<List<OrderModel>> {
+  @override
+  Future<List<OrderModel>> build() {
+    ref.bindToAccount();
+    return ref.watch(ordersRepositoryProvider).incoming();
+  }
 
-/// A single order/booking by id (for the tracking screen).
-final orderByIdProvider = FutureProvider.family<OrderModel, int>((ref, id) {
+  /// Shows [status] for order [id] at once (before the server's reply). A refetch replaces it
+  /// with the server's copy; on failure, invalidating the provider restores the truth.
+  void setStatusLocally(int id, String status) {
+    final list = state.asData?.value;
+    if (list == null) return;
+    state = AsyncData([for (final o in list) o.id == id ? o.withStatus(status) : o]);
+  }
+}
+
+final incomingOrdersProvider = AsyncNotifierProvider<IncomingOrders, List<OrderModel>>(IncomingOrders.new);
+
+/// Orders with a provider action (accept, mark completed, …) still in flight. Their buttons
+/// show a spinner and ignore further taps, and Order History holds off reloading meanwhile so
+/// it can't briefly undo a status shown ahead of the server's reply.
+class OrderActionsInFlight extends Notifier<Set<int>> {
+  @override
+  Set<int> build() => const {};
+
+  /// False when [id] already has an action running.
+  bool tryStart(int id) {
+    if (state.contains(id)) return false;
+    state = {...state, id};
+    return true;
+  }
+
+  void finish(int id) => state = {...state}..remove(id);
+}
+
+final orderActionsInFlightProvider = NotifierProvider<OrderActionsInFlight, Set<int>>(OrderActionsInFlight.new);
+
+/// A single order/booking by id (for the tracking screen). Auto-disposed, so every visit loads
+/// the current order — a kept copy would show a booking as "Confirmed" after it was completed.
+final orderByIdProvider = FutureProvider.autoDispose.family<OrderModel, int>((ref, id) {
   ref.bindToAccount();
   return ref.watch(ordersRepositoryProvider).order(id);
 });

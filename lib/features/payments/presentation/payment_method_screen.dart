@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
-import '../../orders/data/orders_repository.dart';
+import '../data/payment_charge.dart';
 import 'payment_failed_screen.dart';
 import 'payment_success_screen.dart';
 import 'payment_upi_screen.dart';
@@ -10,8 +10,8 @@ import '../../../core/navigation/push_guard.dart';
 
 /// Payment method selection — the "Payment - 1" frame. MOCK gateway: no real charge.
 class PaymentMethodScreen extends ConsumerStatefulWidget {
-  const PaymentMethodScreen({super.key, required this.orderId, required this.total});
-  final int orderId;
+  const PaymentMethodScreen({super.key, required this.charge, required this.total});
+  final PaymentCharge charge;
   final double total;
 
   @override
@@ -29,11 +29,12 @@ class _PaymentMethodScreenState extends ConsumerState<PaymentMethodScreen> {
   ];
 
   /// Pops `true` once a payment completes, whichever path was taken — the caller (cart review,
-  /// or the SP profile's pay-a-booking action) uses that to know the charge went through.
+  /// the SP profile's pay-a-booking action, a paid group or event) uses that to know the
+  /// charge went through.
   Future<void> _next() async {
     if (_method == 'upi') {
       final paid = await context.pushPage<bool>(
-        MaterialPageRoute(builder: (_) => PaymentUpiScreen(orderId: widget.orderId, total: widget.total)),
+        MaterialPageRoute(builder: (_) => PaymentUpiScreen(charge: widget.charge, total: widget.total)),
       );
       if (mounted && paid == true) Navigator.of(context).pop(true);
       return;
@@ -41,7 +42,7 @@ class _PaymentMethodScreenState extends ConsumerState<PaymentMethodScreen> {
     // Card / net-banking → mock charge directly.
     setState(() => _paying = true);
     try {
-      await ref.read(ordersRepositoryProvider).pay(widget.orderId, paymentMethod: _method);
+      await widget.charge(ref, _method, null);
       if (!mounted) return;
       final done = await context.pushPage<bool>(
         MaterialPageRoute(builder: (_) => PaymentSuccessScreen(amount: widget.total)),
@@ -52,7 +53,7 @@ class _PaymentMethodScreenState extends ConsumerState<PaymentMethodScreen> {
       final retried = await context.pushPage<bool>(
         MaterialPageRoute(
           builder: (_) =>
-              PaymentFailedScreen(orderId: widget.orderId, amount: widget.total, paymentMethod: _method),
+              PaymentFailedScreen(charge: widget.charge, amount: widget.total, paymentMethod: _method),
         ),
       );
       if (mounted && retried == true) Navigator.of(context).pop(true);

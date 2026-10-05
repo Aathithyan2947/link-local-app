@@ -75,21 +75,21 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
 
   void _selectTab(int i) => ref.read(discoverTabProvider.notifier).set(i);
 
-  /// The header's area picker (the same sheet as Home's). One choice for the whole screen;
-  /// The whole-city row returns to city-wide.
+  /// The header's area picker (the same sheet as Home's). It sets the app-wide location, so
+  /// Home and every other tab follow; the whole-city row returns everything to city-wide.
   Future<void> _pickArea(String city) async {
-    final current = ref.read(discoverAreaProvider);
+    final current = ref.read(homeScopeProvider);
     final picked = await showAreaScopeSheet(
       context,
       cityId: ref.read(myProfileProvider).asData?.value.cityId,
       cityName: city,
-      selectedAreaId: current?.areaId,
-      wholeCitySelected: current == null,
+      selectedAreaId: current.overrideAreaId,
+      wholeCitySelected: current.isWholeCity,
     );
     if (picked == null) return;
-    final notifier = ref.read(discoverAreaProvider.notifier);
+    final notifier = ref.read(homeScopeProvider.notifier);
     final a = picked.area;
-    a == null ? notifier.clear() : notifier.set(a.id, a.areaName);
+    a == null ? notifier.setScope('city') : notifier.setArea(a.id, a.areaName);
   }
 
   @override
@@ -100,7 +100,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     final eventsAsync = ref.watch(discoverEventsProvider);
     final spAsync = ref.watch(discoverServiceProvidersProvider);
     final groupsAsync = ref.watch(discoverGroupsProvider);
-    final area = ref.watch(discoverAreaProvider);
+    final location = ref.watch(homeScopeProvider);
 
     final eventsData = eventsAsync.asData?.value.items ?? const <WorkshopItem>[];
     final spData = spAsync.asData?.value.items ?? const <ServiceProviderItem>[];
@@ -112,12 +112,14 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
         eventsData, query, (e) => '${e.title} ${e.location ?? ''} ${e.creatorName ?? ''}');
     final sps = _filter(spData, query, (e) => e.searchText);
     final groups = _filter(groupsData, query, (e) => '${e.title} ${e.ownerName ?? ''}');
-    final city = ref.watch(homeFeedProvider).asData?.value.city?.name ?? 'your area';
+    final feed = ref.watch(homeFeedProvider).asData?.value;
+    final city = feed?.city?.name ?? 'your area';
     // Counts: the backend's real total, unless a search is narrowing the loaded list.
     int count<T>(AsyncValue<Section<T>> a, List<T> filtered) =>
         query.isEmpty ? (a.asData?.value.total ?? filtered.length) : filtered.length;
     final scope = _Scope(
-      place: area?.label ?? city,
+      // The same label Home shows for the app-wide location.
+      place: locationLabel(location, feed, fallback: city),
       eventsCount: count(eventsAsync, events),
       spsCount: count(spAsync, sps),
       groupsCount: count(groupsAsync, groups),

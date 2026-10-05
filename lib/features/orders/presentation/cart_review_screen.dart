@@ -8,6 +8,7 @@ import '../../business/data/product_models.dart';
 import '../../discovery/data/sp_detail_models.dart';
 import '../../discovery/discovery_repository.dart';
 import '../../payments/presentation/payment_method_screen.dart';
+import '../../payments/data/payment_charge.dart';
 import '../data/cart.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
@@ -106,7 +107,7 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
       if (!mounted) return;
       // Route through the Payment method + UPI pages (mock gateway).
       final paid = await context.pushPage<bool>(
-        MaterialPageRoute(builder: (_) => PaymentMethodScreen(orderId: order.id, total: order.amountDue)),
+        MaterialPageRoute(builder: (_) => PaymentMethodScreen(charge: orderCharge(order.id), total: order.amountDue)),
       );
       if (!mounted) return;
       if (paid == true) {

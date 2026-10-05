@@ -17,16 +17,18 @@ class DiscoveryRepository {
   DiscoveryRepository(this._dio);
   final Dio _dio;
 
-  /// One page of a Discover list with the backend's real total: city-wide, or narrowed to
-  /// [areaId] when one is picked from the section header.
+  /// One page of a Discover list with the backend's real total, scoped like Home: [scope] is
+  /// the member's society / lane / area / city, and [areaId] a picked area (with `area`).
   Future<Section<T>> _discoverPage<T>(
     String path,
     T Function(Map<String, dynamic>) fromJson, {
+    String scope = 'city',
     int? areaId,
   }) async {
     final res = await _dio.get(path, queryParameters: {
       'pageSize': 50,
-      if (areaId != null) ...{'scope': 'area', 'areaId': areaId},
+      'scope': scope,
+      'areaId': ?areaId,
     });
     return Section(
       total: ((res.data['meta'] as Map?)?['total'] as num?)?.toInt() ?? (res.data['data'] as List).length,
@@ -34,12 +36,12 @@ class DiscoveryRepository {
     );
   }
 
-  Future<Section<ServiceProviderItem>> discoverServiceProviders({int? areaId}) =>
-      _discoverPage('/service-providers', ServiceProviderItem.fromJson, areaId: areaId);
-  Future<Section<WorkshopItem>> discoverEvents({int? areaId}) =>
-      _discoverPage('/events', WorkshopItem.fromJson, areaId: areaId);
-  Future<Section<GroupItem>> discoverGroups({int? areaId}) =>
-      _discoverPage('/groups', GroupItem.fromJson, areaId: areaId);
+  Future<Section<ServiceProviderItem>> discoverServiceProviders({String scope = 'city', int? areaId}) =>
+      _discoverPage('/service-providers', ServiceProviderItem.fromJson, scope: scope, areaId: areaId);
+  Future<Section<WorkshopItem>> discoverEvents({String scope = 'city', int? areaId}) =>
+      _discoverPage('/events', WorkshopItem.fromJson, scope: scope, areaId: areaId);
+  Future<Section<GroupItem>> discoverGroups({String scope = 'city', int? areaId}) =>
+      _discoverPage('/groups', GroupItem.fromJson, scope: scope, areaId: areaId);
 
   Future<List<ServiceProviderItem>> serviceProviders({String? q}) async {
     final res = await _dio.get('/service-providers',
@@ -265,24 +267,22 @@ final discoveryRepositoryProvider = Provider<DiscoveryRepository>((ref) {
   return DiscoveryRepository(ref.watch(dioProvider));
 });
 
-/// The area picked from a Discover section header — one choice for the whole screen, so
-/// Services, Events and Groups stay in step. Null means the whole city.
-final discoverAreaProvider = NotifierProvider<SectionAreaNotifier, SectionAreaOverride?>(SectionAreaNotifier.new);
-
+// The Services, Events and Groups tabs follow the app-wide location ([homeScopeProvider]) —
+// the same one Home's top selector sets — so a location picked anywhere applies everywhere.
 final discoverServiceProvidersProvider = FutureProvider<Section<ServiceProviderItem>>((ref) {
   ref.bindToAccount();
-  final area = ref.watch(discoverAreaProvider);
-  return ref.watch(discoveryRepositoryProvider).discoverServiceProviders(areaId: area?.areaId);
+  final s = ref.watch(homeScopeProvider);
+  return ref.watch(discoveryRepositoryProvider).discoverServiceProviders(scope: s.scope, areaId: s.overrideAreaId);
 });
 final discoverEventsProvider = FutureProvider<Section<WorkshopItem>>((ref) {
   ref.bindToAccount();
-  final area = ref.watch(discoverAreaProvider);
-  return ref.watch(discoveryRepositoryProvider).discoverEvents(areaId: area?.areaId);
+  final s = ref.watch(homeScopeProvider);
+  return ref.watch(discoveryRepositoryProvider).discoverEvents(scope: s.scope, areaId: s.overrideAreaId);
 });
 final discoverGroupsProvider = FutureProvider<Section<GroupItem>>((ref) {
   ref.bindToAccount();
-  final area = ref.watch(discoverAreaProvider);
-  return ref.watch(discoveryRepositoryProvider).discoverGroups(areaId: area?.areaId);
+  final s = ref.watch(homeScopeProvider);
+  return ref.watch(discoveryRepositoryProvider).discoverGroups(scope: s.scope, areaId: s.overrideAreaId);
 });
 
 final serviceProvidersProvider = FutureProvider<List<ServiceProviderItem>>((ref) {

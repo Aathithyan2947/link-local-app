@@ -1,3 +1,5 @@
+import '../../../core/time/server_time.dart';
+
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
 /// One row in the conversation list.
@@ -25,7 +27,7 @@ class Conversation {
       otherName: profile?['name'] as String? ?? 'Member',
       otherPhoto: profile?['photoUrl'] as String?,
       lastMessage: j['lastMessage'] as String? ?? '',
-      lastAt: j['lastAt'] != null ? DateTime.tryParse(j['lastAt'] as String) : null,
+      lastAt: parseServerTime(j['lastAt']),
       unread: _asInt(j['unread']),
     );
   }
@@ -43,7 +45,7 @@ class ChatMessage {
         id: _asInt(j['id']),
         senderId: _asInt(j['senderId']),
         content: j['content'] as String? ?? '',
-        createdAt: j['createdAt'] != null ? DateTime.tryParse(j['createdAt'] as String) : null,
+        createdAt: parseServerTime(j['createdAt']),
       );
 }
 

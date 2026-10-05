@@ -36,31 +36,56 @@ String _timeAgo(DateTime dt) {
 class IncomingOrdersScreen extends ConsumerWidget {
   const IncomingOrdersScreen({super.key});
 
-  Future<void> _runAction(BuildContext context, WidgetRef ref, String successMessage, Future<void> Function() action) async {
+  /// Runs one action on order [id]: ignored while another is in flight for it. With [newStatus],
+  /// the row shows that status at once (so a completed booking moves to Order History
+  /// straight away); the server's copy then replaces it, or — if it refuses — the list is
+  /// reloaded so the row goes back. The order's detail screen is refreshed either way.
+  Future<void> _runAction(
+    BuildContext context,
+    WidgetRef ref,
+    int id,
+    String successMessage,
+    Future<void> Function() action, {
+    String? newStatus,
+  }) async {
+    // The app's container, not this screen's ref: the cleanup below must still run if the
+    // provider leaves the screen while the request is in flight.
+    final container = ProviderScope.containerOf(context, listen: false);
+    final busy = container.read(orderActionsInFlightProvider.notifier);
+    if (!busy.tryStart(id)) return;
+    if (newStatus != null) container.read(incomingOrdersProvider.notifier).setStatusLocally(id, newStatus);
     try {
       await action();
-      ref.invalidate(incomingOrdersProvider);
-      await ref.read(incomingOrdersProvider.future);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(successMessage)));
       }
     } catch (e) {
-      if (!context.mounted) return;
-      final message = e is DioException ? ApiException.fromDio(e).message : 'Something went wrong. Please try again.';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      if (context.mounted) {
+        final message = e is DioException ? ApiException.fromDio(e).message : 'Something went wrong. Please try again.';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      }
+    } finally {
+      container
+        ..invalidate(orderByIdProvider(id))
+        ..invalidate(myOrdersProvider)
+        ..invalidate(incomingOrdersProvider);
+      busy.finish(id);
     }
   }
 
   Future<void> _act(BuildContext context, WidgetRef ref, int id, String status, String label) => _runAction(
         context,
         ref,
+        id,
         label,
         () => ref.read(ordersRepositoryProvider).updateStatus(id, status),
+        newStatus: status,
       );
 
   Future<void> _accept(BuildContext context, WidgetRef ref, int id) => _runAction(
         context,
         ref,
+        id,
         'Order accepted',
         () => ref.read(ordersRepositoryProvider).accept(id),
       );
@@ -68,29 +93,36 @@ class IncomingOrdersScreen extends ConsumerWidget {
   Future<void> _reject(BuildContext context, WidgetRef ref, int id) => _runAction(
         context,
         ref,
+        id,
         'Order rejected',
         () => ref.read(ordersRepositoryProvider).reject(id),
       );
+
+  /// A progress button that shows a spinner (and can't be tapped) while its order is busy.
+  Widget _progressButton(WidgetRef ref, OrderModel o, String label, VoidCallback onPressed) {
+    final busy = ref.watch(orderActionsInFlightProvider).contains(o.id);
+    return TextButton(
+      onPressed: busy ? null : onPressed,
+      child: busy
+          ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+          : Text(label),
+    );
+  }
 
   /// The progress action shown on an ongoing order's row, if any.
   Widget? _ongoingAction(BuildContext context, WidgetRef ref, OrderModel o) {
     if (o.isBooking) {
       return o.status == 'confirmed'
-          ? TextButton(
-              onPressed: () => _act(context, ref, o.id, 'completed', 'Marked as completed'),
-              child: const Text('Mark completed'))
+          ? _progressButton(ref, o, 'Mark completed', () => _act(context, ref, o.id, 'completed', 'Marked as completed'))
           : null;
     }
     return switch (o.status) {
-      'confirmed' => TextButton(
-          onPressed: () => _act(context, ref, o.id, 'in_progress', 'Marked as in preparation'),
-          child: const Text('Start preparing')),
-      'in_progress' => TextButton(
-          onPressed: () => _act(context, ref, o.id, 'delivered', 'Marked as delivered'),
-          child: const Text('Mark delivered')),
-      'delivered' => TextButton(
-          onPressed: () => _act(context, ref, o.id, 'completed', 'Marked as completed'),
-          child: const Text('Mark completed')),
+      'confirmed' => _progressButton(
+          ref, o, 'Start preparing', () => _act(context, ref, o.id, 'in_progress', 'Marked as in preparation')),
+      'in_progress' =>
+        _progressButton(ref, o, 'Mark delivered', () => _act(context, ref, o.id, 'delivered', 'Marked as delivered')),
+      'delivered' =>
+        _progressButton(ref, o, 'Mark completed', () => _act(context, ref, o.id, 'completed', 'Marked as completed')),
       _ => null,
     };
   }

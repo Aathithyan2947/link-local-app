@@ -1,7 +1,9 @@
+import '../../../core/time/server_time.dart';
 import '../../home/data/home_models.dart';
 
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
-DateTime? _asDate(dynamic v) => v == null ? null : DateTime.tryParse('$v');
+// Every date here is a createdAt timestamp — shown in the phone's local time.
+DateTime? _asDate(dynamic v) => parseServerTime(v);
 
 /// Events the current user hosts vs. has joined — `GET /events/mine`.
 class MyEvents {

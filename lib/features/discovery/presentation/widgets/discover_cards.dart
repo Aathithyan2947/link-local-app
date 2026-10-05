@@ -101,7 +101,9 @@ class JoinedBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+      // 1px less vertical padding than JoinButton, which has no border — so swapping Join for
+      // Joined doesn't make the row 2px taller.
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
         color: AppColors.primarySurface,
         borderRadius: BorderRadius.circular(8),
@@ -193,8 +195,12 @@ class EventCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: AppColors.border),
           ),
-          child: SizedBox(
-            height: 108,
+          // At least 108px, but grows with its content (a location line, a bordered Joined
+          // badge, larger system text) instead of overflowing a fixed height. IntrinsicHeight
+          // lets the thumbnail still stretch to whatever height the text needs.
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 108),
+            child: IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -282,6 +288,7 @@ class EventCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
             ),
           ),
         ),

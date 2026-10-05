@@ -1,3 +1,5 @@
+import '../../../core/time/server_time.dart';
+
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 double _asDouble(dynamic v) => v == null ? 0 : (v is num ? v.toDouble() : double.tryParse('$v') ?? 0);
 
@@ -134,8 +136,8 @@ class OrderPaymentModel {
         paymentMethod: j['paymentMethod'] as String? ?? '',
         paymentSubMethod: j['paymentSubMethod'] as String?,
         paymentStatus: j['paymentStatus'] as String? ?? '',
-        paidAt: j['paidAt'] != null ? DateTime.tryParse(j['paidAt'] as String) : null,
-        createdAt: j['createdAt'] != null ? DateTime.tryParse(j['createdAt'] as String) : null,
+        paidAt: parseServerTime(j['paidAt']),
+        createdAt: parseServerTime(j['createdAt']),
       );
 }
 
@@ -203,6 +205,40 @@ class OrderModel {
   final List<OrderPaymentModel> payments;
 
   bool get isBooking => orderKind == 'booking';
+
+  /// The same order at a new [status] — for showing a status change at once, before the
+  /// server's copy comes back.
+  OrderModel withStatus(String status) => OrderModel(
+        id: id,
+        orderKind: orderKind,
+        status: status,
+        deliveryType: deliveryType,
+        subtotal: subtotal,
+        deliveryCharge: deliveryCharge,
+        packagingCharge: packagingCharge,
+        platformFee: platformFee,
+        discountApplied: discountApplied,
+        totalAmount: totalAmount,
+        amountDue: amountDue,
+        rateType: rateType,
+        rateAmount: rateAmount,
+        specialInstructions: specialInstructions,
+        deliveryTimeWindow: deliveryTimeWindow,
+        placedAt: placedAt,
+        slot: slot,
+        buyerName: buyerName,
+        buyerPhoto: buyerPhoto,
+        buyerId: buyerId,
+        deliveryAddress: deliveryAddress,
+        spProfileId: spProfileId,
+        spName: spName,
+        spPhoto: spPhoto,
+        spUserId: spUserId,
+        items: items,
+        paid: paid,
+        payments: payments,
+      );
+
   String get statusLabel =>
       (isBooking ? bookingStatusLabels : orderStatusLabels)[status] ?? status;
   bool get isHomeDelivery => deliveryType == 'home_delivery';
@@ -230,7 +266,7 @@ class OrderModel {
       rateAmount: j['rateAmount'] != null ? _asDouble(j['rateAmount']) : null,
       specialInstructions: j['specialInstructions'] as String?,
       deliveryTimeWindow: j['deliveryTimeWindow'] as String?,
-      placedAt: j['placedAt'] != null ? DateTime.tryParse(j['placedAt'] as String) : null,
+      placedAt: parseServerTime(j['placedAt']),
       slot: slot != null ? OrderSlot.fromJson(slot) : null,
       buyerName: buyerProfile?['name'] as String? ?? 'Customer',
       buyerPhoto: buyerProfile?['photoUrl'] as String?,

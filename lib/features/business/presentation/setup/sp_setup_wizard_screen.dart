@@ -1,7 +1,9 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/input_formatters.dart';
 import '../../../auth/application/auth_controller.dart';
@@ -10,6 +12,7 @@ import '../../../profile/data/profile_models.dart';
 import '../../../profile/data/profile_repository.dart';
 import '../../data/availability_models.dart';
 import '../../data/business_repository.dart';
+import '../../data/profile_limits.dart';
 import '../../data/rate_models.dart';
 
 /// Three-step SP profile setup:
@@ -70,6 +73,13 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
   int? _slotMinutes = 120; // null ⇒ whole window
   bool _willingToTravel = true;
   bool _saving = false;
+  /// Shown under the travel-distance field; set when Next / Save finds a problem, then kept
+  /// up to date as the provider edits.
+  String? _distanceError;
+
+  /// Problems with the "Set up your profile" fields, shown under each field: keys are
+  /// 'name', 'title', 'experience', 'about' and `rate:${type}`.
+  final _detailErrors = <String, String>{};
 
   /// The profile's professions as loaded, so a save can replace just the wizard's own title
   /// (the first entry) without dropping ones added from the profile section.
@@ -154,16 +164,57 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
   // Next again just rewrites the same values.
   Future<void> _next() async {
     if (_step == 0) {
-      if (_name.text.trim().isEmpty) return _toast('Please enter your name');
+      if (!_validateDetails()) return; // messages under the fields; nothing saved
       if (!await _persist(_persistDetails)) return;
       setState(() => _step = _hasDateBooking ? 1 : 2);
       return;
     } else if (_step == 1) {
       if (_days.isEmpty) return _toast('Pick at least one working day');
       if (_mins(_end) <= _mins(_start)) return _toast('End time must be after start time');
+      if (!_checkDistance()) return;
       if (!await _persist(_persistAvailability)) return;
     }
     setState(() => _step++);
+  }
+
+  /// Every "Set up your profile" field's problem, by field key.
+  Map<String, String> _checkDetails() {
+    final errors = <String, String?>{
+      'name': ProfileLimits.nameError(_name.text),
+      'title': ProfileLimits.titleError(_title.text),
+      'experience': ProfileLimits.experienceError(_experience.text),
+      'about': ProfileLimits.aboutError(_about.text),
+      if (_isService)
+        for (final t in _rateTypes) 'rate:$t': ProfileLimits.rateError(_rates[t]!.text),
+    };
+    return {
+      for (final e in errors.entries)
+        if (e.value != null) e.key: e.value!,
+    };
+  }
+
+  /// Shows every problem on the details step under its field. Returns false if any.
+  bool _validateDetails() {
+    final errors = _checkDetails();
+    setState(() => _detailErrors
+      ..clear()
+      ..addAll(errors));
+    return errors.isEmpty;
+  }
+
+  /// Once a field's problem is shown, keep it current as the provider edits that field.
+  void _recheckDetail(String key) {
+    if (!_detailErrors.containsKey(key)) return;
+    final e = _checkDetails()[key];
+    setState(() => e == null ? _detailErrors.remove(key) : _detailErrors[key] = e);
+  }
+
+  /// Validates the travel distance in place (message under the field, no save). Returns
+  /// false when it's not acceptable.
+  bool _checkDistance() {
+    final error = _willingToTravel ? travelDistanceError(_maxDistance.text) : null;
+    setState(() => _distanceError = error);
+    return error == null;
   }
 
   /// Runs one save with the button in its loading state. Returns false (and leaves the wizard
@@ -173,12 +224,57 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
     try {
       await save();
       return true;
-    } catch (_) {
-      if (mounted) _toast('Could not save. Please try again.');
+    } catch (e) {
+      if (mounted) _showSaveError(e);
       return false;
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  /// The server's own reason when it rejected the input (e.g. a validation message) — under
+  /// the travel field if that's what it was about — else the generic failure toast.
+  void _showSaveError(Object e) {
+    final api = e is DioException ? ApiException.fromDio(e) : (e is ApiException ? e : null);
+    final status = api?.statusCode;
+    if (api == null || status == null || status < 400 || status >= 500) {
+      _toast('Could not save. Please try again.');
+      return;
+    }
+    final details = api.details;
+    // A details-step field the server rejected: show it under that field, on that step.
+    String? first(String k) =>
+        details is Map && details[k] is List && (details[k] as List).isNotEmpty ? '${(details[k] as List).first}' : null;
+    final byField = <String, String>{
+      if (first('name') case final String m) 'name': m,
+      if (first('professions') case final String m) 'title': m,
+      if (first('yearsOfExperience') case final String m) 'experience': m,
+      if (first('aboutMe') case final String m) 'about': m,
+      // Rates come back for the list as a whole; mark the charges the app also finds
+      // wrong, or else the first one filled in.
+      if (first('rates') case final String m)
+        for (final t in _rateTypes)
+          if (ProfileLimits.rateError(_rates[t]!.text) != null ||
+              t == _rateTypes.firstWhere((x) => _rates[x]!.text.trim().isNotEmpty, orElse: () => _rateTypes.first))
+            'rate:$t': m,
+    };
+    if (byField.isNotEmpty) {
+      setState(() {
+        _detailErrors
+          ..clear()
+          ..addAll(byField);
+        _step = 0;
+      });
+      return;
+    }
+    if (details is Map && details['maxTravelKm'] is List && (details['maxTravelKm'] as List).isNotEmpty) {
+      setState(() {
+        _distanceError = '${(details['maxTravelKm'] as List).first}';
+        if (_hasDateBooking) _step = 1; // show the field the message belongs to
+      });
+      return;
+    }
+    _toast(api.message);
   }
 
   void _backToEdit() => setState(() => _step = _hasDateBooking ? 1 : 0);
@@ -244,6 +340,18 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
   /// Re-saves every step — the SP can edit on the preview step's "go back to edit", and the
   /// writes are replaces, so this is safe to repeat.
   Future<void> _confirm() async {
+    // Details edited from the preview's "go back to edit" are checked again before saving.
+    if (!_validateDetails()) {
+      setState(() => _step = 0);
+      return;
+    }
+    // The preview step can be reached with an invalid distance only by editing elsewhere;
+    // send the provider back to the field rather than saving.
+    if (_hasDateBooking && _willingToTravel && travelDistanceError(_maxDistance.text) != null) {
+      setState(() => _step = 1);
+      _checkDistance();
+      return;
+    }
     setState(() => _saving = true);
     try {
       await _persistDetails();
@@ -256,9 +364,9 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile & availability saved')));
       Navigator.of(context).pop();
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      _toast('Could not save. Please try again.');
+      _showSaveError(e);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -334,13 +442,26 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
         children: [
           const Text('Enter your Details', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
           const SizedBox(height: 16),
-          _field(_name, 'Your Name'),
+          _field(_name, 'Your Name',
+              maxLength: ProfileLimits.name, error: _detailErrors['name'], onChanged: (_) => _recheckDetail('name')),
           const SizedBox(height: 12),
-          _field(_title, 'Your professional title'),
+          _field(_title, 'Your professional title',
+              maxLength: ProfileLimits.professionTitle,
+              error: _detailErrors['title'],
+              onChanged: (_) => _recheckDetail('title')),
           const SizedBox(height: 12),
-          _field(_experience, 'Years of experience', keyboard: TextInputType.number, formatters: kIntegerInput),
+          _field(_experience, 'Years of experience',
+              keyboard: TextInputType.number,
+              formatters: kIntegerInput,
+              helper: '0 to ${ProfileLimits.yearsOfExperience}',
+              error: _detailErrors['experience'],
+              onChanged: (_) => _recheckDetail('experience')),
           const SizedBox(height: 12),
-          _field(_about, 'About yourself', maxLines: 4),
+          _field(_about, 'About yourself',
+              maxLines: 4,
+              maxLength: ProfileLimits.aboutMe,
+              error: _detailErrors['about'],
+              onChanged: (_) => _recheckDetail('about')),
           if (_isService) ...[
             const SizedBox(height: 18),
             const Text('Your charges', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
@@ -350,7 +471,12 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
             const SizedBox(height: 10),
             ..._rateTypes.map((t) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _field(_rates[t]!, rateTypeLabels[t]!, keyboard: kDecimalKeyboard, formatters: kDecimalInput, prefix: '₹ '),
+                  child: _field(_rates[t]!, rateTypeLabels[t]!,
+                      keyboard: kDecimalKeyboard,
+                      formatters: kDecimalInput,
+                      prefix: '₹ ',
+                      error: _detailErrors['rate:$t'],
+                      onChanged: (_) => _recheckDetail('rate:$t')),
                 )),
           ],
           const SizedBox(height: 16),
@@ -408,7 +534,18 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
           _travelToggle(),
           if (_willingToTravel) ...[
             const SizedBox(height: 12),
-            _field(_maxDistance, 'Maximum distance can you travel (km)', keyboard: kDecimalKeyboard, formatters: kDecimalInput),
+            _field(
+              _maxDistance,
+              'Maximum distance can you travel (km)',
+              keyboard: kDecimalKeyboard,
+              formatters: kDecimalInput,
+              helper: 'Up to $kMaxTravelKm km',
+              error: _distanceError,
+              // Once a problem is shown, keep it current as they fix it.
+              onChanged: (_) {
+                if (_distanceError != null) _checkDistance();
+              },
+            ),
           ],
         ],
       );
@@ -474,13 +611,25 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
 
   // ── Shared widgets ───────────────────────────────────────────
   Widget _field(TextEditingController c, String label,
-          {int maxLines = 1, TextInputType? keyboard, String? prefix, List<TextInputFormatter>? formatters}) =>
+          {int maxLines = 1,
+          TextInputType? keyboard,
+          String? prefix,
+          List<TextInputFormatter>? formatters,
+          String? helper,
+          String? error,
+          int? maxLength,
+          ValueChanged<String>? onChanged}) =>
       TextFormField(
         controller: c,
         maxLines: maxLines,
         keyboardType: keyboard,
         inputFormatters: formatters,
-        decoration: InputDecoration(labelText: label, prefixText: prefix),
+        onChanged: onChanged,
+        // A live "37/100" counter that turns red past the limit. Typing past it is allowed so
+        // the provider sees why it's wrong; Next is blocked until it fits.
+        maxLength: maxLength,
+        maxLengthEnforcement: MaxLengthEnforcement.none,
+        decoration: InputDecoration(labelText: label, prefixText: prefix, helperText: helper, errorText: error),
       );
 
   Widget _timeField(String label, TimeOfDay value, ValueChanged<TimeOfDay> onPick) => InkWell(
@@ -508,19 +657,27 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
     );
   }
 
-  Widget _travelToggle() => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
+  // A Material (not a coloured Container) so the switch tile's ripple shows on this surface;
+  // a decorated box in between hides it, which Flutter flags in debug builds.
+  Widget _travelToggle() => Material(
+        color: AppColors.surface,
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.border),
+          side: const BorderSide(color: AppColors.border),
         ),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
         child: SwitchListTile(
           contentPadding: EdgeInsets.zero,
           activeThumbColor: AppColors.primary,
           title: const Text('Are you willing to travel?', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
           value: _willingToTravel,
-          onChanged: (v) => setState(() => _willingToTravel = v),
+          onChanged: (v) => setState(() {
+            _willingToTravel = v;
+            if (!v) _distanceError = null; // the distance isn't sent when not travelling
+          }),
+        ),
         ),
       );
 }

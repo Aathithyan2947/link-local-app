@@ -10,11 +10,27 @@ const _historyStatuses = {'completed', 'cancelled', 'rejected'};
 
 /// The SP's own completed/cancelled/declined orders — everything
 /// [IncomingOrdersScreen] deliberately leaves out once it's no longer active.
-class OrderHistoryScreen extends ConsumerWidget {
+class OrderHistoryScreen extends ConsumerStatefulWidget {
   const OrderHistoryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OrderHistoryScreen> createState() => _OrderHistoryScreenState();
+}
+
+class _OrderHistoryScreenState extends ConsumerState<OrderHistoryScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Reload on every visit (keeping what's shown until it lands), so a change made elsewhere —
+    // the customer cancelling, another device — shows up. Not while an action is in flight:
+    // that reload is already coming, and an earlier one could briefly undo its status.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && ref.read(orderActionsInFlightProvider).isEmpty) ref.invalidate(incomingOrdersProvider);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final async = ref.watch(incomingOrdersProvider);
     return Scaffold(
       backgroundColor: AppColors.background,

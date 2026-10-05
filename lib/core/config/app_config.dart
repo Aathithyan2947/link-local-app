@@ -6,7 +6,7 @@ abstract class AppConfig {
   static const String _override = String.fromEnvironment('API_BASE_URL');
 
   /// Flip to `false` to point the app back at the hosted Render backend.
-  static const bool useLocalBackend = true;
+  static const bool useLocalBackend = false;
 
   static const String _renderApiBaseUrl =
       'https://link-local-backend.onrender.com/api/v1';

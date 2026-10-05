@@ -86,6 +86,7 @@ class EventDetail {
     this.myStatus,
     this.myPaymentStatus,
     this.isHost = false,
+    this.adminApprovalNeeded = false,
     this.hasStarted = false,
     this.canReview = false,
   });
@@ -119,6 +120,8 @@ class EventDetail {
 
   /// The viewer created this event.
   final bool isHost;
+  /// The host approves each attendee, so a paid join waits for approval.
+  final bool adminApprovalNeeded;
   final bool hasStarted;
 
   /// Decided by the backend: the viewer joined, the event has started, and they aren't the host.
@@ -135,6 +138,8 @@ class EventDetail {
       title: j['title'] as String? ?? '',
       description: j['description'] as String?,
       photoUrl: j['photoUrl'] as String?,
+      // Calendar values (a day and a clock time), not instants: kept as sent — unlike
+      // timestamps, which go through parseServerTime.
       date: j['date'] != null ? DateTime.tryParse(j['date'] as String) : null,
       startTime: j['startTime'] != null ? DateTime.tryParse(j['startTime'] as String) : null,
       durationMinutes: j['durationMinutes'] != null ? _asInt(j['durationMinutes']) : null,
@@ -160,6 +165,7 @@ class EventDetail {
       host: EventHost.fromJson(j['creator'] as Map<String, dynamic>?),
       myStatus: mine?['status'] as String?,
       isHost: j['isHost'] as bool? ?? false,
+      adminApprovalNeeded: j['adminApprovalNeeded'] as bool? ?? false,
       hasStarted: j['hasStarted'] as bool? ?? false,
       canReview: j['canReview'] as bool? ?? false,
       myPaymentStatus: mine?['paymentStatus'] as String?,

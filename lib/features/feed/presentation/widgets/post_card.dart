@@ -8,6 +8,7 @@ import '../../../discovery/presentation/user_profile_screen.dart';
 import '../../../home/presentation/widgets/home_widgets.dart';
 import '../../data/feed_repository.dart';
 import '../../data/post_models.dart';
+import 'like_sync.dart';
 import '../../../../core/navigation/push_guard.dart';
 
 /// A community post card: author + type chip · text · media · like/comment/share.
@@ -23,27 +24,43 @@ class PostCard extends ConsumerStatefulWidget {
 }
 
 class _PostCardState extends ConsumerState<PostCard> {
-  late bool _liked = widget.post.liked;
-  late int _likes = widget.post.likes;
+  late final LikeSync _like = LikeSync(
+    liked: widget.post.liked,
+    likes: widget.post.likes,
+    send: (liked) => ref.read(feedRepositoryProvider).setLike(widget.post.id, liked),
+    onChanged: () {
+      if (mounted) setState(() {});
+    },
+    onError: (_) => _snack('Could not update like'),
+  );
+  late int _shares = widget.post.shares;
   bool _sharing = false;
 
-  Future<void> _toggleLike() async {
-    setState(() {
-      _liked = !_liked;
-      _likes += _liked ? 1 : -1;
-    });
-    try {
-      final liked = await ref.read(feedRepositoryProvider).toggleLike(widget.post.id);
-      if (mounted && liked != _liked) setState(() => _liked = liked);
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _liked = !_liked;
-          _likes += _liked ? 1 : -1;
-        });
-      }
+  bool get _liked => _like.liked;
+  int get _likes => _like.likes;
+
+  @override
+  void didUpdateWidget(PostCard old) {
+    super.didUpdateWidget(old);
+    if (old.post.likes != widget.post.likes || old.post.liked != widget.post.liked) {
+      _like.reset(liked: widget.post.liked, likes: widget.post.likes);
     }
+    if (old.post.shares != widget.post.shares) _shares = widget.post.shares;
   }
+
+  @override
+  void dispose() {
+    _like.dispose();
+    super.dispose();
+  }
+
+  void _snack(String msg) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // A group post is view-only for anyone outside the group: no like, comment or share.
+  void _toggleLike() =>
+      widget.post.canInteract ? _like.tap() : _snack('Join the group to like, comment or share');
 
   void _openAuthor() {
     final pid = widget.post.authorProfileId;
@@ -52,12 +69,15 @@ class _PostCardState extends ConsumerState<PostCard> {
   }
 
   Future<void> _share() async {
+    if (!widget.post.canInteract) return _snack('Join the group to like, comment or share');
     setState(() => _sharing = true);
     try {
       await ref.read(feedRepositoryProvider).sharePost(widget.post.id);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Shared')));
+      if (!mounted) return;
+      setState(() => _shares++);
+      _snack('Shared');
     } catch (_) {
-      // ignore
+      _snack('Could not share');
     } finally {
       if (mounted) setState(() => _sharing = false);
     }
@@ -138,7 +158,7 @@ class _PostCardState extends ConsumerState<PostCard> {
                 _action(_liked ? Icons.favorite : Icons.favorite_border, '$_likes',
                     color: _liked ? AppColors.error : AppColors.textSecondary, onTap: _toggleLike),
                 _action(Icons.mode_comment_outlined, '${p.comments}', onTap: widget.onComment ?? widget.onOpen),
-                _action(Icons.share_outlined, p.shares > 0 ? '${p.shares}' : 'Share',
+                _action(Icons.share_outlined, _shares > 0 ? '$_shares' : 'Share',
                     onTap: _sharing ? null : _share),
               ],
             ),

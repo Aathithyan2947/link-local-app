@@ -1,3 +1,5 @@
+import '../../../core/time/server_time.dart';
+
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
 /// One person the current user has referred.
@@ -13,8 +15,8 @@ class ReferredPerson {
   factory ReferredPerson.fromJson(Map<String, dynamic> j) => ReferredPerson(
         name: j['name'] as String? ?? 'Someone',
         status: j['status'] as String? ?? 'sent',
-        createdAt: j['createdAt'] != null ? DateTime.tryParse(j['createdAt'] as String) : null,
-        registeredAt: j['registeredAt'] != null ? DateTime.tryParse(j['registeredAt'] as String) : null,
+        createdAt: parseServerTime(j['createdAt']),
+        registeredAt: parseServerTime(j['registeredAt']),
       );
 }
 

@@ -6,10 +6,9 @@ import 'package:intl/intl.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../orders/data/orders_repository.dart';
-import '../../orders/presentation/order_tracking_screen.dart';
 import '../data/notification_models.dart';
 import '../data/notifications_repository.dart';
-import '../../../core/navigation/push_guard.dart';
+import 'notification_navigation.dart';
 
 /// The notifications inbox — the "Tutor/Student Notifcation" frames.
 /// Booking requests (to an SP) are actionable inline (Accept/Reject).
@@ -51,6 +50,19 @@ class NotificationsScreen extends ConsumerWidget {
     }
   }
 
+  /// Opens what the notification is about straight away; marking it read happens alongside,
+  /// and the list (and unread badge) refresh when the user comes back.
+  Future<void> _open(BuildContext context, WidgetRef ref, AppNotification n) async {
+    final markRead = n.isRead
+        ? Future<void>.value()
+        : ref.read(notificationsRepositoryProvider).markRead(n.id).catchError((_) {});
+    if (notificationHasTarget(n)) {
+      await openNotificationTarget(context, ref, n);
+    }
+    await markRead;
+    await _refresh(ref);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(notificationsProvider);
@@ -84,16 +96,7 @@ class NotificationsScreen extends ConsumerWidget {
               separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (_, i) => _NotifCard(
                 n: items[i],
-                onTap: () async {
-                  if (!items[i].isRead) {
-                    await ref.read(notificationsRepositoryProvider).markRead(items[i].id);
-                    await _refresh(ref);
-                  }
-                  final id = items[i].entityId;
-                  if (context.mounted && items[i].entityType == 'order' && id != null) {
-                    context.pushPage(MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: id)));
-                  }
-                },
+                onTap: () => _open(context, ref, items[i]),
                 onAccept: () => _accept(context, ref, items[i].entityId!),
                 onReject: () => _reject(context, ref, items[i].entityId!),
               ),

@@ -1,3 +1,4 @@
+import '../../../core/time/server_time.dart';
 import '../../home/data/home_models.dart';
 
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
@@ -66,7 +67,9 @@ class GroupDetail {
   final String? area;
   final bool isMuted;
 
-  bool get isMember => isCreator || myStatus == 'joined';
+  /// A paid group's member must have paid; one joined before payment was enforced is
+  /// shown the pay button instead.
+  bool get isMember => isCreator || (myStatus == 'joined' && !needsPayment);
   bool get isPending => myStatus == 'pending_approval';
   bool get needsPayment => isPaid && myStatus == 'joined' && myPaymentStatus != 'paid';
 
@@ -80,7 +83,7 @@ class GroupDetail {
       description: j['description'] as String?,
       photoUrl: j['photoUrl'] as String?,
       creatorName: creatorProfile?['name'] as String? ?? 'Owner',
-      createdAt: j['createdAt'] != null ? DateTime.tryParse(j['createdAt'] as String) : null,
+      createdAt: parseServerTime(j['createdAt']),
       membersCount: _asInt(count?['members']),
       isPaid: j['isPaid'] as bool? ?? false,
       price: _asDouble(j['price']),

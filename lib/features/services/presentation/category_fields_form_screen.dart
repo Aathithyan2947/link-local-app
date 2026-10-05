@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/media/image_editor.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/error_banner.dart';
@@ -179,6 +180,8 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
 
   bool _saving = false;
   String? _error;
+  /// Per-field problems, shown under the field itself (keyed by fieldId).
+  final _fieldErrors = <int, String>{};
 
   @override
   void initState() {
@@ -209,6 +212,12 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
             text = suggested;
             _prefilled[f.fieldId] = suggested;
           }
+        }
+        // An older distance answer like "10 km" in a number field: show just the number, or
+        // the digits-only input couldn't even be backspaced through it.
+        if (f.fieldType == 'number' && _isDistance(f)) {
+          final km = parseTravelKm(text);
+          if (km != null) text = km == km.roundToDouble() ? km.toStringAsFixed(0) : '$km';
         }
         _ctrls[f.fieldId] = TextEditingController(text: text);
         if (f.fieldType == 'pincode') {
@@ -299,6 +308,16 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
 
   List<CustomField> get _visibleFields => (_fields ?? const <CustomField>[]).where(_isVisible).toList();
 
+  bool _isDistance(CustomField f) =>
+      isTravelDistanceField(category: f.category, fieldName: f.fieldName, fieldType: f.fieldType);
+
+  /// Per-field checks that need more than "required": today, the travel distance limit.
+  Map<int, String> _checkFields() => {
+        for (final f in _visibleFields)
+          if (_isDistance(f))
+            if (travelDistanceError(_ctrls[f.fieldId]!.text) case final String e) f.fieldId: e,
+      };
+
   Future<void> _save() async {
     for (final f in _visibleFields) {
       // A marker has no typed answer to require.
@@ -307,6 +326,11 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
         return;
       }
     }
+    final fieldErrors = _checkFields();
+    setState(() => _fieldErrors
+      ..clear()
+      ..addAll(fieldErrors));
+    if (fieldErrors.isNotEmpty) return; // shown under each field; nothing saved
     setState(() {
       _saving = true;
       _error = null;
@@ -344,10 +368,33 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
         await pushOnboardingStep(context, ref, next);
       }
     } catch (e) {
-      setState(() => _error = e.toString());
+      // A server-side field error (details keyed by fieldId) goes under that field.
+      final details = e is ApiException ? e.details : null;
+      final byField = <int, String>{
+        if (details is Map)
+          for (final entry in details.entries)
+            if (int.tryParse('${entry.key}') case final int id)
+              if (entry.value is List && (entry.value as List).isNotEmpty) id: '${(entry.value as List).first}',
+      };
+      setState(() {
+        if (byField.isNotEmpty) {
+          _fieldErrors
+            ..clear()
+            ..addAll(byField);
+        } else {
+          _error = e.toString();
+        }
+      });
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  /// Keeps a shown field error current as the provider edits that field.
+  void _recheck(CustomField f) {
+    if (!_fieldErrors.containsKey(f.fieldId)) return;
+    final e = _isDistance(f) ? travelDistanceError(_ctrls[f.fieldId]!.text) : null;
+    setState(() => e == null ? _fieldErrors.remove(f.fieldId) : _fieldErrors[f.fieldId] = e);
   }
 
   String get _buttonLabel {
@@ -647,7 +694,12 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
                 controller: ctrl,
                 keyboardType: kDecimalKeyboard,
                 inputFormatters: kDecimalInput,
-                decoration: InputDecoration(hintText: f.fieldName)),
+                onChanged: (_) => _recheck(f),
+                decoration: InputDecoration(
+                  hintText: f.fieldName,
+                  helperText: _isDistance(f) ? 'In km, up to $kMaxTravelKm' : null,
+                  errorText: _fieldErrors[f.fieldId],
+                )),
             _prefillNote(f),
           ],
         );
@@ -656,7 +708,15 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _label(f),
-            TextField(controller: ctrl, decoration: InputDecoration(hintText: f.fieldName)),
+            TextField(
+              controller: ctrl,
+              onChanged: (_) => _recheck(f),
+              decoration: InputDecoration(
+                hintText: f.fieldName,
+                helperText: _isDistance(f) ? 'In km, up to $kMaxTravelKm' : null,
+                errorText: _fieldErrors[f.fieldId],
+              ),
+            ),
             _prefillNote(f),
           ],
         );

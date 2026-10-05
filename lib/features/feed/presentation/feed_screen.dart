@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../home/data/home_repository.dart';
 import '../data/feed_repository.dart';
 import 'create_post_screen.dart';
 import 'post_detail_screen.dart';
@@ -16,9 +17,18 @@ class FeedScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(feedProvider);
+    final place = locationLabel(ref.watch(homeScopeProvider), ref.watch(homeFeedProvider).asData?.value);
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Community Feed')),
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Community Feed'),
+            Text('in $place', style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+          ],
+        ),
+      ),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,

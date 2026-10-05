@@ -1,3 +1,5 @@
+import '../../../core/time/server_time.dart';
+
 /// An in-app notification (order updates, booking requests, payments, messages…).
 class AppNotification {
   const AppNotification({
@@ -42,6 +44,6 @@ class AppNotification {
         entityType: j['entityType'] as String?,
         entityId: j['entityId'] is int ? j['entityId'] as int : int.tryParse('${j['entityId']}'),
         isRead: (j['isRead'] as bool?) ?? false,
-        createdAt: j['createdAt'] != null ? DateTime.tryParse(j['createdAt'] as String) : null,
+        createdAt: parseServerTime(j['createdAt']),
       );
 }

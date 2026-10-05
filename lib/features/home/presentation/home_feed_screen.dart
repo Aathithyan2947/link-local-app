@@ -15,6 +15,7 @@ import '../../discovery/presentation/service_provider_detail_screen.dart';
 import '../../members/presentation/members_screen.dart';
 import '../../feed/presentation/feed_screen.dart';
 import '../../feed/presentation/post_detail_screen.dart';
+import '../../feed/presentation/widgets/discussion_card.dart';
 import '../../discovery/presentation/widgets/discover_cards.dart';
 import '../../notifications/data/notifications_repository.dart';
 import '../../notifications/presentation/notifications_screen.dart';
@@ -117,6 +118,17 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
   /// Per-section pickers — unlike [_pickArea] (whole-feed scope), these only re-fetch the
   /// one section whose header dropdown was tapped. The whole-city row drops the section's
   /// override, back to its city-wide default.
+  Future<void> _openDiscussion(DiscussionItem d) async {
+    await context.pushPage(MaterialPageRoute(builder: (_) => PostDetailScreen(id: d.id)));
+    if (mounted) _refreshDiscussions();
+  }
+
+  /// A discussion's counts or top-comment preview changed.
+  void _refreshDiscussions() {
+    ref.invalidate(homeFeedProvider);
+    ref.invalidate(discussionsSectionScopedProvider);
+  }
+
   Future<void> _pickSectionArea(NotifierProvider<SectionAreaNotifier, SectionAreaOverride?> provider) async {
     final cityId = ref.read(myProfileProvider).asData?.value.cityId;
     final current = ref.read(provider);
@@ -138,8 +150,8 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
     final user = ref.watch(authControllerProvider).user;
     final scopeState = ref.watch(homeScopeProvider);
 
-    // Per-section area overrides (Service Providers/Workshops/Groups headers) — independent
-    // of `scopeState`, which only drives the top banner + My Society/Lane/Area/City chips.
+    // Per-section area overrides (each section header's own dropdown). They reset whenever
+    // the app-wide location (`scopeState`) changes, so by default every header names it.
     final spOverride = ref.watch(spSectionAreaProvider);
     final discussionsOverride = ref.watch(discussionsSectionAreaProvider);
     final workshopsOverride = ref.watch(workshopsSectionAreaProvider);
@@ -199,6 +211,8 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
           final visibleSps = _selectedCategory == null
               ? spSection.items.take(3).toList()
               : spSection.items.where((sp) => sp.services.contains(_selectedCategory)).toList();
+          // What every section header names by default: the app-wide location.
+          final place = locationLabel(scopeState, feed);
           return RefreshIndicator(
           color: AppColors.primary,
           onRefresh: () => ref.refresh(homeFeedProvider.future),
@@ -226,7 +240,7 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
               else if (showCongratsBanner)
                 const _ProfileCongratsBanner(),
               if (showDocReminder) _DocReminderBanner(rejected: proof.status == 'rejected'),
-              _SectionHeader('Service provider in', '${spOverride?.label ?? feed.city?.name ?? ''}(${spSection.total})',
+              _SectionHeader('Service provider in', '${spOverride?.label ?? place}(${spSection.total})',
                   dropdown: true, onTap: () => _pickSectionArea(spSectionAreaProvider)),
               if (spSection.items.isNotEmpty) ...[
                 _ServiceCategoryRow(
@@ -240,22 +254,30 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                 ...visibleSps.map((sp) => _SpCard(sp: sp)),
               ] else
                 _EmptyScopedSection(
-                  label: 'No service providers in ${spOverride?.label ?? feed.city?.name ?? 'this area'} yet.',
+                  label: 'No service providers in ${spOverride?.label ?? place} yet.',
                 ),
               if (discussions.isNotEmpty) ...[
                 _SectionHeader('Community Discussions in',
-                    discussionsOverride?.label ?? feed.city?.name ?? 'your area',
+                    discussionsOverride?.label ?? place,
                     dropdown: true, onTap: () => _pickSectionArea(discussionsSectionAreaProvider)),
                 const Padding(
                   padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
                   child: Text('Ask questions, share updates, and connect with your community',
                       style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
                 ),
-                ...discussions.map((d) => _DiscussionCard(
+                ...discussions.map((d) => DiscussionCard(
+                      key: ValueKey('discussion-${d.id}'),
                       item: d,
-                      onTap: () => context.pushPage(
-                        MaterialPageRoute(builder: (_) => PostDetailScreen(id: d.id)),
-                      ),
+                      showGroup: true,
+                      margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                      onOpen: () => _openDiscussion(d),
+                      // A group post the viewer isn't in: joining happens on the group's page.
+                      onJoin: d.groupId == null
+                          ? null
+                          : () => context.pushPage(
+                                MaterialPageRoute(builder: (_) => GroupProfileScreen(id: d.groupId!)),
+                              ),
+                      onChanged: _refreshDiscussions,
                     )),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
@@ -268,21 +290,21 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                   ),
                 ),
               ],
-              _SectionHeader('Workshops in', '${workshopsOverride?.label ?? feed.city?.name ?? ''}(${workshopsSection.total})',
+              _SectionHeader('Workshops in', '${workshopsOverride?.label ?? place}(${workshopsSection.total})',
                   dropdown: true, onTap: () => _pickSectionArea(workshopsSectionAreaProvider)),
               if (workshopsSection.items.isNotEmpty)
                 _WorkshopRow(items: workshopsSection.items)
               else
                 _EmptyScopedSection(
-                  label: 'No workshops in ${workshopsOverride?.label ?? feed.city?.name ?? 'this area'} yet.',
+                  label: 'No workshops in ${workshopsOverride?.label ?? place} yet.',
                 ),
-              _SectionHeader('Groups in', '${groupsOverride?.label ?? feed.city?.name ?? ''}(${groupsSection.total})',
+              _SectionHeader('Groups in', '${groupsOverride?.label ?? place}(${groupsSection.total})',
                   dropdown: true, onTap: () => _pickSectionArea(groupsSectionAreaProvider)),
               if (groupsSection.items.isNotEmpty)
                 _GroupsRow(items: groupsSection.items)
               else
                 _EmptyScopedSection(
-                  label: 'No groups in ${groupsOverride?.label ?? feed.city?.name ?? 'this area'} yet.',
+                  label: 'No groups in ${groupsOverride?.label ?? place} yet.',
                 ),
               _ReferralBanner(info: feed.referral),
             ],
@@ -849,74 +871,6 @@ class _SpCard extends StatelessWidget {
                   ),
                 ],
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DiscussionCard extends StatelessWidget {
-  const _DiscussionCard({required this.item, this.onTap});
-  final DiscussionItem item;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Avatar(name: item.authorName, photoUrl: item.authorPhoto, radius: 21),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(item.authorName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.textPrimary)),
-                      const SizedBox(height: 1),
-                      const Text('Resident  •  2hr ago',
-                          style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(item.text,
-                style: const TextStyle(
-                    fontSize: 14.5, fontWeight: FontWeight.w600, color: AppColors.textPrimary, height: 1.35)),
-            const SizedBox(height: 10),
-            const Divider(height: 1, thickness: 1, color: AppColors.border),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.thumb_up_alt_outlined, size: 17, color: AppColors.textSecondary),
-                const SizedBox(width: 6),
-                Text('${item.likes}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-                const SizedBox(width: 18),
-                const Icon(Icons.mode_comment_outlined, size: 16, color: AppColors.textSecondary),
-                const SizedBox(width: 6),
-                Text('${item.comments} Replies',
-                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-              ],
             ),
           ],
         ),

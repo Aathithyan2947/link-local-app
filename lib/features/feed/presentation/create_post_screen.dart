@@ -9,6 +9,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../discovery/discovery_repository.dart';
 import '../data/feed_repository.dart';
 import '../data/post_models.dart';
+import '../post_lists_refresh.dart';
 
 /// Compose a community post: pick a type, write text, optionally attach a photo.
 class CreatePostScreen extends ConsumerStatefulWidget {
@@ -60,7 +61,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
             photoUrls: photoUrls,
           );
       if (!mounted) return;
-      ref.invalidate(feedProvider);
+      ref.invalidatePostLists();
       Navigator.of(context).pop();
     } catch (_) {
       if (!mounted) return;

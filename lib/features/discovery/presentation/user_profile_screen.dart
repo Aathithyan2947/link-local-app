@@ -5,16 +5,21 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../auth/application/auth_controller.dart';
-import '../../home/data/home_models.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
+import '../../feed/presentation/post_detail_screen.dart';
+import '../../feed/presentation/user_posts_screen.dart';
 import '../../messages/presentation/chat_screen.dart';
 import '../data/public_profile_models.dart';
+import '../data/block_overrides.dart';
 import '../data/sp_detail_models.dart';
 import '../discovery_repository.dart';
 import 'event_detail_screen.dart';
+import 'block_action.dart';
 import 'group_profile_screen.dart';
 import 'widgets/discover_cards.dart';
+import 'widgets/private_profile_view.dart';
 import '../../../core/navigation/push_guard.dart';
+import '../../../core/text/plural.dart';
 
 /// A member's public profile — the "User" frame. About / Education / Profession
 /// / Events / Posts / Interest Groups, with a Message CTA.
@@ -29,10 +34,15 @@ class UserProfileScreen extends ConsumerWidget {
       backgroundColor: AppColors.background,
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
-        error: (e, _) => Center(
-          child: OutlinedButton(
-              onPressed: () => ref.invalidate(publicProfileProvider(id)), child: const Text('Retry')),
-        ),
+        error: (e, _) => isPrivateProfileError(e)
+            ? const PrivateProfileView()
+            : Center(
+                child: OutlinedButton(
+                  onPressed: () => ref.invalidate(publicProfileProvider(id)),
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(120, 44)),
+                  child: const Text('Retry'),
+                ),
+              ),
         data: (p) => RefreshIndicator(
           color: AppColors.primary,
           onRefresh: () => ref.refresh(publicProfileProvider(id).future),
@@ -61,7 +71,7 @@ class UserProfileScreen extends ConsumerWidget {
                           const Icon(Icons.handshake_outlined, color: AppColors.primary),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: Text('${p.servicesContacted} Service Providers contacted',
+                            child: Text('${countLabel(p.servicesContacted, 'Service Provider')} contacted',
                                 style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                           ),
                         ],
@@ -71,7 +81,7 @@ class UserProfileScreen extends ConsumerWidget {
                 ),
               ),
               if (p.events.isNotEmpty) _events(context, p.events),
-              if (p.posts.isNotEmpty) _posts(p.posts),
+              if (p.posts.isNotEmpty) _posts(context, p),
               if (p.groups.isNotEmpty) _groups(context, p.groups),
             ],
           ),
@@ -80,41 +90,20 @@ class UserProfileScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _toggleBlock(BuildContext context, WidgetRef ref, PublicProfile p) async {
-    final status = await ref.read(discoveryRepositoryProvider).blockStatus(p.userId);
-    if (!context.mounted) return;
-    if (status) {
-      await ref.read(discoveryRepositoryProvider).unblockUser(p.userId);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unblocked')));
-      }
-      return;
-    }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Block ${p.name}?'),
-        content: const Text("You won't be able to message or call each other."),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Block', style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    await ref.read(discoveryRepositoryProvider).blockUser(p.userId);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Blocked')));
-    }
-  }
+  /// Block / Unblock — takes effect on screen at once (see [setBlocked]).
+  Future<void> _toggleBlock(BuildContext context, WidgetRef ref, PublicProfile p) => setBlocked(
+    context,
+    userId: p.userId,
+    name: p.name,
+    block: !(ref.read(blockOverridesProvider)[p.userId] ?? p.isBlocked),
+    refresh: [publicProfileProvider(id)],
+  );
 
   // ── Header ─────────────────────────────────────────────────
   Widget _header(BuildContext context, WidgetRef ref, PublicProfile p) {
     final topPad = MediaQuery.of(context).padding.top;
     final isOwner = ref.watch(authControllerProvider).user?.id == p.userId;
+    final blocked = isBlockedNow(ref, p.userId, fromServer: p.isBlocked);
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(16, topPad + 8, 16, 20),
@@ -136,7 +125,7 @@ class UserProfileScreen extends ConsumerWidget {
               if (!isOwner)
                 TextButton(
                   onPressed: () => _toggleBlock(context, ref, p),
-                  child: const Text('Block', style: TextStyle(color: Colors.white70)),
+                  child: Text(blocked ? 'Unblock' : 'Block', style: const TextStyle(color: Colors.white70)),
                 ),
             ],
           ),
@@ -180,7 +169,29 @@ class UserProfileScreen extends ConsumerWidget {
               ),
             ],
           ),
-          if (!isOwner) ...[
+          if (!isOwner && blocked) ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(14, 4, 4, 4),
+              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(10)),
+              child: Row(
+                children: [
+                  const Icon(Icons.block, size: 18, color: Colors.white),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text("You've blocked ${p.name}",
+                        style: const TextStyle(color: Colors.white, fontSize: 13)),
+                  ),
+                  TextButton(
+                    onPressed: () => _toggleBlock(context, ref, p),
+                    child: const Text('Unblock',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (!isOwner) ...[
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
@@ -321,36 +332,50 @@ class UserProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _posts(List<DiscussionItem> posts) => Padding(
+  /// The latest few posts (tap one to open it) and View More for all of them.
+  Widget _posts(BuildContext context, PublicProfile p) => Padding(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Posts', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: AppColors.ink)),
             const SizedBox(height: 12),
-            ...posts.take(3).map((d) => Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Avatar(name: d.authorName, photoUrl: d.authorPhoto, radius: 16),
-                        const SizedBox(width: 10),
-                        Text(d.authorName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-                      ]),
-                      if (d.text.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(d.text, style: const TextStyle(fontSize: 14)),
+            ...p.posts.take(3).map((d) => GestureDetector(
+                  onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => PostDetailScreen(id: d.id))),
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Avatar(name: d.authorName, photoUrl: d.authorPhoto, radius: 16),
+                          const SizedBox(width: 10),
+                          Text(d.authorName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                        ]),
+                        if (d.text.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(d.text, style: const TextStyle(fontSize: 14)),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 )),
+            Center(
+              child: TextButton(
+                onPressed: () => context.pushPage(
+                  MaterialPageRoute(builder: (_) => UserPostsScreen(userId: p.userId, name: p.name)),
+                ),
+                child: const Text('View More',
+                    style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
+              ),
+            ),
           ],
         ),
       );

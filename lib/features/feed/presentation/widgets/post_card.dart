@@ -9,6 +9,7 @@ import '../../../home/presentation/widgets/home_widgets.dart';
 import '../../data/feed_repository.dart';
 import '../../data/post_models.dart';
 import 'like_sync.dart';
+import 'share_post_sheet.dart';
 import '../../../../core/navigation/push_guard.dart';
 
 /// A community post card: author + type chip · text · media · like/comment/share.
@@ -68,20 +69,19 @@ class _PostCardState extends ConsumerState<PostCard> {
     context.pushPage(MaterialPageRoute(builder: (_) => UserProfileScreen(id: pid)));
   }
 
+  /// Opens "Send to" (share into LinkLocal chats); the count goes up once it's sent.
   Future<void> _share() async {
     if (!widget.post.canInteract) return _snack('Join the group to like, comment or share');
+    if (_sharing) return;
     setState(() => _sharing = true);
     try {
-      await ref.read(feedRepositoryProvider).sharePost(widget.post.id);
-      if (!mounted) return;
-      setState(() => _shares++);
-      _snack('Shared');
-    } catch (_) {
-      _snack('Could not share');
+      final sent = await showSharePostSheet(context, postId: widget.post.id);
+      if (sent && mounted) setState(() => _shares++);
     } finally {
       if (mounted) setState(() => _sharing = false);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

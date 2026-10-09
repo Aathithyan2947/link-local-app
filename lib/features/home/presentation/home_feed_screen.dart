@@ -11,6 +11,7 @@ import '../../auth/application/auth_controller.dart';
 import '../../discovery/discovery_repository.dart';
 import '../../discovery/presentation/event_detail_screen.dart';
 import '../../discovery/presentation/group_profile_screen.dart';
+import '../../referrals/presentation/referrals_screen.dart';
 import '../../discovery/presentation/service_provider_detail_screen.dart';
 import '../../members/presentation/members_screen.dart';
 import '../../feed/presentation/feed_screen.dart';
@@ -923,7 +924,7 @@ class _WorkshopRow extends StatelessWidget {
                       height: 96,
                       radius: const BorderRadius.vertical(top: Radius.circular(9)),
                     ),
-                    Positioned(top: 8, right: 8, child: RatingBadge(value: w.ratingAvg, compact: true)),
+                    Positioned(top: 8, right: 8, child: RatingBadge(value: w.ratingAvg, compact: true, showNew: w.isNew)),
                   ],
                 ),
                 Padding(
@@ -963,7 +964,7 @@ class _WorkshopRow extends StatelessWidget {
                       Row(
                         children: [
                           Expanded(
-                            child: Text('By : ${w.creatorName ?? 'Organizer'}',
+                            child: Text('By: ${w.creatorName ?? 'Organizer'}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -1115,7 +1116,7 @@ class _ReferralBanner extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(8),
-                      onTap: () {},
+                      onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => const ReferralsScreen())),
                       child: const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         child: Row(

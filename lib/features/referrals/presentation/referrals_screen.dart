@@ -1,12 +1,15 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../feed/data/post_models.dart' show relativeTime;
 import '../../home/presentation/widgets/home_widgets.dart';
+import '../data/invite_rules.dart';
 import '../data/referral_models.dart';
 import '../data/referrals_repository.dart';
 
@@ -71,8 +74,16 @@ class ReferralsScreen extends ConsumerWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Daily referral limit', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                        Text('${s.dailySent}/${s.dailyLimit} Used today', style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                        // Both may shrink, so large accessibility text wraps instead of overflowing.
+                        const Flexible(
+                          child: Text('Daily referral limit', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text('${s.dailySent}/${s.dailyLimit} Used today',
+                              textAlign: TextAlign.end,
+                              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 10),
@@ -167,21 +178,29 @@ class _ReferredTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final registered = person.isRegistered;
-    final subtitle = registered
+    final status = registered
         ? 'Joined via your invite · ${relativeTime(person.registeredAt)}'
         : 'Invite sent · ${relativeTime(person.createdAt)}';
+    final subtitle = [?person.phoneLine, status].join(' · ');
+    final numberOnly = person.phone != null && person.phoneLine == null && person.invitedName == null;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14), border: Border.all(color: AppColors.border)),
       child: Row(
         children: [
-          Avatar(name: person.name, radius: 20),
+          numberOnly
+              ? const CircleAvatar(
+                  radius: 20,
+                  backgroundColor: AppColors.primarySurface,
+                  child: Icon(Icons.person_outline, color: AppColors.primary),
+                )
+              : Avatar(name: person.title, radius: 20),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(person.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                Text(person.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                 const SizedBox(height: 2),
                 Text(subtitle, style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
               ],
@@ -215,18 +234,35 @@ class _InviteSheet extends ConsumerStatefulWidget {
 class _InviteSheetState extends ConsumerState<_InviteSheet> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _phoneFocus = FocusNode();
   bool _sending = false;
+
+  /// The number's error waits until it's had a fair chance: 10 digits typed, or the field left.
+  bool _phoneTouched = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _phoneFocus.addListener(() {
+      if (!_phoneFocus.hasFocus && _phoneController.text.isNotEmpty) setState(() => _phoneTouched = true);
+    });
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
+    _phoneFocus.dispose();
     super.dispose();
   }
 
+  String? get _nameError => inviteNameError(_nameController.text);
+  String? get _phoneError => inviteMobileError(_phoneController.text);
+  bool get _valid => _nameError == null && _phoneError == null;
+
   Future<void> _sendViaWhatsApp() async {
-    final phone = _phoneController.text.trim();
-    if (phone.isEmpty) return;
+    if (!_valid) return;
+    final phone = normalizeIndianMobile(_phoneController.text);
     setState(() => _sending = true);
     try {
       await ref.read(referralsRepositoryProvider).sendInvite(
@@ -238,9 +274,17 @@ class _InviteSheetState extends ConsumerState<_InviteSheet> {
       final text = Uri.encodeComponent(_inviteMessage(widget.code));
       await launchUrl(Uri.parse('https://wa.me/${_waNumber(phone)}?text=$text'), mode: LaunchMode.externalApplication);
       if (mounted) Navigator.of(context).pop();
-    } catch (e) {
+    } on DioException catch (e) {
+      // The server's own reason (e.g. today's limit, or a field it rejected).
+      final err = ApiException.fromDio(e);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${e is Exception ? "Couldn't send invite" : e}')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(err.statusCode == 400 ? err.message : "Couldn't send invite")),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't send invite")));
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -268,16 +312,29 @@ class _InviteSheetState extends ConsumerState<_InviteSheet> {
             const Text("Add their number to send via WhatsApp and track when they join.",
                 style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
             const SizedBox(height: 16),
-            TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Name (optional)')),
-            const SizedBox(height: 12),
+            TextField(
+              controller: _nameController,
+              maxLength: kInviteNameMax,
+              textCapitalization: TextCapitalization.words,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(labelText: 'Name (optional)', errorText: _nameError),
+            ),
+            const SizedBox(height: 4),
             TextField(
               controller: _phoneController,
+              focusNode: _phoneFocus,
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(labelText: 'Mobile number'),
+              inputFormatters: const [IndianMobileInputFormatter()],
+              onChanged: (v) => setState(() => _phoneTouched = _phoneTouched || v.length == 10),
+              decoration: InputDecoration(
+                labelText: 'Mobile number',
+                prefixText: '+91 ',
+                errorText: _phoneTouched ? _phoneError : null,
+              ),
             ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: _sending ? null : _sendViaWhatsApp,
+              onPressed: _sending || !_valid ? null : _sendViaWhatsApp,
               child: _sending
                   ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : const Text('Send via WhatsApp'),

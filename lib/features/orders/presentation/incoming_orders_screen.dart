@@ -12,6 +12,7 @@ import '../../messages/presentation/chat_screen.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
 import '../../../core/navigation/push_guard.dart';
+import '../../../core/text/plural.dart';
 
 const _needsActionStatuses = {'placed', 'requested'};
 const _ongoingStatuses = {'accepted', 'confirmed', 'in_progress', 'delivered'};
@@ -25,7 +26,7 @@ String _orderRef(int id) => '#K${id.toString().padLeft(6, '0')}';
 String _timeAgo(DateTime dt) {
   final diff = DateTime.now().difference(dt);
   if (diff.inMinutes < 1) return 'Just now';
-  if (diff.inMinutes < 60) return '${diff.inMinutes} Mins Ago';
+  if (diff.inMinutes < 60) return '${countLabel(diff.inMinutes, 'Min')} Ago';
   if (diff.inHours < 24) return '${diff.inHours} ${diff.inHours == 1 ? 'Hour' : 'Hours'} Ago';
   return '${diff.inDays} ${diff.inDays == 1 ? 'Day' : 'Days'} Ago';
 }
@@ -245,7 +246,7 @@ class _NewOrderCard extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(color: AppColors.field, borderRadius: BorderRadius.circular(20)),
-                      child: Text('${order.items.length} Items', style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+                      child: Text(countLabel(order.items.length, 'Item'), style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
                     ),
                 ],
               ),
@@ -402,7 +403,7 @@ class _OngoingOrderRow extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(color: AppColors.field, borderRadius: BorderRadius.circular(20)),
-                      child: Text('${order.items.length} Items', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                      child: Text(countLabel(order.items.length, 'Item'), style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
                     ),
                   const SizedBox(height: 6),
                   Container(

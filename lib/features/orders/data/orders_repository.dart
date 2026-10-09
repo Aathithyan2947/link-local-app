@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_client.dart';
 import '../../../core/auth/auth_scope.dart';
+import '../../../core/time/server_time.dart';
 import 'order_models.dart';
 
 class OrdersRepository {
@@ -36,6 +37,18 @@ class OrdersRepository {
   Future<void> accept(int id) async => _dio.post('/orders/$id/accept');
   Future<void> reject(int id, {String? reason}) async =>
       _dio.post('/orders/$id/reject', data: {'reason': ?reason});
+
+  /// When this member last opened Payments (server time, the same on every device).
+  Future<DateTime> paymentsSeenAt() async {
+    final res = await _dio.get('/orders/payments/seen');
+    return parseServerTime(res.data['data']['seenAt'])!;
+  }
+
+  /// Payments was opened: marks everything up to now seen, and returns the new time.
+  Future<DateTime> markPaymentsSeen() async {
+    final res = await _dio.put('/orders/payments/seen');
+    return parseServerTime(res.data['data']['seenAt'])!;
+  }
 
   Future<List<OrderModel>> myOrders() async {
     final res = await _dio.get('/orders/mine');

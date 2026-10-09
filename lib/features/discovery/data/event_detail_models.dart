@@ -1,3 +1,6 @@
+import '../../../core/time/server_time.dart';
+import '../../home/data/home_models.dart' show isNewEvent;
+
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 double? _asDouble(dynamic v) => v == null ? null : (v is num ? v.toDouble() : double.tryParse('$v'));
 
@@ -88,6 +91,7 @@ class EventDetail {
     this.isHost = false,
     this.adminApprovalNeeded = false,
     this.hasStarted = false,
+    this.createdAt,
     this.canReview = false,
   });
 
@@ -123,6 +127,10 @@ class EventDetail {
   /// The host approves each attendee, so a paid join waits for approval.
   final bool adminApprovalNeeded;
   final bool hasStarted;
+
+  /// When the event was created; with [hasStarted] decides the "New" badge ([isNewEvent]).
+  final DateTime? createdAt;
+  bool get isNew => isNewEvent(createdAt: createdAt, hasStarted: hasStarted);
 
   /// Decided by the backend: the viewer joined, the event has started, and they aren't the host.
   final bool canReview;
@@ -167,6 +175,7 @@ class EventDetail {
       isHost: j['isHost'] as bool? ?? false,
       adminApprovalNeeded: j['adminApprovalNeeded'] as bool? ?? false,
       hasStarted: j['hasStarted'] as bool? ?? false,
+      createdAt: parseServerTime(j['createdAt']),
       canReview: j['canReview'] as bool? ?? false,
       myPaymentStatus: mine?['paymentStatus'] as String?,
     );

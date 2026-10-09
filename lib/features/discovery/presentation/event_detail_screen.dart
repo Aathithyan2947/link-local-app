@@ -193,15 +193,18 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
                 child: Text(e.title,
                     style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 19, color: AppColors.ink)),
               ),
-              const SizedBox(width: 8),
-              Row(children: [
-                const Icon(Icons.star_rounded, color: AppColors.warning, size: 18),
-                const SizedBox(width: 2),
-                Text(
-                  e.ratingAvg != null ? '${e.ratingAvg!.toStringAsFixed(1)}(${e.ratingCount})' : 'New',
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.ink),
-                ),
-              ]),
+              // Its rating; with none yet, "New" only for a new, upcoming event (isNewEvent).
+              if (e.ratingAvg != null || e.isNew) ...[
+                const SizedBox(width: 8),
+                Row(children: [
+                  const Icon(Icons.star_rounded, color: AppColors.warning, size: 18),
+                  const SizedBox(width: 2),
+                  Text(
+                    e.ratingAvg != null ? '${e.ratingAvg!.toStringAsFixed(1)}(${e.ratingCount})' : 'New',
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.ink),
+                  ),
+                ]),
+              ],
             ],
           ),
           const SizedBox(height: 10),
@@ -239,7 +242,7 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
               ),
           ],
           const SizedBox(height: 8),
-          _metaRow(Icons.person_outline, 'Hosted By : ${e.host.name}'),
+          _metaRow(Icons.person_outline, 'Hosted by: ${e.host.name}'),
         ],
       ),
     );

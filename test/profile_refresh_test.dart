@@ -31,7 +31,8 @@ void main() {
 
   test('the observer is registered on the router, or didPopNext never fires', () {
     final source = File('lib/core/router/app_router.dart').readAsStringSync();
-    expect(source.contains('final appRouteObserver = RouteObserver<ModalRoute<void>>()'), isTrue);
+    expect(source.contains('final appRouteObserver = AppRouteObserver()'), isTrue);
+    expect(source.contains('class AppRouteObserver extends RouteObserver<ModalRoute<void>>'), isTrue);
     expect(source.contains('observers: [appRouteObserver]'), isTrue);
   });
 

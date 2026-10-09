@@ -8,12 +8,13 @@ import '../../../business/data/business_repository.dart';
 import '../../../business/presentation/blackout_dates_screen.dart';
 import '../../../business/presentation/setup/sp_setup_wizard_screen.dart';
 import '../../../business/presentation/sp_dashboard_screen.dart';
-import '../../../feed/presentation/feed_screen.dart';
+import '../../../feed/presentation/user_posts_screen.dart';
 import '../../../messages/presentation/conversations_screen.dart';
 import '../../../discovery/presentation/my_events_screen.dart';
 import '../../../discovery/presentation/my_groups_screen.dart';
 import '../../../discovery/presentation/my_reviews_screen.dart';
 import '../../../discovery/presentation/service_provider_detail_screen.dart';
+import '../../../orders/data/transaction_counts.dart';
 import '../../../orders/presentation/orders_hub_screen.dart';
 import '../../../orders/presentation/payments_screen.dart';
 import '../../../profile/data/profile_models.dart';
@@ -118,18 +119,26 @@ class ProfileTab extends ConsumerWidget {
                 () => context.pushPage(MaterialPageRoute(builder: (_) => const MyGroupsScreen()))),
             _MenuItem(Icons.star_border_rounded, 'My Reviews',
                 () => context.pushPage(MaterialPageRoute(builder: (_) => const MyReviewsScreen()))),
-            _MenuItem(Icons.chat_bubble_outline, 'My Posts',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const FeedScreen()))),
+            _MenuItem(Icons.chat_bubble_outline, 'My Posts', () {
+              final me = user;
+              if (me == null) return;
+              context.pushPage(MaterialPageRoute(
+                builder: (_) => UserPostsScreen(userId: me.id, name: me.name ?? 'Me', mine: true),
+              ));
+            }),
             _MenuItem(Icons.attach_money_rounded, 'My Referrals',
                 () => context.pushPage(MaterialPageRoute(builder: (_) => const ReferralsScreen()))),
           ]),
           _Section('Transaction History', [
             _MenuItem(Icons.credit_card_outlined, 'Payments',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const PaymentsScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const PaymentsScreen())),
+                count: ref.watch(paymentsCountProvider)),
             _MenuItem(Icons.receipt_long_outlined, 'Order History',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const OrdersHubScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const OrdersHubScreen())),
+                count: ref.watch(ordersCountProvider)),
             _MenuItem(Icons.forum_outlined, 'Messages',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const ConversationsScreen()))),
+                () => context.pushPage(MaterialPageRoute(builder: (_) => const ConversationsScreen())),
+                count: ref.watch(conversationsCountProvider)),
           ]),
           _Section('Privacy', [
             _MenuItem(Icons.visibility_outlined, 'Profile visibility',
@@ -326,7 +335,8 @@ class _PlainSection extends StatelessWidget {
         child: Column(
           children: [
             for (var i = 0; i < items.length; i++)
-              _MenuItem(items[i].icon, items[i].label, items[i].onTap, last: i == items.length - 1),
+              _MenuItem(items[i].icon, items[i].label, items[i].onTap,
+                  last: i == items.length - 1, count: items[i].count),
           ],
         ),
       ),
@@ -357,7 +367,8 @@ class _Section extends StatelessWidget {
             // The trailing rule under the last row would otherwise float just above the card's
             // own bottom edge.
             for (var i = 0; i < items.length; i++)
-              _MenuItem(items[i].icon, items[i].label, items[i].onTap, last: i == items.length - 1),
+              _MenuItem(items[i].icon, items[i].label, items[i].onTap,
+                  last: i == items.length - 1, count: items[i].count),
           ],
         ),
       ),
@@ -368,11 +379,15 @@ class _Section extends StatelessWidget {
 /// A single settings row. Also used as a plain data holder by [_Section], which rebuilds each
 /// one to mark the last.
 class _MenuItem extends StatelessWidget {
-  const _MenuItem(this.icon, this.label, this.onTap, {this.last = false});
+  const _MenuItem(this.icon, this.label, this.onTap, {this.last = false, this.count});
   final IconData icon;
   final String label;
   final VoidCallback onTap;
   final bool last;
+
+  /// Shown as a pill before the chevron, like an unread badge: 0, or null (not loaded yet,
+  /// or failed), shows nothing.
+  final int? count;
 
   @override
   Widget build(BuildContext context) {
@@ -392,6 +407,15 @@ class _MenuItem extends StatelessWidget {
                   style: const TextStyle(
                       fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
             ),
+            if ((count ?? 0) > 0)
+              Container(
+                key: ValueKey('count-$label'),
+                margin: const EdgeInsets.only(left: 8, right: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
+                decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(12)),
+                child: Text('$count',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.primary)),
+              ),
             const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 22),
           ],
         ),

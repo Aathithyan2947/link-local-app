@@ -17,6 +17,8 @@ import '../../payments/presentation/payment_method_screen.dart';
 import '../../profile/data/profile_repository.dart';
 import '../data/group_detail_models.dart';
 import '../discovery_repository.dart';
+import '../group_lists_refresh.dart';
+import '../../../core/text/plural.dart';
 
 /// Full interest-group profile — the "Group Info" frame. Join (a paid group through the
 /// payment flow) / leave, post to the group, and view group discussions.
@@ -34,11 +36,14 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
 
   DiscoveryRepository get _repo => ref.read(discoveryRepositoryProvider);
 
-  Future<void> _run(Future<void> Function() action, String okMsg) async {
+  /// [membership]: the action changed whether the member is in the group (join / leave), so
+  /// My Groups, the group lists and profiles reload too.
+  Future<void> _run(Future<void> Function() action, String okMsg, {bool membership = false}) async {
     setState(() => _busy = true);
     try {
       await action();
       if (!mounted) return;
+      if (membership) ref.invalidateGroupLists();
       ref.invalidate(groupDetailProvider(widget.id));
       await ref.read(groupDetailProvider(widget.id).future);
       if (!mounted) return;
@@ -54,13 +59,17 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
   /// A free group joins at once. A paid one opens the payment flow, and the backend makes
   /// the user a member only once that charge succeeds — Join itself never admits them.
   Future<void> _join(GroupDetail g) async {
-    if (!g.isPaid) return _run(() => _repo.joinGroup(g.id), 'You have joined!');
+    if (!g.isPaid) return _run(() => _repo.joinGroup(g.id), 'You have joined!', membership: true);
     final paid = await context.pushPage<bool>(MaterialPageRoute(
       builder: (_) => PaymentMethodScreen(charge: groupCharge(g.id), total: g.price ?? 0),
     ));
     if (!mounted) return;
     if (paid == true) {
-      await _run(() async {}, g.adminApprovalNeeded ? 'Paid — waiting for approval' : 'You have joined!');
+      await _run(
+        () async {},
+        g.adminApprovalNeeded ? 'Paid — waiting for approval' : 'You have joined!',
+        membership: true,
+      );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Payment not completed — you haven't joined")),
@@ -94,7 +103,7 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
         ],
       ),
     );
-    if (ok == true) await _run(() => _repo.leaveGroup(g.id), 'You have left the group');
+    if (ok == true) await _run(() => _repo.leaveGroup(g.id), 'You have left the group', membership: true);
   }
 
   Future<void> _post(GroupDetail g) async {
@@ -332,7 +341,7 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
             ),
             child: Row(
               children: [
-                _action(Icons.groups_rounded, '${g.membersCount} Members', () => _showMembers(g)),
+                _action(Icons.groups_rounded, countLabel(g.membersCount, 'Member'), () => _showMembers(g)),
                 _divider(),
                 _action(Icons.person_add_alt_1, 'Add Person',
                     () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invites coming soon')))),

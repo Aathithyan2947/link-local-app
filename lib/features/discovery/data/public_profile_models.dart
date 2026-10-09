@@ -21,6 +21,7 @@ class PublicProfile {
     this.events = const [],
     this.posts = const [],
     this.groups = const [],
+    this.isBlocked = false,
   });
 
   final int id;
@@ -37,6 +38,7 @@ class PublicProfile {
   final List<SpEvent> events;
   final List<DiscussionItem> posts;
   final List<SpGroup> groups;
+  final bool isBlocked; // true when the viewer has blocked this member
 
   factory PublicProfile.fromJson(Map<String, dynamic> j) {
     final address = j['address'] as Map<String, dynamic>?;
@@ -66,6 +68,7 @@ class PublicProfile {
       events: list('events', SpEvent.fromJson),
       posts: list('posts', DiscussionItem.fromJson),
       groups: list('groups', SpGroup.fromJson),
+      isBlocked: j['isBlocked'] as bool? ?? false,
     );
   }
 }

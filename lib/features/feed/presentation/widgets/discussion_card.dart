@@ -8,6 +8,7 @@ import '../../data/feed_repository.dart';
 import '../../data/post_models.dart';
 import 'comments_panel.dart';
 import 'like_sync.dart';
+import 'share_post_sheet.dart';
 
 /// A discussion post as a card you can act on directly — Home and group pages share it.
 ///
@@ -108,21 +109,19 @@ class _DiscussionCardState extends ConsumerState<DiscussionCard> {
     }
   }
 
+  /// Opens "Send to" (share into LinkLocal chats); the count goes up once it's sent.
   Future<void> _share() async {
     if (!_item.canInteract) return _needsJoin();
     if (_sharing) return;
     setState(() => _sharing = true);
     try {
-      await ref.read(feedRepositoryProvider).sharePost(_item.id);
-      if (!mounted) return;
-      setState(() => _shares++);
-      _snack('Shared');
-    } catch (_) {
-      _snack('Could not share');
+      final sent = await showSharePostSheet(context, postId: _item.id);
+      if (sent && mounted) setState(() => _shares++);
     } finally {
       if (mounted) setState(() => _sharing = false);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

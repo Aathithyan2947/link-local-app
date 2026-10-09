@@ -100,9 +100,14 @@ class DiscoveryRepository {
     );
   }
 
-  Future<List<GroupItem>> groups({String? q}) async {
-    final res = await _dio.get('/groups',
-        queryParameters: {'pageSize': 50, if (q != null && q.isNotEmpty) 'q': q});
+  /// Groups in the member's city. [excludeMine] leaves out the ones they created, joined or
+  /// are waiting to be approved for (My Groups → "Groups near you").
+  Future<List<GroupItem>> groups({String? q, bool excludeMine = false}) async {
+    final res = await _dio.get('/groups', queryParameters: {
+      'pageSize': 50,
+      if (q != null && q.isNotEmpty) 'q': q,
+      if (excludeMine) 'excludeMine': 'true',
+    });
     return (res.data['data'] as List)
         .map((e) => GroupItem.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -169,7 +174,13 @@ class DiscoveryRepository {
     return GroupDetail.fromJson(res.data['data'] as Map<String, dynamic>);
   }
 
-  Future<void> joinGroup(int id) async => _dio.post('/groups/$id/join');
+  /// Joins a free group. Returns the membership status: `joined`, or `pending_approval` when
+  /// the admin vets members. A paid group answers 402 (join by paying instead).
+  Future<String?> joinGroup(int id) async {
+    final res = await _dio.post('/groups/$id/join');
+    final data = res.data is Map ? res.data['data'] : null;
+    return data is Map ? data['status'] as String? : null;
+  }
 
   /// Group discussions, optionally narrowed to one area — backs the header dropdown.
   Future<List<DiscussionItem>> groupDiscussions(int id, {int? areaId}) async {
@@ -295,9 +306,10 @@ final eventsProvider = FutureProvider<List<WorkshopItem>>((ref) {
   return ref.watch(discoveryRepositoryProvider).events();
 });
 
+/// My Groups → "Groups near you": groups to discover, without the member's own or joined ones.
 final groupsProvider = FutureProvider<List<GroupItem>>((ref) {
   ref.bindToAccount();
-  return ref.watch(discoveryRepositoryProvider).groups();
+  return ref.watch(discoveryRepositoryProvider).groups(excludeMine: true);
 });
 
 /// Full service-provider profile, keyed by profile id.

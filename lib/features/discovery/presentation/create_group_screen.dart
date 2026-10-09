@@ -11,6 +11,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/input_formatters.dart';
 import '../data/group_detail_models.dart';
 import '../discovery_repository.dart';
+import '../group_lists_refresh.dart';
 import 'group_profile_screen.dart';
 
 /// Form to start a new interest group, or edit one you own when [group] is passed. Create
@@ -97,18 +98,15 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         final id = widget.group!.id;
         await repo.updateGroup(id, data);
         if (!mounted) return;
-        ref.invalidate(groupsProvider);
-        ref.invalidate(discoverGroupsProvider);
-        ref.invalidate(myGroupsProvider);
-        ref.invalidate(groupDetailProvider(id));
+        ref.invalidateGroupLists(groupId: id);
         await ref.read(groupDetailProvider(id).future);
         if (!mounted) return;
         Navigator.of(context).pop();
       } else {
         final id = await repo.createGroup(data);
         if (!mounted) return;
-        ref.invalidate(groupsProvider);
-        ref.invalidate(discoverGroupsProvider);
+        // Shows under My Groups → Your Groups (and everywhere else) straight away.
+        ref.invalidateGroupLists();
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => GroupProfileScreen(id: id)),
         );

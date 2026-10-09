@@ -1,10 +1,15 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../home/data/home_models.dart';
+import '../../payments/data/payment_charge.dart';
+import '../../payments/presentation/payment_method_screen.dart';
 import '../data/my_activity_models.dart';
 import '../discovery_repository.dart';
+import '../group_lists_refresh.dart';
 import 'create_group_screen.dart';
 import 'group_profile_screen.dart';
 import 'widgets/discover_cards.dart';
@@ -36,16 +41,61 @@ class _MyGroupsScreenState extends ConsumerState<MyGroupsScreen> {
     }
   }
 
-  Future<void> _join(int id) async {
+  /// Groups with a Join in flight (their button shows a spinner and ignores taps).
+  final _joining = <int>{};
+
+  /// Groups just joined or requested: off "Groups near you" at once, before the lists reload.
+  final _left = <int>{};
+
+  void _toast(String message) =>
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
+
+  /// Join from "Groups near you". A free group joins at once; a paid one goes through payment
+  /// first (the server admits only once it's paid). Either way the member hears how it went,
+  /// and the group moves to "Groups Joined" — or just leaves this list while it awaits the
+  /// admin's approval.
+  Future<void> _join(GroupItem g) async {
+    if (!_joining.add(g.id)) return; // already joining
+    setState(() {});
     try {
-      await ref.read(discoveryRepositoryProvider).joinGroup(id);
-      ref.invalidate(groupsProvider);
-      ref.invalidate(discoverGroupsProvider);
-      ref.invalidate(myGroupsProvider);
-      await ref.read(groupsProvider.future);
+      if (g.isPaid) return await _payToJoin(g);
+      final status = await ref.read(discoveryRepositoryProvider).joinGroup(g.id);
+      if (!mounted) return;
+      _joined(g, pending: status == 'pending_approval');
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final err = ApiException.fromDio(e);
+      if (err.statusCode == 402) return await _payToJoin(g); // it became paid since the list loaded
+      _toast(err.statusCode == 400 || err.statusCode == 409 ? err.message : 'Could not join ${g.title}');
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not join group')));
+      if (mounted) _toast('Could not join ${g.title}');
+    } finally {
+      _joining.remove(g.id);
+      if (mounted) setState(() {});
     }
+  }
+
+  Future<void> _payToJoin(GroupItem g) async {
+    final paid = await context.pushPage<bool>(MaterialPageRoute(
+      builder: (_) => PaymentMethodScreen(charge: groupCharge(g.id), total: g.price ?? 0),
+    ));
+    if (!mounted) return;
+    if (paid == true) {
+      _joined(g, pending: g.needsApproval, paid: true);
+    } else {
+      _toast("Payment not completed — you haven't joined");
+    }
+  }
+
+  void _joined(GroupItem g, {required bool pending, bool paid = false}) {
+    setState(() => _left.add(g.id));
+    _toast(pending
+        ? '${paid ? 'Paid — r' : 'R'}equest sent. The admin will approve you.'
+        : 'You joined ${g.title}');
+    // Every list showing this group, and its page, reload.
+    ref.invalidateGroupLists(groupId: g.id);
   }
 
   @override
@@ -95,11 +145,12 @@ class _MyGroupsScreenState extends ConsumerState<MyGroupsScreen> {
             ),
             const SizedBox(height: 20),
             _NearbySection(
-              async: nearby,
+              async: nearby.whenData((all) => all.where((g) => !_left.contains(g.id)).toList()),
               expanded: _nearbyExpanded,
               onSeeMore: () => setState(() => _nearbyExpanded = true),
               onTap: _openDetail,
               onJoin: _join,
+              joining: _joining,
             ),
           ],
         ),
@@ -164,12 +215,14 @@ class _NearbySection extends StatelessWidget {
     required this.onSeeMore,
     required this.onTap,
     required this.onJoin,
+    required this.joining,
   });
   final AsyncValue<List<GroupItem>> async;
   final bool expanded;
   final VoidCallback onSeeMore;
   final void Function(int) onTap;
-  final void Function(int) onJoin;
+  final void Function(GroupItem) onJoin;
+  final Set<int> joining;
 
   @override
   Widget build(BuildContext context) {
@@ -188,7 +241,19 @@ class _NearbySection extends StatelessWidget {
               GroupCard(
                 group: g,
                 onTap: () => onTap(g.id),
-                trailing: JoinButton(onTap: () => onJoin(g.id)),
+                trailing: joining.contains(g.id)
+                    ? const SizedBox(
+                        width: 58,
+                        height: 26,
+                        child: Center(
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                          ),
+                        ),
+                      )
+                    : JoinButton(onTap: () => onJoin(g)),
               ),
               const SizedBox(height: 10),
             ],

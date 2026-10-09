@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
@@ -9,6 +10,7 @@ import '../../home/presentation/widgets/home_widgets.dart';
 import '../../messages/presentation/chat_screen.dart';
 import '../../orders/data/cart.dart';
 import '../../orders/presentation/product_details_screen.dart';
+import '../data/block_overrides.dart';
 import '../data/sp_detail_models.dart';
 import '../discovery_repository.dart';
 import 'service_provider_detail_screen.dart' show CartBar;
@@ -175,14 +177,19 @@ class _TimingBanner extends StatelessWidget {
       );
 }
 
-class _ContactIcons extends StatelessWidget {
+class _ContactIcons extends ConsumerWidget {
   const _ContactIcons({required this.sp});
   final ServiceProviderDetail sp;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (sp.userId == null) return const SizedBox.shrink();
-    final showCall = sp.showCallButton && (sp.mobile?.isNotEmpty ?? false);
+    // Blocked: no way to message or call, same as on their profile.
+    if (isBlockedNow(ref, sp.userId!, fromServer: sp.isBlocked)) return const SizedBox.shrink();
+    // The number the provider published (their service phone, else sign-in number) — the same
+    // one their profile's Call button dials. `mobile` is only ever sent to the owner.
+    final phone = sp.publishedPhone;
+    final showCall = sp.showCallButton && (phone?.isNotEmpty ?? false);
     return Row(
       children: [
         _iconBtn(
@@ -200,7 +207,7 @@ class _ContactIcons extends StatelessWidget {
         ),
         if (showCall) ...[
           const SizedBox(width: 10),
-          _iconBtn(icon: Icons.call_outlined, onTap: () {}),
+          _iconBtn(icon: Icons.call_outlined, onTap: () => launchUrl(Uri(scheme: 'tel', path: phone))),
         ],
       ],
     );

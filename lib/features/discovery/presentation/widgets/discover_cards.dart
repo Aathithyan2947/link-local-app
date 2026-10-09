@@ -6,17 +6,22 @@ import '../../../../core/config/app_config.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../home/data/home_models.dart';
 import '../../../home/presentation/widgets/home_widgets.dart';
+import '../../../../core/text/plural.dart';
 
 // ── Small shared pieces ──────────────────────────────────────
 
-/// Green rating pill (e.g. `4.3`). Shows `New` when there are no ratings yet.
+/// Green rating pill (e.g. `4.3`). With no ratings yet it says `New` — unless [showNew] is
+/// false, when it shows nothing (an event is only "new" by [WorkshopItem.isNew], not for
+/// lacking ratings).
 class RatingBadge extends StatelessWidget {
-  const RatingBadge({super.key, this.value, this.compact = false});
+  const RatingBadge({super.key, this.value, this.compact = false, this.showNew = true});
   final double? value;
   final bool compact;
+  final bool showNew;
 
   @override
   Widget build(BuildContext context) {
+    if (value == null && !showNew) return const SizedBox.shrink();
     final label = value != null ? value!.toStringAsFixed(1) : 'New';
     return Container(
       padding: EdgeInsets.symmetric(horizontal: compact ? 5 : 8, vertical: compact ? 1 : 3),
@@ -229,7 +234,7 @@ class EventCard extends StatelessWidget {
                                       fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.ink)),
                             ),
                             const SizedBox(width: 6),
-                            RatingBadge(value: event.ratingAvg, compact: true),
+                            RatingBadge(value: event.ratingAvg, compact: true, showNew: event.isNew),
                           ],
                         ),
                         const SizedBox(height: 5),
@@ -271,7 +276,7 @@ class EventCard extends StatelessWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                'By : ${event.creatorName ?? 'Organizer'}',
+                                'By: ${event.creatorName ?? 'Organizer'}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -406,7 +411,7 @@ class GroupCard extends StatelessWidget {
                           style: const TextStyle(
                               fontWeight: FontWeight.w700, fontSize: 17, color: AppColors.ink)),
                       const SizedBox(height: 4),
-                      Text('${group.members} Members',
+                      Text(countLabel(group.members, 'Member'),
                           style: const TextStyle(
                               fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textPrimary)),
                       if (group.ownerName != null) ...[

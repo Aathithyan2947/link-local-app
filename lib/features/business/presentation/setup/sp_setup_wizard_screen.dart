@@ -573,7 +573,7 @@ class _SpSetupWizardScreenState extends ConsumerState<SpSetupWizardScreen> {
                 Text(_title.text.trim(), style: const TextStyle(color: AppColors.textSecondary, fontSize: 14)),
               ],
               const Divider(height: 28),
-              if (_experience.text.trim().isNotEmpty) _preview('Experience', '${_experience.text.trim()} Years'),
+              if (_experience.text.trim().isNotEmpty) _preview('Experience', '${_experience.text.trim()} ${_experience.text.trim() == '1' ? 'Year' : 'Years'}'),
               if (_isService)
                 for (final t in _rateTypes)
                   if (_rates[t]!.text.trim().isNotEmpty) _preview(rateTypeLabels[t]!, '₹${_rates[t]!.text.trim()}'),

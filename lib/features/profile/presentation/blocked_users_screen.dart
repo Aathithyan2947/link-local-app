@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../discovery/data/blocked_user_models.dart';
+import '../../discovery/data/block_overrides.dart';
 import '../../discovery/discovery_repository.dart';
+import '../../discovery/presentation/block_action.dart';
 
 final _blockedUsersProvider = FutureProvider.autoDispose<List<BlockedUserItem>>(
   (ref) => ref.watch(discoveryRepositoryProvider).listBlockedUsers(),
@@ -14,11 +16,14 @@ final _blockedUsersProvider = FutureProvider.autoDispose<List<BlockedUserItem>>(
 class BlockedUsersScreen extends ConsumerWidget {
   const BlockedUsersScreen({super.key});
 
-  Future<void> _unblock(WidgetRef ref, int userId) async {
-    await ref.read(discoveryRepositoryProvider).unblockUser(userId);
-    ref.invalidate(_blockedUsersProvider);
-    await ref.read(_blockedUsersProvider.future);
-  }
+  /// The row goes at once; their profiles and chat catch up in the background.
+  Future<void> _unblock(BuildContext context, BlockedUserItem u) => setBlocked(
+    context,
+    userId: u.userId,
+    name: u.name,
+    block: false,
+    refresh: [_blockedUsersProvider, serviceProviderDetailProvider, publicProfileProvider],
+  );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -38,7 +43,9 @@ class BlockedUsersScreen extends ConsumerWidget {
             child: ErrorBanner(message: e.toString()),
           ),
         ),
-        data: (items) {
+        data: (all) {
+          final overrides = ref.watch(blockOverridesProvider);
+          final items = all.where((u) => overrides[u.userId] != false).toList();
           if (items.isEmpty) {
             return const Center(child: Text('No blocked users.', style: TextStyle(color: AppColors.textSecondary)));
           }
@@ -83,10 +90,14 @@ class BlockedUsersScreen extends ConsumerWidget {
                       ),
                       const SizedBox(width: 8),
                       OutlinedButton(
-                        onPressed: () => _unblock(ref, u.userId),
+                        onPressed: () => _unblock(context, u),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppColors.textSecondary,
                           side: const BorderSide(color: AppColors.border),
+                          // The theme's buttons are full-width (Size.fromHeight); in a row that
+                          // is an infinite width and the whole list failed to lay out (blank).
+                          minimumSize: const Size(0, 38),
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
                         ),
                         child: const Text('Unblock'),
                       ),

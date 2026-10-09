@@ -7,6 +7,7 @@ import '../../../core/widgets/brand_wordmark.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../data/message_models.dart';
 import '../data/messages_repository.dart';
+import '../../discovery/data/block_overrides.dart';
 import 'chat_screen.dart';
 import '../../../core/navigation/push_guard.dart';
 
@@ -109,7 +110,28 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                         return ListTile(
                           contentPadding: const EdgeInsets.symmetric(vertical: 6),
                           leading: Avatar(name: c.otherName, photoUrl: c.otherPhoto, radius: 24),
-                          title: Text(c.otherName, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          title: Row(
+                            children: [
+                              Flexible(
+                                child: Text(c.otherName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                              ),
+                              if (isBlockedNow(ref, c.otherId, fromServer: c.blockedByMe)) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.border,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text('Blocked',
+                                      style: TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+                                ),
+                              ],
+                            ],
+                          ),
                           subtitle: Text(c.lastMessage,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,

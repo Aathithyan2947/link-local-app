@@ -33,7 +33,25 @@ abstract class Routes {
 /// Watches route transitions app-wide. A screen subscribes with [RouteAware] to refresh
 /// itself in `didPopNext()` — when an editor pushed on top of it closes — instead of every
 /// edit site having to remember to invalidate the right provider.
-final appRouteObserver = RouteObserver<ModalRoute<void>>();
+final appRouteObserver = AppRouteObserver();
+
+class AppRouteObserver extends RouteObserver<ModalRoute<void>> {
+  /// The route that closed most recently, so `didPopNext()` can tell an editor (a page or a
+  /// bottom sheet, which may have changed things) from a menu or confirm dialog (which didn't).
+  Route<dynamic>? lastPopped;
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    lastPopped = route;
+    super.didPop(route, previousRoute);
+  }
+}
+
+/// True when the route that just closed was a menu or dialog rather than an editor.
+bool lastPopWasMenuOrDialog() {
+  final r = appRouteObserver.lastPopped;
+  return r is PopupRoute && r is! ModalBottomSheetRoute;
+}
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier(0);

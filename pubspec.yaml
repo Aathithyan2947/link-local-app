@@ -53,6 +53,9 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Test seams for faking url_launcher (e.g. the Call buttons); already resolved transitively.
+  plugin_platform_interface: any
+  url_launcher_platform_interface: any
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

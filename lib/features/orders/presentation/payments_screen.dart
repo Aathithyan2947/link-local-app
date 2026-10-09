@@ -8,6 +8,7 @@ import '../../feed/data/post_models.dart' show relativeTime;
 import 'order_tracking_screen.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
+import '../data/transaction_counts.dart';
 import '../../../core/navigation/push_guard.dart';
 
 const _terminalStatuses = {'completed', 'cancelled', 'rejected'};
@@ -31,11 +32,23 @@ String _methodLabel(OrderPaymentModel p) {
 /// Unified transaction history — payments made (as a buyer) and, for SPs, payments
 /// received — flattened from the same order data already shown in "Order History" and
 /// "My Shop → Bookings".
-class PaymentsScreen extends ConsumerWidget {
+class PaymentsScreen extends ConsumerStatefulWidget {
   const PaymentsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PaymentsScreen> createState() => _PaymentsScreenState();
+}
+
+class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Opening Payments clears its count on the profile (see paymentsSeenAtProvider).
+    Future.microtask(() => ref.read(paymentsSeenAtProvider.notifier).markSeen());
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final isSp = ref.watch(authControllerProvider).user?.isServiceProvider ?? false;
     final myOrders = ref.watch(myOrdersProvider);
     final incoming = isSp ? ref.watch(incomingOrdersProvider) : const AsyncValue<List<OrderModel>>.data([]);

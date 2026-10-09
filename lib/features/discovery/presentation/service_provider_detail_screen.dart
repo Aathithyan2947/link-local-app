@@ -23,6 +23,8 @@ import '../../home/data/home_models.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../../messages/presentation/chat_screen.dart';
 import '../../feed/presentation/create_post_screen.dart';
+import '../../feed/presentation/user_posts_screen.dart';
+import '../../feed/presentation/post_detail_screen.dart';
 import '../../orders/data/cart.dart';
 import '../../orders/data/order_models.dart';
 import '../../orders/data/orders_repository.dart';
@@ -41,10 +43,15 @@ import '../../services/data/service_profile_repository.dart';
 import '../../services/presentation/category_fields_form_screen.dart';
 import '../../../core/widgets/brand_wordmark.dart';
 import '../data/sp_detail_models.dart';
+import '../data/block_overrides.dart';
 import 'sp_menu_listing_screen.dart';
+import 'group_profile_screen.dart';
+import 'event_detail_screen.dart';
+import 'block_action.dart';
 import '../discovery_repository.dart';
 import 'discover_screen.dart';
 import 'widgets/discover_cards.dart';
+import 'widgets/private_profile_view.dart';
 import '../../../core/navigation/push_guard.dart';
 
 /// Full service-provider profile. Opened by tapping any SP card.
@@ -75,6 +82,9 @@ class _ServiceProviderDetailScreenState extends ConsumerState<ServiceProviderDet
   /// can't forget to, and it survives the editor's own widget being disposed mid-save.
   @override
   void didPopNext() {
+    // The three-dot menu and the Block confirm change nothing by closing; refetching for them
+    // only queued slow full reloads in front of the one that matters.
+    if (lastPopWasMenuOrDialog()) return;
     ref.invalidate(serviceProviderDetailProvider(widget.id));
     ref.invalidate(customFieldsProvider);
   }
@@ -103,7 +113,9 @@ class _ServiceProviderDetailScreenState extends ConsumerState<ServiceProviderDet
         // requested on close silently did nothing. Also kills the full-screen flash on refresh.
         skipLoadingOnReload: true,
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
-        error: (e, _) => _ErrorView(onRetry: () => ref.invalidate(serviceProviderDetailProvider(widget.id))),
+        error: (e, _) => isPrivateProfileError(e)
+            ? const PrivateProfileView()
+            : _ErrorView(onRetry: () => ref.invalidate(serviceProviderDetailProvider(widget.id))),
         data: (sp) {
           final isOwner = sp.userId != null && sp.userId == myUserId;
           return Stack(
@@ -170,7 +182,7 @@ List<Widget> _ownerSections(ServiceProviderDetail sp) {
     else if (!sp.hasMenu)
       _Band(child: _ChargesBlock(rates: sp.rates, isOwner: true)),
     _EventsBlock(events: sp.events),
-    _PostsBlock(posts: sp.posts),
+    _PostsBlock(posts: sp.posts, userId: sp.userId, name: sp.name),
     _Band(color: AppColors.surface, child: _GroupsBlock(groups: sp.groups)),
   ];
 }
@@ -184,7 +196,7 @@ List<Widget> _residentOwnerSections(ServiceProviderDetail sp) {
     _ProfileHeader(sp: sp, isOwner: true),
     _Band(color: AppColors.surface, child: _AboutBlock(sp: sp, isOwner: true)),
     _EventsBlock(events: sp.events),
-    _PostsBlock(posts: sp.posts),
+    _PostsBlock(posts: sp.posts, userId: sp.userId, name: sp.name),
     _Band(color: AppColors.surface, child: _GroupsBlock(groups: sp.groups)),
   ];
 }
@@ -209,7 +221,7 @@ List<Widget> _residentSections(ServiceProviderDetail sp) {
     _Band(color: AppColors.surface, child: _ReviewsBlock(sp: sp)),
     _SubmitReview(id: sp.id),
     _EventsBlock(events: sp.events),
-    _PostsBlock(posts: sp.posts),
+    _PostsBlock(posts: sp.posts, userId: sp.userId, name: sp.name),
     _Band(child: _GroupsBlock(groups: sp.groups)),
   ];
 }
@@ -465,6 +477,7 @@ class _ContactRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (sp.userId == null) return const SizedBox.shrink();
+    if (_spBlocked(ref, sp)) return _BlockedContactRow(sp: sp);
     final showCall = sp.showCallButton && (sp.publishedPhone?.isNotEmpty ?? false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -522,8 +535,30 @@ class _ContactRow extends ConsumerWidget {
             ),
           ],
         ),
+        if (_canPay(ref)) ...[
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () => _makePayment(context, ref, sp),
+            icon: const Icon(Icons.currency_rupee_rounded, size: 18),
+            label: const Text('Make Payment', style: TextStyle(fontWeight: FontWeight.w600)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              minimumSize: const Size.fromHeight(44),
+              side: const BorderSide(color: AppColors.primary),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ],
       ],
     );
+  }
+
+  /// Any amount can be paid to a service SP. A menu SP (baker, food) is paid against an
+  /// accepted, unpaid order, so the button only shows while the member has one with them.
+  bool _canPay(WidgetRef ref) {
+    if (!sp.hasMenu) return true;
+    final orders = ref.watch(myOrdersProvider).asData?.value ?? const <OrderModel>[];
+    return orders.any(_isPendingPayment(sp));
   }
 
   static final ButtonStyle _ctaStyle = ElevatedButton.styleFrom(
@@ -544,6 +579,54 @@ class _ContactRow extends ConsumerWidget {
           child: SizedBox(height: 42, width: 42, child: Icon(icon, color: AppColors.primary, size: 20)),
         ),
       );
+}
+
+/// A blocked provider: no way to message, call, order or pay — just a note with Unblock, and
+/// the three-dot menu (Unblock / Report / Share).
+class _BlockedContactRow extends ConsumerWidget {
+  const _BlockedContactRow({required this.sp});
+  final ServiceProviderDetail sp;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Row(
+      children: [
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(10)),
+            child: Row(
+              children: [
+                const Icon(Icons.block, size: 18, color: AppColors.textMuted),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text("You've blocked this provider",
+                      style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                ),
+                TextButton(
+                  onPressed: () => _toggleBlockSp(context, ref, sp),
+                  style: TextButton.styleFrom(minimumSize: Size.zero, padding: const EdgeInsets.symmetric(horizontal: 8)),
+                  child: const Text('Unblock', style: TextStyle(fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Builder(
+          builder: (btnContext) => Material(
+            color: AppColors.primarySurface,
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => _showProfileActionsMenu(btnContext, ref, sp),
+              child: const SizedBox(height: 42, width: 42, child: Icon(Icons.more_vert, color: AppColors.primary, size: 20)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 /// Owner view: replaces the contact row with a link into the profile-completion flow.
@@ -2162,75 +2245,89 @@ class _SpEventCard extends StatelessWidget {
     final closed = item.isPast;
     final statusLabel = closed ? 'Closed' : (item.isHosting ? 'Hosting' : 'Attending');
     final statusColor = closed ? AppColors.textMuted : AppColors.primary;
-    return Container(
-      width: 190,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Stack(
-            children: [
-              NetworkThumb(
-                photoUrl: e.photoUrl,
-                fallbackIcon: Icons.celebration_rounded,
-                width: double.infinity,
-                height: 92,
-                radius: const BorderRadius.vertical(top: Radius.circular(16)),
-              ),
-              Positioned(
-                top: 8,
-                left: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: statusColor, borderRadius: BorderRadius.circular(6)),
-                  child: Text(statusLabel,
-                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
-                ),
-              ),
-              Positioned(top: 8, right: 8, child: RatingBadge(value: e.ratingAvg, compact: true)),
-            ],
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return GestureDetector(
+      onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => EventDetailScreen(id: e.id))),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 190,
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
               children: [
-                Text(e.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-                const SizedBox(height: 4),
-                Text(time.isNotEmpty ? '$date | $time' : date,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 10.5, color: AppColors.textMuted)),
-                if (e.location != null && e.location!.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(e.location!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 10.5, color: AppColors.textMuted)),
-                ],
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text('By : ${e.creatorName ?? 'Organizer'}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
-                    ),
-                    if (!closed) const JoinButton(),
-                  ],
+                NetworkThumb(
+                  photoUrl: e.photoUrl,
+                  fallbackIcon: Icons.celebration_rounded,
+                  width: double.infinity,
+                  height: 92,
+                  radius: const BorderRadius.vertical(top: Radius.circular(16)),
                 ),
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(color: statusColor, borderRadius: BorderRadius.circular(6)),
+                    child: Text(
+                      statusLabel,
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+                Positioned(top: 8, right: 8, child: RatingBadge(value: e.ratingAvg, compact: true, showNew: e.isNew)),
               ],
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    e.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    time.isNotEmpty ? '$date | $time' : date,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 10.5, color: AppColors.textMuted),
+                  ),
+                  if (e.location != null && e.location!.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      e.location!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 10.5, color: AppColors.textMuted),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'By: ${e.creatorName ?? 'Organizer'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary),
+                        ),
+                      ),
+                      if (!closed) const JoinButton(),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2238,8 +2335,13 @@ class _SpEventCard extends StatelessWidget {
 
 // ── Posts ────────────────────────────────────────────────────
 class _PostsBlock extends StatelessWidget {
-  const _PostsBlock({required this.posts});
+  const _PostsBlock({required this.posts, required this.userId, required this.name});
   final List<DiscussionItem> posts;
+  final int? userId; // whose posts these are
+  final String name;
+
+  void _openPost(BuildContext context, DiscussionItem p) =>
+      context.pushPage(MaterialPageRoute(builder: (_) => PostDetailScreen(id: p.id)));
 
   @override
   Widget build(BuildContext context) {
@@ -2264,48 +2366,54 @@ class _PostsBlock extends StatelessWidget {
                 onTap: () => Navigator.of(context)
                     .push(MaterialPageRoute(builder: (_) => const CreatePostScreen())),
               ),
-            ...posts.take(2).map((p) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Avatar(name: p.authorName, photoUrl: p.authorPhoto, radius: 16),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(p.authorName,
-                                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                                const Text('Resident',
-                                    style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                              ],
+            ...posts.take(2).map((p) => InkWell(
+                  onTap: () => _openPost(context, p),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Avatar(name: p.authorName, photoUrl: p.authorPhoto, radius: 16),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(p.authorName,
+                                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                                  const Text('Resident',
+                                      style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(p.text,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13.5, color: AppColors.textPrimary)),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          const Icon(Icons.favorite_border, size: 15, color: AppColors.textSecondary),
-                          const SizedBox(width: 4),
-                          Text('${p.likes}', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(p.text,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 13.5, color: AppColors.textPrimary)),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const Icon(Icons.favorite_border, size: 15, color: AppColors.textSecondary),
+                            const SizedBox(width: 4),
+                            Text('${p.likes}', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 )),
-            if (posts.isNotEmpty)
+            if (posts.isNotEmpty && userId != null)
               Center(
                 child: TextButton(
-                  onPressed: () {},
+                  onPressed: () => context.pushPage(
+                    MaterialPageRoute(builder: (_) => UserPostsScreen(userId: userId!, name: name)),
+                  ),
                   child: const Text('View More',
                       style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
                 ),
@@ -2368,49 +2476,59 @@ class _GroupChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 84,
-      child: Column(
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              NetworkThumb(
-                photoUrl: group.photoUrl,
-                fallbackIcon: Icons.groups_rounded,
-                width: 66,
-                height: 66,
-                radius: BorderRadius.circular(33),
-              ),
-              Positioned(
-                top: 0,
-                right: 0,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.surface, width: 1.5),
-                  ),
-                  child: Text('${group.members}',
-                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+    return GestureDetector(
+      // Opens the group; the profile refetches when it closes (didPopNext), so joining or
+      // leaving shows here.
+      onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => GroupProfileScreen(id: group.id))),
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 84,
+        child: Column(
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                NetworkThumb(
+                  photoUrl: group.photoUrl,
+                  fallbackIcon: Icons.groups_rounded,
+                  width: 66,
+                  height: 66,
+                  radius: BorderRadius.circular(33),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(group.title,
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.surface, width: 1.5),
+                    ),
+                    child: Text(
+                      '${group.members}',
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              group.title,
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-        ],
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-// ── Three-dot menu: Make Payment / Report Abuse / Share / Block ──────────────
+// ── Three-dot menu: Report Abuse / Share / Block (Make Payment is a button) ──
 /// Small anchored popup matching Figma's 3-dot component exactly (`EL-41292289`: 91×191,
 /// white, 5px corner radius, 3 thin dividers) — not a full-width bottom sheet.
 Future<void> _showProfileActionsMenu(BuildContext anchorContext, WidgetRef ref, ServiceProviderDetail sp) async {
@@ -2434,18 +2552,6 @@ Future<void> _showProfileActionsMenu(BuildContext anchorContext, WidgetRef ref, 
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
     constraints: const BoxConstraints(minWidth: 110, maxWidth: 140),
     items: [
-      PopupMenuItem<String>(
-        value: 'payment',
-        height: 58,
-        padding: EdgeInsets.zero,
-        child: const Center(
-          child: Text('Make\nPayment',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontFamily: 'Poppins', fontWeight: FontWeight.w500, fontSize: 12, color: AppColors.primary)),
-        ),
-      ),
-      const PopupMenuDivider(height: 1),
       PopupMenuItem<String>(
         value: 'report',
         height: 52,
@@ -2477,7 +2583,12 @@ Future<void> _showProfileActionsMenu(BuildContext anchorContext, WidgetRef ref, 
           children: [
             const Icon(Icons.block, size: 20, color: AppColors.ink),
             const SizedBox(width: 10),
-            Text(sp.isBlocked ? 'Unblock' : 'Block', style: labelStyle),
+            Text(
+              (sp.userId != null ? ref.read(blockOverridesProvider)[sp.userId] : null) ?? sp.isBlocked
+                  ? 'Unblock'
+                  : 'Block',
+              style: labelStyle,
+            ),
           ],
         ),
       ),
@@ -2486,8 +2597,6 @@ Future<void> _showProfileActionsMenu(BuildContext anchorContext, WidgetRef ref, 
 
   if (action == null || !anchorContext.mounted) return;
   switch (action) {
-    case 'payment':
-      await _makePayment(anchorContext, ref, sp);
     case 'report':
       showModalBottomSheet<void>(
         context: anchorContext,
@@ -2519,6 +2628,10 @@ String? _suggestedAmount(ServiceProviderDetail sp) {
   return null;
 }
 
+/// An order with [sp] that is accepted and still waiting to be paid.
+bool Function(OrderModel) _isPendingPayment(ServiceProviderDetail sp) =>
+    (o) => o.spProfileId == sp.id && !o.paid && o.status == 'accepted';
+
 Future<void> _makePayment(BuildContext context, WidgetRef ref, ServiceProviderDetail sp) async {
   // Menu/product SPs (bakers, food, delivery): payment always attaches to a real placed
   // order — cart/quantities/delivery must exist before there's anything to pay for.
@@ -2542,7 +2655,7 @@ Future<void> _makePayment(BuildContext context, WidgetRef ref, ServiceProviderDe
     }
     return;
   }
-  final pending = orders.where((o) => o.spProfileId == sp.id && !o.paid && o.status == 'accepted').toList();
+  final pending = orders.where(_isPendingPayment(sp)).toList();
   if (!context.mounted) return;
   if (pending.isEmpty) {
     ScaffoldMessenger.of(context)
@@ -2588,10 +2701,14 @@ Future<void> _makePayment(BuildContext context, WidgetRef ref, ServiceProviderDe
 
 /// Pays an existing booking from the SP's profile. The flow pops itself when it finishes, so
 /// this lands back here either way; the result isn't needed.
-void _openPayment(BuildContext context, OrderModel order) {
-  context.pushPage(MaterialPageRoute(
+/// Once it's paid the order is no longer pending, so the Make Payment button can go.
+/// The container is taken up front: the caller (e.g. the amount sheet) may be gone by then.
+Future<void> _openPayment(BuildContext context, OrderModel order) async {
+  final container = ProviderScope.containerOf(context, listen: false);
+  final paid = await context.pushPage<bool>(MaterialPageRoute(
     builder: (_) => PaymentMethodScreen(charge: orderCharge(order.id), total: order.amountDue),
   ));
+  if (paid == true) container.invalidate(myOrdersProvider);
 }
 
 Future<void> _shareProfile(BuildContext context, WidgetRef ref, ServiceProviderDetail sp) async {
@@ -2606,39 +2723,21 @@ Future<void> _shareProfile(BuildContext context, WidgetRef ref, ServiceProviderD
   }
 }
 
+/// The member's current block on this provider: this session's choice, else the server's.
+bool _spBlocked(WidgetRef ref, ServiceProviderDetail sp) =>
+    sp.userId != null && isBlockedNow(ref, sp.userId!, fromServer: sp.isBlocked);
+
+/// Block / Unblock from the profile — takes effect on screen at once (see [setBlocked]).
 Future<void> _toggleBlockSp(BuildContext context, WidgetRef ref, ServiceProviderDetail sp) async {
   final userId = sp.userId;
   if (userId == null) return;
-  if (sp.isBlocked) {
-    await ref.read(discoveryRepositoryProvider).unblockUser(userId);
-    ref.invalidate(serviceProviderDetailProvider(sp.id));
-    await ref.read(serviceProviderDetailProvider(sp.id).future);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unblocked')));
-    }
-    return;
-  }
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text('Block ${sp.name}?'),
-      content: const Text("You won't be able to message or call each other."),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('Block', style: TextStyle(color: AppColors.error)),
-        ),
-      ],
-    ),
+  await setBlocked(
+    context,
+    userId: userId,
+    name: sp.name,
+    block: !(ref.read(blockOverridesProvider)[userId] ?? sp.isBlocked),
+    refresh: [serviceProviderDetailProvider(sp.id)],
   );
-  if (confirmed != true) return;
-  await ref.read(discoveryRepositoryProvider).blockUser(userId);
-  ref.invalidate(serviceProviderDetailProvider(sp.id));
-  await ref.read(serviceProviderDetailProvider(sp.id).future);
-  if (context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Blocked')));
-  }
 }
 
 class _ReportSheet extends ConsumerStatefulWidget {

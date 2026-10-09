@@ -24,6 +24,12 @@ class FeedRepository {
         .toList();
   }
 
+  /// Everything one member has posted, newest first (a profile's "View More").
+  Future<List<PostItem>> postsBy(int userId) async {
+    final res = await _dio.get('/posts', queryParameters: {'userId': userId, 'pageSize': 50});
+    return (res.data['data'] as List).map((e) => PostItem.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
   Future<PostItem> post(int id) async {
     final res = await _dio.get('/posts/$id');
     return PostItem.fromJson(res.data['data'] as Map<String, dynamic>);
@@ -79,7 +85,8 @@ class FeedRepository {
         .toList();
   }
 
-  Future<void> sharePost(int id, {String channel = 'in_app'}) async {
+  /// Records a share (the post's count goes up). [channel]: `chat` = sent in a LinkLocal chat.
+  Future<void> sharePost(int id, {String channel = 'chat'}) async {
     await _dio.post('/posts/$id/share', data: {'channel': channel});
   }
 }
@@ -92,6 +99,12 @@ final feedProvider = FutureProvider<List<PostItem>>((ref) {
   ref.bindToAccount();
   final s = ref.watch(homeScopeProvider);
   return ref.watch(feedRepositoryProvider).posts(scope: s.scope, areaId: s.overrideAreaId);
+});
+
+/// One member's posts, keyed by their user id — behind a profile's "View More".
+final userPostsProvider = FutureProvider.autoDispose.family<List<PostItem>, int>((ref, userId) {
+  ref.bindToAccount();
+  return ref.watch(feedRepositoryProvider).postsBy(userId);
 });
 
 /// A single post with its comments, keyed by post id.

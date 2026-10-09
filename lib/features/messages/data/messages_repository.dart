@@ -62,3 +62,11 @@ final unreadCountProvider = FutureProvider<int>((ref) {
   ref.bindToAccount();
   return ref.watch(messagesRepositoryProvider).unreadCount();
 });
+
+/// After blocking or unblocking [userId]: their chat and the conversation list reload, so the
+/// composer is swapped (or restored) straight away, however the chat is reached.
+void refreshChatAfterBlock(WidgetRef ref, int userId) {
+  ref
+    ..invalidate(threadProvider(userId))
+    ..invalidate(conversationsProvider);
+}

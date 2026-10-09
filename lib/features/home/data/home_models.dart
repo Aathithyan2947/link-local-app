@@ -105,6 +105,9 @@ class GroupItem {
     this.photoUrl,
     this.ownerName,
     this.creatorId,
+    this.isPaid = false,
+    this.price,
+    this.needsApproval = false,
   });
   final int id;
   final String title;
@@ -112,6 +115,10 @@ class GroupItem {
   final String? photoUrl;
   final String? ownerName;
   final int? creatorId;
+  /// Joining a paid group goes through payment; one that [needsApproval] waits for the admin.
+  final bool isPaid;
+  final double? price;
+  final bool needsApproval;
   factory GroupItem.fromJson(Map<String, dynamic> j) {
     final count = j['_count'] as Map<String, dynamic>?;
     final creator = j['creator'] as Map<String, dynamic>?;
@@ -123,9 +130,22 @@ class GroupItem {
       photoUrl: j['photoUrl'] as String?,
       ownerName: profile?['name'] as String?,
       creatorId: creator?['id'] != null ? _asInt(creator!['id']) : null,
+      isPaid: j['isPaid'] == true,
+      price: _asDouble(j['price']),
+      needsApproval: j['adminApprovalNeeded'] == true,
     );
   }
 }
+
+/// How long after it's created an event counts as new.
+const kNewEventDays = 7;
+
+/// The "New" badge on an event: created in the last [kNewEventDays] days and not started yet.
+/// (Not "has no ratings" — a past event is never new.)
+bool isNewEvent({required DateTime? createdAt, required bool hasStarted, DateTime? now}) =>
+    createdAt != null &&
+    !hasStarted &&
+    (now ?? DateTime.now()).difference(createdAt) < const Duration(days: kNewEventDays);
 
 class WorkshopItem {
   const WorkshopItem({
@@ -144,6 +164,7 @@ class WorkshopItem {
     this.myStatus,
     this.isHost = false,
     this.serverHasStarted,
+    this.createdAt,
   });
   final int id;
   final String title;
@@ -166,6 +187,12 @@ class WorkshopItem {
 
   /// From the backend, which owns the rule (an event closes when it starts, in India time).
   final bool? serverHasStarted;
+
+  /// When the event was created (an instant, so local time).
+  final DateTime? createdAt;
+
+  /// Shows the "New" badge — see [isNewEvent].
+  bool get isNew => isNewEvent(createdAt: createdAt, hasStarted: hasStarted);
 
   /// Whether the event has started — closed for joining. Falls back to the device clock
   /// only for a response that predates the backend field.
@@ -209,6 +236,7 @@ class WorkshopItem {
       myStatus: j['myStatus'] as String?,
       isHost: j['isHost'] as bool? ?? false,
       serverHasStarted: j['hasStarted'] as bool?,
+      createdAt: parseServerTime(j['createdAt']),
     );
   }
 }

@@ -285,10 +285,13 @@ class _Header extends StatelessWidget {
           // Tab row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            // Each tab shrinks to fit rather than overflowing on a narrow screen, now that the
-            // counts are real totals and can run to several digits.
+            // Tabs shrink to fit rather than overflowing on a narrow screen (the counts are real
+            // totals and can run to several digits) — but all by the same factor. Each tab's
+            // share of the row is proportional to its natural width, so "Service Providers"
+            // can't end up smaller than "All". When everything fits, nothing shrinks.
             children: List.generate(4, (i) {
               return Flexible(
+                flex: (_TabItem.naturalWidth(context, _labels[i], counts[i]) * 10).round(),
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   child: _TabItem(
@@ -314,6 +317,30 @@ class _TabItem extends StatelessWidget {
   final bool active;
   final VoidCallback onTap;
 
+  static const _labelSize = 14.0;
+  static const _countSize = 10.0;
+
+  /// How wide a tab is at full size: label (measured bold, so it doesn't change when the tab
+  /// is selected), the gap, and the count badge.
+  static double naturalWidth(BuildContext context, String label, int count) {
+    final scaler = MediaQuery.textScalerOf(context);
+    double measure(String text, TextStyle style) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: DefaultTextStyle.of(context).style.merge(style)),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+      )..layout();
+      final width = painter.width;
+      painter.dispose();
+      return width;
+    }
+
+    return measure(label, const TextStyle(fontSize: _labelSize, fontWeight: FontWeight.w700)) +
+        5 +
+        measure('$count', const TextStyle(fontSize: _countSize, fontWeight: FontWeight.w600)) +
+        12;
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -331,13 +358,13 @@ class _TabItem extends StatelessWidget {
                     style: TextStyle(
                         color: active ? Colors.white : Colors.white70,
                         fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                        fontSize: 14)),
+                        fontSize: _labelSize)),
                 const SizedBox(width: 5),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                   decoration: const BoxDecoration(color: Color(0x33000000), shape: BoxShape.rectangle, borderRadius: BorderRadius.all(Radius.circular(9))),
                   child: Text('$count',
-                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600)),
+                      style: const TextStyle(color: Colors.white, fontSize: _countSize, fontWeight: FontWeight.w600)),
                 ),
               ],
             ),

@@ -15,6 +15,7 @@ import '../data/orders_repository.dart';
 import 'order_success_screen.dart';
 import 'product_details_screen.dart';
 import '../../../core/navigation/push_guard.dart';
+import '../../../core/text/plural.dart';
 
 /// Reviews the cart and places the order — the "Cart Review" frame.
 class CartReviewScreen extends ConsumerStatefulWidget {
@@ -321,7 +322,7 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
     final q = _quote;
     return Column(
       children: [
-        _row('Subtotal (${cart.count} items)', '₹${(q?.subtotal ?? cart.subtotal).toStringAsFixed(0)}'),
+        _row('Subtotal (${countLabel(cart.count, 'item')})', '₹${(q?.subtotal ?? cart.subtotal).toStringAsFixed(0)}'),
         if (_delivery == 'home_delivery')
           _row('Delivery fee', (q != null && q.deliveryCharge == 0) ? 'FREE' : '₹${(q?.deliveryCharge ?? 0).toStringAsFixed(0)}'),
         if ((q?.packagingCharge ?? 0) > 0) _row('Packaging charges', '₹${q!.packagingCharge.toStringAsFixed(0)}'),

@@ -1,11 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/media/image_editor.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/validation/content_limits.dart';
 import '../../discovery/discovery_repository.dart';
 import '../data/feed_repository.dart';
 import '../data/post_models.dart';
@@ -24,6 +27,8 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   String _type = 'ask_help';
   XFile? _image;
   bool _submitting = false;
+  /// Over the limit while typing (BUG-070), or the server's message after a rejected post.
+  String? _textError;
 
   @override
   void dispose() {
@@ -48,6 +53,11 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Write something or add a photo')));
       return;
     }
+    final tooLong = ContentLimits.postTextError(_text.text);
+    if (tooLong != null) {
+      setState(() => _textError = tooLong);
+      return;
+    }
     setState(() => _submitting = true);
     try {
       final photoUrls = <String>[];
@@ -63,9 +73,17 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       if (!mounted) return;
       ref.invalidatePostLists();
       Navigator.of(context).pop();
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not create post')));
+      final err = ApiException.from(e);
+      final textMsg = err.fieldError('textContent');
+      if (textMsg != null) {
+        setState(() => _textError = textMsg);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(err.message == 'Something went wrong' ? 'Could not create post' : err.message),
+        ));
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -111,8 +129,14 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
             controller: _text,
             minLines: 4,
             maxLines: 8,
-            decoration: const InputDecoration(
+            // Counts up to the limit and keeps typing possible past it, so the message under the
+            // field explains why Post won't go instead of input silently stopping.
+            maxLength: ContentLimits.postText,
+            maxLengthEnforcement: MaxLengthEnforcement.none,
+            onChanged: (v) => setState(() => _textError = ContentLimits.postTextError(v)),
+            decoration: InputDecoration(
               hintText: 'What would you like to share with your neighbourhood?',
+              errorText: _textError,
             ),
           ),
           const SizedBox(height: 16),

@@ -12,6 +12,7 @@ import '../data/message_models.dart';
 import '../../../core/navigation/push_guard.dart';
 import '../../feed/data/post_models.dart' show postTypeLabels;
 import '../../feed/presentation/post_detail_screen.dart';
+import '../../discovery/presentation/event_detail_screen.dart';
 import '../../discovery/presentation/widgets/discover_cards.dart' show NetworkThumb;
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../data/messages_repository.dart';
@@ -153,14 +154,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // A shared post: the sender's note (if they wrote one) over a
-                            // preview of the post that opens it.
-                            if (!m.isSharedPost || m.content != 'Shared a post')
+                            // A shared post or event: the sender's note (if they wrote one) over
+                            // a preview that opens it.
+                            if (m.content != m.sharePlaceholder)
                               Text(m.content,
                                   style: TextStyle(color: mine ? Colors.white : AppColors.textPrimary, fontSize: 14)),
                             if (m.isSharedPost) ...[
-                              if (m.content != 'Shared a post') const SizedBox(height: 8),
+                              if (m.content != m.sharePlaceholder) const SizedBox(height: 8),
                               SharedPostBubble(postId: m.entityId!, post: m.post),
+                            ],
+                            if (m.isSharedEvent) ...[
+                              if (m.content != m.sharePlaceholder) const SizedBox(height: 8),
+                              SharedEventBubble(eventId: m.entityId!, event: m.event),
                             ],
                             if (m.createdAt != null) ...[
                               const SizedBox(height: 2),
@@ -350,6 +355,92 @@ class SharedPostBubble extends StatelessWidget {
                     ],
                     const SizedBox(height: 6),
                     const Text('View post',
+                        style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// An event shared into the chat (BUG-100): title, when, where and host. Tapping opens the
+/// event, where they can join. One the host has removed says so instead.
+class SharedEventBubble extends StatelessWidget {
+  const SharedEventBubble({super.key, required this.eventId, required this.event});
+  final int eventId;
+  final SharedEventPreview? event;
+
+  @override
+  Widget build(BuildContext context) {
+    final e = event;
+    if (e == null || !e.isActive) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: const Text('This event is no longer available',
+            style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: AppColors.textMuted)),
+      );
+    }
+    final d = e.date;
+    final t = e.startTime;
+    final when = [
+      if (d != null) DateFormat('EEE, d MMM').format(d),
+      // A wall-clock time stored on 1970-01-01 UTC: format its UTC hour/minute as-is.
+      if (t != null) DateFormat('h:mm a').format(DateTime(2000, 1, 1, t.toUtc().hour, t.toUtc().minute)),
+    ].join(' · ');
+    final where = e.mode == 'online' ? 'Online' : (e.location ?? '');
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(10),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => context.pushPage(MaterialPageRoute(builder: (_) => EventDetailScreen(id: eventId))),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (e.photoUrl != null)
+                NetworkThumb(
+                  photoUrl: e.photoUrl,
+                  fallbackIcon: Icons.event_outlined,
+                  width: double.infinity,
+                  height: 110,
+                  radius: BorderRadius.zero,
+                ),
+              Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(e.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: AppColors.ink)),
+                    if (when.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(when, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    ],
+                    if (where.isNotEmpty)
+                      Text(where,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    const SizedBox(height: 2),
+                    Text('By: ${e.hostName}', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    const SizedBox(height: 6),
+                    const Text('View event',
                         style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600)),
                   ],
                 ),

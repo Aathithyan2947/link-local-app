@@ -13,6 +13,7 @@ import '../../discovery/presentation/event_detail_screen.dart';
 import '../../discovery/presentation/group_profile_screen.dart';
 import '../../referrals/presentation/referrals_screen.dart';
 import '../../discovery/presentation/service_provider_detail_screen.dart';
+import '../../members/data/members_repository.dart';
 import '../../members/presentation/members_screen.dart';
 import '../../feed/presentation/feed_screen.dart';
 import '../../feed/presentation/post_detail_screen.dart';
@@ -63,6 +64,11 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
   void initState() {
     super.initState();
     _searchCtrl = TextEditingController();
+    // Warm the share sheet's "People near you" (one directory request per session), so tapping
+    // Share on a discussion lists everyone at once instead of filling in seconds later.
+    Future.microtask(() {
+      if (mounted) ref.read(shareRecipientsProvider);
+    });
   }
 
   @override
@@ -257,15 +263,21 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                 _EmptyScopedSection(
                   label: 'No service providers in ${spOverride?.label ?? place} yet.',
                 ),
-              if (discussions.isNotEmpty) ...[
-                _SectionHeader('Community Discussions in',
-                    discussionsOverride?.label ?? place,
-                    dropdown: true, onTap: () => _pickSectionArea(discussionsSectionAreaProvider)),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
-                  child: Text('Ask questions, share updates, and connect with your community',
-                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-                ),
+              // Always shown, like the other sections: hiding it when the picked area had no
+              // posts also hid its area dropdown, so the user couldn't pick another (BUG-089).
+              _SectionHeader('Community Discussions in',
+                  discussionsOverride?.label ?? place,
+                  dropdown: true, onTap: () => _pickSectionArea(discussionsSectionAreaProvider)),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Text('Ask questions, share updates, and connect with your community',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+              ),
+              if (discussions.isEmpty)
+                _EmptyScopedSection(
+                  label: 'No discussions in ${discussionsOverride?.label ?? place} yet.',
+                )
+              else ...[
                 ...discussions.map((d) => DiscussionCard(
                       key: ValueKey('discussion-${d.id}'),
                       item: d,
@@ -479,7 +491,9 @@ class _Header extends StatelessWidget {
                     cursorColor: AppColors.primary,
                     style: const TextStyle(fontSize: 13.5, color: AppColors.textPrimary),
                     decoration: const InputDecoration(
-                      hintText: 'Just Moved in, need help with "Cleaning"',
+                      // Short enough for a 360dp phone, and says what search covers — Discover
+                      // matches services/providers, events and groups (BUG-085).
+                      hintText: 'Search services, events, groups',
                       hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 13),
                       filled: false,
                       isDense: true,
@@ -1038,25 +1052,37 @@ class _GroupsRow extends StatelessWidget {
                               )
                             : const Icon(Icons.groups_rounded, color: AppColors.textSecondary, size: 26),
                       ),
+                      // A person icon + count, so it reads as "members" rather than an unread
+                      // badge (BUG-093).
                       if (g.members > 0)
                         Positioned(
                           top: -4,
-                          right: -4,
-                          child: Container(
-                            constraints: const BoxConstraints(minWidth: 20),
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: AppColors.background, width: 1.5),
+                          right: -6,
+                          child: Semantics(
+                            label: '${g.members} ${g.members == 1 ? 'member' : 'members'}',
+                            excludeSemantics: true,
+                            child: Container(
+                              key: ValueKey('group-members-${g.id}'),
+                              padding: const EdgeInsets.fromLTRB(4, 2, 6, 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: AppColors.background, width: 1.5),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.person, size: 10, color: Colors.white),
+                                  const SizedBox(width: 1),
+                                  Text('${g.members}',
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.w700,
+                                          height: 1.3)),
+                                ],
+                              ),
                             ),
-                            child: Text('${g.members}',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.w700,
-                                    height: 1.3)),
                           ),
                         ),
                     ],

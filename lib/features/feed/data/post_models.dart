@@ -3,6 +3,10 @@ import '../../../core/time/server_time.dart';
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
 /// Post types → human labels for the type chip.
+/// How many lines of a post a list card shows before "…": a long post used to fill the
+/// screen. Tapping the card opens the post with the full text.
+const kPostPreviewLines = 4;
+
 const postTypeLabels = <String, String>{
   'buy_sell': 'Buy / Sell',
   'ask_help': 'Ask for help',

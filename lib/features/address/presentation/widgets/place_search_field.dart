@@ -30,12 +30,16 @@ class PlaceSearchField extends ConsumerStatefulWidget {
     required this.cityId,
     required this.onChanged,
     this.label = 'Location',
+    this.validator,
   });
 
   final TextEditingController controller;
   final int? cityId;
   final ValueChanged<PickedPlace?> onChanged;
   final String label;
+
+  /// Checked with the surrounding Form, like any other field.
+  final FormFieldValidator<String>? validator;
 
   @override
   ConsumerState<PlaceSearchField> createState() => _PlaceSearchFieldState();
@@ -151,9 +155,11 @@ class _PlaceSearchFieldState extends ConsumerState<PlaceSearchField> {
           controller: widget.controller,
           focusNode: _focus,
           onChanged: _onTyped,
+          validator: widget.validator,
           textCapitalization: TextCapitalization.words,
           decoration: InputDecoration(
             labelText: widget.label,
+            errorMaxLines: 2,
             hintText: widget.cityId == null ? null : 'Search a place, or type it',
             suffixIcon: const Icon(Icons.search, color: AppColors.textMuted),
           ),

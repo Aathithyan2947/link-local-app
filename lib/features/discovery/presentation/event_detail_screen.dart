@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/navigation/push_guard.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../feed/presentation/widgets/share_post_sheet.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../../payments/data/payment_charge.dart';
 import '../../payments/presentation/payment_method_screen.dart';
@@ -82,7 +83,11 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tap a star to rate first')));
       return;
     }
-    await _run(() => _repo.rateEvent(widget.id, rating: _stars, review: _review.text), 'Thanks for your review!');
+    await _run(() async {
+      await _repo.rateEvent(widget.id, rating: _stars, review: _review.text);
+      // Profile → My Reviews is cached for the session (BUG-098).
+      ref.invalidate(myReviewsProvider);
+    }, 'Thanks for your review!');
     if (mounted) {
       _review.clear();
       setState(() => _stars = 0);
@@ -101,7 +106,7 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
           color: AppColors.primary,
           onRefresh: () => ref.refresh(eventDetailProvider(widget.id).future),
           child: ListView(
-            padding: const EdgeInsets.only(bottom: 32),
+            padding: EdgeInsets.only(bottom: 32 + MediaQuery.paddingOf(context).bottom),
             children: [
               _hero(e),
               Padding(
@@ -155,7 +160,8 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               _circleBtn(Icons.arrow_back, () => Navigator.of(context).maybePop()),
-              _circleBtn(Icons.share_outlined, () {}),
+              // In-app to chats, like posts (BUG-100; it used to do nothing).
+              _circleBtn(Icons.share_outlined, () => showShareEventSheet(context, eventId: e.id)),
             ],
           ),
         ),
@@ -487,13 +493,15 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
                       Text(e.host.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                       if (e.host.service != null)
                         Text(e.host.service!, style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
-                      if (e.host.location != null)
+                      // The host sees their own saved address, as on My Profile; everyone else the
+                      // neighbourhood and city.
+                      if ((e.isHost ? e.host.fullAddress : null) ?? e.host.location case final where?)
                         Row(children: [
                           const Icon(Icons.location_on, size: 12, color: AppColors.textMuted),
                           const SizedBox(width: 3),
                           Flexible(
-                            child: Text(e.host.location!,
-                                maxLines: 1,
+                            child: Text(where,
+                                maxLines: e.isHost ? 2 : 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
                           ),

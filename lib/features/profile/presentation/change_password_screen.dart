@@ -78,14 +78,7 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
               const SizedBox(height: 20),
               const Text('Enter current password', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
               const SizedBox(height: 8),
-              TextField(
-                controller: _current,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  hintText: 'Enter your current password',
-                  prefixIcon: Icon(Icons.lock_outline),
-                ),
-              ),
+              _PasswordField(controller: _current, hint: 'Enter your current password'),
               const SizedBox(height: 6),
               Align(
                 alignment: Alignment.centerLeft,
@@ -98,17 +91,9 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
               const SizedBox(height: 16),
               const Text('Create new password', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
               const SizedBox(height: 8),
-              TextField(
-                controller: _next,
-                obscureText: true,
-                decoration: const InputDecoration(hintText: 'Enter new password', prefixIcon: Icon(Icons.lock_outline)),
-              ),
+              _PasswordField(controller: _next, hint: 'Enter new password'),
               const SizedBox(height: 12),
-              TextField(
-                controller: _confirm,
-                obscureText: true,
-                decoration: const InputDecoration(hintText: 'Confirm new password', prefixIcon: Icon(Icons.lock_outline)),
-              ),
+              _PasswordField(controller: _confirm, hint: 'Confirm new password'),
               if (_error != null) ...[const SizedBox(height: 16), ErrorBanner(message: _error!)],
               const SizedBox(height: 24),
               SizedBox(
@@ -124,6 +109,37 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Password input with an eye button to show/hide what was typed.
+class _PasswordField extends StatefulWidget {
+  const _PasswordField({required this.controller, required this.hint});
+  final TextEditingController controller;
+  final String hint;
+
+  @override
+  State<_PasswordField> createState() => _PasswordFieldState();
+}
+
+class _PasswordFieldState extends State<_PasswordField> {
+  bool _hidden = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: widget.controller,
+      obscureText: _hidden,
+      decoration: InputDecoration(
+        hintText: widget.hint,
+        prefixIcon: const Icon(Icons.lock_outline),
+        suffixIcon: IconButton(
+          tooltip: _hidden ? 'Show password' : 'Hide password',
+          icon: Icon(_hidden ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+          onPressed: () => setState(() => _hidden = !_hidden),
         ),
       ),
     );

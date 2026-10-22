@@ -164,6 +164,7 @@ class WorkshopItem {
     this.myStatus,
     this.isHost = false,
     this.serverHasStarted,
+    this.serverHasEnded,
     this.createdAt,
   });
   final int id;
@@ -188,6 +189,9 @@ class WorkshopItem {
   /// From the backend, which owns the rule (an event closes when it starts, in India time).
   final bool? serverHasStarted;
 
+  /// From the backend: the event is over (start + duration, or the end of its day).
+  final bool? serverHasEnded;
+
   /// When the event was created (an instant, so local time).
   final DateTime? createdAt;
 
@@ -204,6 +208,25 @@ class WorkshopItem {
     final t = startTime;
     return DateTime(d.year, d.month, d.day, t?.hour ?? 0, t?.minute ?? 0).isBefore(DateTime.now());
   }
+
+  /// Whether the event is over — My Events moves it to Past, marked Closed (BUG-101/102).
+  /// Falls back to the device clock only for a response that predates the backend field:
+  /// start + duration, or the end of the event's day.
+  bool get hasEnded {
+    final fromServer = serverHasEnded;
+    if (fromServer != null) return fromServer;
+    final d = date;
+    if (d == null) return false;
+    final t = startTime;
+    final minutes = durationMinutes;
+    final end = t != null && minutes != null
+        ? DateTime(d.year, d.month, d.day, t.hour, t.minute).add(Duration(minutes: minutes))
+        : DateTime(d.year, d.month, d.day + 1);
+    return !end.isAfter(DateTime.now());
+  }
+
+  /// Started but not over yet.
+  bool get isOngoing => hasStarted && !hasEnded;
 
   /// What a card's action shows, most specific first.
   EventAction get action {
@@ -236,6 +259,7 @@ class WorkshopItem {
       myStatus: j['myStatus'] as String?,
       isHost: j['isHost'] as bool? ?? false,
       serverHasStarted: j['hasStarted'] as bool?,
+      serverHasEnded: j['hasEnded'] as bool?,
       createdAt: parseServerTime(j['createdAt']),
     );
   }

@@ -11,8 +11,12 @@ import 'event_detail_screen.dart';
 import 'widgets/discover_cards.dart';
 import '../../../core/navigation/push_guard.dart';
 
-/// The current user's own events — hosted, joined, and nearby. Reached from
+/// The current user's own events — hosted, joined, past and nearby. Reached from
 /// Profile → Personal → Events.
+///
+/// Hosted and Joined list only events that aren't over (an "Ongoing" chip while one runs);
+/// once over they move to Past Events, marked Closed (BUG-101/102). "Events near you" offers
+/// only events still open to join, not the member's own or ones they're already in.
 class MyEventsScreen extends ConsumerStatefulWidget {
   const MyEventsScreen({super.key});
 
@@ -23,7 +27,22 @@ class MyEventsScreen extends ConsumerStatefulWidget {
 class _MyEventsScreenState extends ConsumerState<MyEventsScreen> {
   bool _hostedExpanded = false;
   bool _joinedExpanded = false;
+  bool _pastExpanded = false;
   bool _nearbyExpanded = false;
+
+  /// Hosted and joined events that are over, most recent first (each once).
+  static List<WorkshopItem> _past(MyEvents m) {
+    final hostedIds = {for (final e in m.hosted) e.id};
+    final past = [
+      ...m.hosted.where((e) => e.hasEnded),
+      ...m.attending.where((e) => e.hasEnded && !hostedIds.contains(e.id)),
+    ];
+    DateTime at(WorkshopItem e) {
+      final d = e.date ?? DateTime(0);
+      return DateTime(d.year, d.month, d.day, e.startTime?.hour ?? 0, e.startTime?.minute ?? 0);
+    }
+    return past..sort((a, b) => at(b).compareTo(at(a)));
+  }
 
   void _openDetail(int id) => context.pushPage(MaterialPageRoute(builder: (_) => EventDetailScreen(id: id)));
 
@@ -64,18 +83,14 @@ class _MyEventsScreenState extends ConsumerState<MyEventsScreen> {
             _Section(
               title: 'Events Hosted',
               async: myEvents,
-              items: (m) => m.hosted,
+              items: (m) => m.hosted.where((e) => !e.hasEnded).toList(),
               expanded: _hostedExpanded,
               onSeeMore: () => setState(() => _hostedExpanded = true),
               cardBuilder: (e) => EventCard(
                 event: e,
                 onTap: () => _openDetail(e.id),
                 trailing: e.hasStarted
-                    ? Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(color: AppColors.field, borderRadius: BorderRadius.circular(8)),
-                        child: const Text('Completed', style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
-                      )
+                    ? const EventStateChip.ongoing()
                     : OutlinedButton.icon(
                         onPressed: () => _edit(e.id),
                         icon: const Icon(Icons.edit_outlined, size: 14),
@@ -93,13 +108,27 @@ class _MyEventsScreenState extends ConsumerState<MyEventsScreen> {
             _Section(
               title: 'Events Joined',
               async: myEvents,
-              items: (m) => m.attending,
+              items: (m) => m.attending.where((e) => !e.hasEnded).toList(),
               expanded: _joinedExpanded,
               onSeeMore: () => setState(() => _joinedExpanded = true),
               cardBuilder: (e) => EventCard(
                 event: e,
                 onTap: () => _openDetail(e.id),
-                trailing: const JoinedBadge(),
+                trailing: e.hasStarted ? const EventStateChip.ongoing() : const JoinedBadge(),
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Still opens the event, so attendees can review it.
+            _Section(
+              title: 'Past Events',
+              async: myEvents,
+              items: _past,
+              expanded: _pastExpanded,
+              onSeeMore: () => setState(() => _pastExpanded = true),
+              cardBuilder: (e) => EventCard(
+                event: e,
+                onTap: () => _openDetail(e.id),
+                trailing: const EventStateChip.closed(),
               ),
             ),
             const SizedBox(height: 20),
@@ -187,7 +216,9 @@ class _NearbySection extends StatelessWidget {
     return async.when(
       loading: () => const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator(color: AppColors.primary))),
       error: (e, _) => Padding(padding: const EdgeInsets.all(16), child: Text('$e')),
-      data: (all) {
+      data: (loaded) {
+        // Only events still open to join: not started, not mine, not already joined or asked.
+        final all = loaded.where((e) => !e.hasStarted && !e.isHost && e.myStatus == null).toList();
         final shown = expanded ? all : all.take(3).toList();
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -206,4 +237,28 @@ class _NearbySection extends StatelessWidget {
       },
     );
   }
+}
+
+/// "Ongoing" (started, not over) or "Closed" (over) on a My Events card.
+class EventStateChip extends StatelessWidget {
+  const EventStateChip.ongoing({super.key}) : closed = false;
+  const EventStateChip.closed({super.key}) : closed = true;
+  final bool closed;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: closed ? AppColors.field : AppColors.primarySurface,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          closed ? 'Closed' : 'Ongoing',
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: closed ? FontWeight.w400 : FontWeight.w600,
+            color: closed ? AppColors.textSecondary : AppColors.primary,
+          ),
+        ),
+      );
 }

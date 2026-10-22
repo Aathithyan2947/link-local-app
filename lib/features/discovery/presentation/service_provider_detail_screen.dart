@@ -188,12 +188,14 @@ List<Widget> _ownerSections(ServiceProviderDetail sp) {
 }
 
 /// A resident's own profile, reusing this same screen's owner-editable pieces but with every
-/// shop-specific block dropped: no Contact info (published business number), Item List,
-/// Work Gallery, Availability & Travel, Delivery Settings, or Payment & Fee/Charges.
+/// shop-specific block dropped: no Item List, Work Gallery, Availability & Travel, Delivery
+/// Settings, or Payment & Fee/Charges. Contact info stays: residents edit their public
+/// Mobile/Email there too, the number neighbours see under Contact Visibility (BUG-068).
 List<Widget> _residentOwnerSections(ServiceProviderDetail sp) {
   return [
     _TopBar(),
     _ProfileHeader(sp: sp, isOwner: true),
+    _Band(child: _ContactInfoBlock(sp: sp)),
     _Band(color: AppColors.surface, child: _AboutBlock(sp: sp, isOwner: true)),
     _EventsBlock(events: sp.events),
     _PostsBlock(posts: sp.posts, userId: sp.userId, name: sp.name),
@@ -425,6 +427,15 @@ class _ProfileHeaderState extends ConsumerState<_ProfileHeader> {
                                   fontWeight: FontWeight.w700, fontSize: 22, color: AppColors.ink)),
                         ),
                         if (!isOwner) RatingBadge(value: sp.ratingAvg),
+                        // A resident's name, birthday and gender (the Profile tab's Edit now
+                        // opens this page instead of that form). Providers edit theirs in
+                        // Basic Details.
+                        if (isOwner && !sp.isServiceProvider)
+                          _EditIconButton(
+                            onTap: () => context.pushPage(
+                              MaterialPageRoute(builder: (_) => const BasicInfoScreen()),
+                            ),
+                          ),
                       ],
                     ),
                     if (sp.service != null) ...[
@@ -439,9 +450,12 @@ class _ProfileHeaderState extends ConsumerState<_ProfileHeader> {
                         children: [
                           const Icon(Icons.location_on, size: 14, color: AppColors.textMuted),
                           const SizedBox(width: 3),
+                          // The owner sees their own saved address — the same one the Profile tab
+                          // card shows. Everyone else sees only the area and city.
                           Flexible(
-                            child: Text(sp.locationLabel ?? 'Add your address',
-                                maxLines: 1,
+                            child: Text(
+                                (isOwner ? sp.fullAddress : null) ?? sp.locationLabel ?? 'Add your address',
+                                maxLines: isOwner ? 2 : 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
                           ),
@@ -2077,6 +2091,9 @@ class _SubmitReviewState extends ConsumerState<_SubmitReview> {
       _controller.clear();
       setState(() => _stars = 0);
       ref.invalidate(serviceProviderDetailProvider(widget.id));
+      // Profile → My Reviews is cached for the session; without this the new review only
+      // appeared after a pull-to-refresh (BUG-098).
+      ref.invalidate(myReviewsProvider);
       await ref.read(serviceProviderDetailProvider(widget.id).future);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Thanks for your review!')));

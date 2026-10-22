@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_scope.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
 
@@ -8,6 +9,7 @@ import '../../../core/network/dio_client.dart';
 class MemberItem {
   const MemberItem({
     required this.profileId,
+    this.userId,
     required this.name,
     this.photoUrl,
     required this.isServiceProvider,
@@ -17,6 +19,7 @@ class MemberItem {
 
   factory MemberItem.fromJson(Map<String, dynamic> j) => MemberItem(
         profileId: (j['profileId'] as num).toInt(),
+        userId: (j['userId'] as num?)?.toInt(),
         name: j['name'] as String? ?? '',
         photoUrl: j['photoUrl'] as String?,
         isServiceProvider: j['isServiceProvider'] as bool? ?? false,
@@ -25,6 +28,9 @@ class MemberItem {
       );
 
   final int profileId;
+
+  /// Their account id — what messages are addressed to (the share sheet sends to members).
+  final int? userId;
   final String name;
   final String? photoUrl;
   final bool isServiceProvider;
@@ -76,3 +82,13 @@ class MembersRepository {
 }
 
 final membersRepositoryProvider = Provider<MembersRepository>((ref) => MembersRepository(ref.watch(dioProvider)));
+
+/// The share sheet's "People near you": the first page of the city directory, fetched once per
+/// session — Home starts it early — so the sheet opens with everyone rather than just recent
+/// chats that fill in seconds later (BUG-061). Pull-to-refresh isn't needed: a share is
+/// addressed to someone the member already knows of.
+final shareRecipientsProvider = FutureProvider<List<MemberItem>>((ref) async {
+  ref.bindToAccount();
+  final page = await ref.watch(membersRepositoryProvider).list(scope: 'city', pageSize: 30);
+  return page.items.where((m) => m.userId != null).toList();
+});

@@ -202,6 +202,13 @@ class _Header extends StatelessWidget {
   final ValueChanged<String> onQuery;
 
   static const _labels = ['All', 'Events', 'Service Providers', 'Groups'];
+  // Says what each tab's search actually matches (BUG-090): see the _filter calls above.
+  static const _hints = [
+    'Search events, services or groups',
+    'Search events, venues or hosts',
+    'Search providers or services',
+    'Search groups or owners',
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -252,11 +259,11 @@ class _Header extends StatelessWidget {
                     style: const TextStyle(fontSize: 15, color: AppColors.ink),
                     // Fully transparent so the whole white pill is the field —
                     // otherwise the global input theme paints a smaller inner box.
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       isCollapsed: true,
                       filled: false,
-                      hintText: 'Search',
-                      hintStyle: TextStyle(color: AppColors.textMuted),
+                      hintText: _hints[activeTab],
+                      hintStyle: const TextStyle(color: AppColors.textMuted),
                       contentPadding: EdgeInsets.zero,
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,

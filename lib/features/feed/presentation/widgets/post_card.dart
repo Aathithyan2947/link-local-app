@@ -133,7 +133,12 @@ class _PostCardState extends ConsumerState<PostCard> {
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
               child: GestureDetector(
                 onTap: widget.onOpen,
-                child: Text(p.text!, style: const TextStyle(fontSize: 14, height: 1.4, color: AppColors.textPrimary)),
+                // In a list (a card that opens the post) only a preview; the post page, which
+                // has no onOpen, shows it all.
+                child: Text(p.text!,
+                    maxLines: widget.onOpen != null ? kPostPreviewLines : null,
+                    overflow: widget.onOpen != null ? TextOverflow.ellipsis : null,
+                    style: const TextStyle(fontSize: 14, height: 1.4, color: AppColors.textPrimary)),
               ),
             ),
           if (p.media.isNotEmpty) ...[

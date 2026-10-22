@@ -47,6 +47,7 @@ class ChatMessage {
     this.entityType,
     this.entityId,
     this.post,
+    this.event,
   });
   final int id;
   final int senderId;
@@ -60,10 +61,19 @@ class ChatMessage {
   /// The shared post, as the chat shows it (null if it no longer exists).
   final SharedPostPreview? post;
 
+  /// The shared event, as the chat shows it (null if it no longer exists).
+  final SharedEventPreview? event;
+
   bool get isSharedPost => entityType == 'post' && entityId != null;
+  bool get isSharedEvent => entityType == 'event' && entityId != null;
+
+  /// The note sent when the sharer didn't write one — the chat shows just the card then.
+  String? get sharePlaceholder =>
+      isSharedPost ? 'Shared a post' : (isSharedEvent ? 'Shared an event' : null);
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) {
     final post = j['post'];
+    final event = j['event'];
     return ChatMessage(
       id: _asInt(j['id']),
       senderId: _asInt(j['senderId']),
@@ -72,8 +82,49 @@ class ChatMessage {
       entityType: j['entityType'] as String?,
       entityId: j['entityId'] == null ? null : _asInt(j['entityId']),
       post: post is Map<String, dynamic> ? SharedPostPreview.fromJson(post) : null,
+      event: event is Map<String, dynamic> ? SharedEventPreview.fromJson(event) : null,
     );
   }
+}
+
+/// What a chat shows of a shared event: title, when and where, and who hosts it.
+class SharedEventPreview {
+  const SharedEventPreview({
+    required this.id,
+    required this.title,
+    this.date,
+    this.startTime,
+    this.mode = 'offline',
+    this.location,
+    this.photoUrl,
+    this.hostName = 'Member',
+    this.isActive = true,
+  });
+  final int id;
+  final String title;
+
+  /// Calendar values (the event's day and wall-clock time), not instants.
+  final DateTime? date;
+  final DateTime? startTime;
+  final String mode;
+  final String? location;
+  final String? photoUrl;
+  final String hostName;
+
+  /// False once the host has removed it.
+  final bool isActive;
+
+  factory SharedEventPreview.fromJson(Map<String, dynamic> j) => SharedEventPreview(
+        id: _asInt(j['id']),
+        title: j['title'] as String? ?? '',
+        date: j['date'] != null ? DateTime.tryParse(j['date'] as String) : null,
+        startTime: j['startTime'] != null ? DateTime.tryParse(j['startTime'] as String) : null,
+        mode: j['mode'] as String? ?? 'offline',
+        location: j['location'] as String?,
+        photoUrl: j['photoUrl'] as String?,
+        hostName: j['hostName'] as String? ?? 'Member',
+        isActive: j['isActive'] != false,
+      );
 }
 
 /// What a chat shows of a shared post: its author, text and first photo.

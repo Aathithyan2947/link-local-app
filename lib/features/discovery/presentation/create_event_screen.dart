@@ -8,7 +8,9 @@ import 'package:intl/intl.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/media/image_editor.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/validation/content_limits.dart';
 import '../../../core/widgets/input_formatters.dart';
 import '../../address/presentation/widgets/place_search_field.dart';
 import '../../profile/data/profile_repository.dart';
@@ -50,6 +52,11 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   XFile? _image;
   String? _existingPhotoUrl;
   bool _submitting = false;
+  /// The server's rejection of a field, shown under it until that field is edited.
+  Map<String, String> _serverErrors = const {};
+  // Date and time are pickers, not text fields, so their messages are kept here.
+  String? _dateError;
+  String? _timeError;
 
   @override
   void initState() {
@@ -63,7 +70,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
       _place = PickedPlace(latitude: e.latitude!, longitude: e.longitude!, googlePlaceId: e.googlePlaceId);
     }
     _onlineLink.text = e.onlineLink ?? '';
-    _price.text = e.price != null ? e.price!.toStringAsFixed(0) : '';
+    _price.text = e.price != null ? ContentLimits.priceText(e.price!) : '';
     _maxAttendees.text = e.maxAttendees?.toString() ?? '';
     _duration.text = e.durationMinutes?.toString() ?? '60';
     _date = e.date;
@@ -98,12 +105,34 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
     setState(() => _image = XFile(path));
   }
 
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_date == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a date')));
-      return;
+  /// The picked date + time, as a local instant (the host is in the event's city).
+  DateTime? get _startsAt => _date == null || _time == null
+      ? null
+      : DateTime(_date!.year, _date!.month, _date!.day, _time!.hour, _time!.minute);
+
+  /// Only a new or rescheduled event has to start in the future — the server says the same, so
+  /// editing the description of an event that has started still saves.
+  bool get _startsInPast {
+    final at = _startsAt;
+    if (at == null) return false;
+    final e = widget.event;
+    if (e != null && e.date != null && e.startTime != null) {
+      final was = DateTime(e.date!.year, e.date!.month, e.date!.day, e.startTime!.hour, e.startTime!.minute);
+      if (was == at) return false;
     }
+    return !at.isAfter(DateTime.now());
+  }
+
+  Future<void> _submit() async {
+    setState(() {
+      _serverErrors = const {};
+      _dateError = _date == null ? 'Pick a date' : null;
+      _timeError = _time == null
+          ? 'Pick a start time'
+          : (_startsInPast ? 'Start time must be in the future' : null);
+    });
+    final formOk = _formKey.currentState!.validate();
+    if (!formOk || _dateError != null || _timeError != null) return;
     setState(() => _submitting = true);
     try {
       final repo = ref.read(discoveryRepositoryProvider);
@@ -116,7 +145,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
         if (_description.text.trim().isNotEmpty) 'description': _description.text.trim(),
         'photoUrl': ?photoUrl,
         'date': _date!.toIso8601String(),
-        if (_time != null) 'startTime': '${_time!.hour.toString().padLeft(2, '0')}:${_time!.minute.toString().padLeft(2, '0')}',
+        'startTime': '${_time!.hour.toString().padLeft(2, '0')}:${_time!.minute.toString().padLeft(2, '0')}',
         if (_duration.text.trim().isNotEmpty) 'durationMinutes': int.tryParse(_duration.text.trim()),
         'mode': _mode,
         if (_mode == 'offline' && _location.text.trim().isNotEmpty) 'location': _location.text.trim(),
@@ -150,13 +179,32 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
           MaterialPageRoute(builder: (_) => EventDetailScreen(id: id)),
         );
       }
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(widget.isEdit ? 'Could not save event' : 'Could not create event')));
+      _showSubmitError(e);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  /// A rejected field goes under that field; anything else says what the server said, not a
+  /// generic "Could not create event" (BUG-074).
+  void _showSubmitError(Object e) {
+    final err = ApiException.from(e);
+    final fields = err.fieldErrors;
+    if (fields.isNotEmpty) {
+      setState(() {
+        _serverErrors = fields;
+        _dateError = fields['date'];
+        _timeError = fields['startTime'];
+      });
+      _formKey.currentState!.validate();
+      return;
+    }
+    final fallback = widget.isEdit ? 'Could not save event' : 'Could not create event';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(err.message == 'Something went wrong' ? fallback : err.message)),
+    );
   }
 
   @override
@@ -166,14 +214,20 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
       appBar: AppBar(title: Text(widget.isEdit ? 'Edit Event' : 'Host an Event')),
       body: Form(
         key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
             _imagePicker(),
             const SizedBox(height: 16),
-            _field(_title, 'Event title', required: true),
+            // Same rules and counters as Start a Group's name and description.
+            _field(_title, 'Event title', serverKey: 'title',
+                maxLength: ContentLimits.titleMax,
+                formatters: [ContentLimits.titleInputFormatter],
+                validator: (v) => ContentLimits.titleError('Event title', v)),
             const SizedBox(height: 12),
-            _field(_description, 'Description', maxLines: 3),
+            _field(_description, 'Description', serverKey: 'description', maxLines: 3,
+                maxLength: ContentLimits.description, validator: ContentLimits.descriptionError),
             const SizedBox(height: 12),
             Row(children: [
               Expanded(child: _dateField()),
@@ -181,7 +235,8 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               Expanded(child: _timeField()),
             ]),
             const SizedBox(height: 12),
-            _field(_duration, 'Duration (minutes)', keyboard: TextInputType.number, formatters: kIntegerInput),
+            _field(_duration, 'Duration (minutes)', serverKey: 'durationMinutes',
+                keyboard: TextInputType.number, formatters: kIntegerInput, validator: ContentLimits.durationError),
             const SizedBox(height: 16),
             _modeSelector(),
             const SizedBox(height: 12),
@@ -190,10 +245,17 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
                 controller: _location,
                 // Suggestions come from the host's own city.
                 cityId: ref.watch(myProfileProvider).asData?.value.cityId,
-                onChanged: (p) => _place = p,
+                onChanged: (p) {
+                  _place = p;
+                  if (_serverErrors.containsKey('location')) {
+                    setState(() => _serverErrors = {..._serverErrors}..remove('location'));
+                  }
+                },
+                validator: (v) => _serverErrors['location'] ?? ContentLimits.locationError(v ?? ''),
               )
             else
-              _field(_onlineLink, 'Online link'),
+              _field(_onlineLink, 'Online link', serverKey: 'onlineLink', keyboard: TextInputType.url,
+                  validator: ContentLimits.onlineLinkError),
             const SizedBox(height: 16),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
@@ -202,18 +264,25 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               value: _isPaid,
               onChanged: (v) => setState(() => _isPaid = v),
             ),
-            if (_isPaid) _field(_price, 'Price (₹)', keyboard: kDecimalKeyboard, formatters: kDecimalInput),
+            if (_isPaid)
+              _field(_price, 'Price (₹)', serverKey: 'price', keyboard: kDecimalKeyboard, formatters: kDecimalInput,
+                  validator: (v) => ContentLimits.priceError(v, what: 'event')),
             const SizedBox(height: 12),
-            _field(_maxAttendees, 'Max attendees (optional)', keyboard: TextInputType.number, formatters: kIntegerInput),
+            _field(_maxAttendees, 'Max attendees (optional)', serverKey: 'maxAttendees',
+                keyboard: TextInputType.number, formatters: kIntegerInput, validator: ContentLimits.maxAttendeesError),
             const SizedBox(height: 20),
             const Text('What to bring / Guidelines', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
             const SizedBox(height: 8),
             ..._materials.asMap().entries.map((e) => _materialRow(e.key)),
-            TextButton.icon(
-              onPressed: () => setState(() => _materials.add(TextEditingController())),
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Add item'),
-            ),
+            if (_serverErrors['rawMaterials'] case final msg?)
+              Text(msg, style: const TextStyle(color: AppColors.error, fontSize: 12)),
+            // At most 20 items, the server's limit too.
+            if (_materials.length < ContentLimits.materialItems)
+              TextButton.icon(
+                onPressed: () => setState(() => _materials.add(TextEditingController())),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add item'),
+              ),
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: _submitting ? null : _submit,
@@ -256,15 +325,29 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
         ),
       );
 
+  /// A form field whose message comes from [validator] (the shared ContentLimits rules), or
+  /// from the server for [serverKey] until the field is edited again.
   Widget _field(TextEditingController c, String label,
-      {bool required = false, int maxLines = 1, TextInputType? keyboard, List<TextInputFormatter>? formatters}) {
+      {required String serverKey,
+      required String? Function(String) validator,
+      int maxLines = 1,
+      int? maxLength,
+      TextInputType? keyboard,
+      List<TextInputFormatter>? formatters}) {
     return TextFormField(
       controller: c,
       maxLines: maxLines,
+      // With a limit, the field shows "12/80" under it and stops at the limit (BUG-071).
+      maxLength: maxLength,
       keyboardType: keyboard,
       inputFormatters: formatters,
-      decoration: InputDecoration(labelText: label),
-      validator: required ? (v) => (v == null || v.trim().isEmpty) ? 'Required' : null : null,
+      decoration: InputDecoration(labelText: label, errorMaxLines: 3),
+      onChanged: (_) {
+        if (_serverErrors.containsKey(serverKey)) {
+          setState(() => _serverErrors = {..._serverErrors}..remove(serverKey));
+        }
+      },
+      validator: (v) => _serverErrors[serverKey] ?? validator(v ?? ''),
     );
   }
 
@@ -277,10 +360,16 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
             firstDate: now,
             lastDate: now.add(const Duration(days: 365)),
           );
-          if (picked != null) setState(() => _date = picked);
+          if (picked != null) {
+            setState(() {
+              _date = picked;
+              _dateError = null;
+              if (_timeError == 'Start time must be in the future') _timeError = null;
+            });
+          }
         },
         child: InputDecorator(
-          decoration: const InputDecoration(labelText: 'Date'),
+          decoration: InputDecoration(labelText: 'Date', errorText: _dateError, errorMaxLines: 2),
           child: Text(_date != null ? DateFormat('EEE, MMM d').format(_date!) : 'Select',
               style: TextStyle(color: _date != null ? AppColors.textPrimary : AppColors.textMuted)),
         ),
@@ -289,10 +378,15 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   Widget _timeField() => InkWell(
         onTap: () async {
           final picked = await showTimePicker(context: context, initialTime: _time ?? TimeOfDay.now());
-          if (picked != null) setState(() => _time = picked);
+          if (picked != null) {
+            setState(() {
+              _time = picked;
+              _timeError = null;
+            });
+          }
         },
         child: InputDecorator(
-          decoration: const InputDecoration(labelText: 'Start time'),
+          decoration: InputDecoration(labelText: 'Start time', errorText: _timeError, errorMaxLines: 2),
           child: Text(_time != null ? _time!.format(context) : 'Select',
               style: TextStyle(color: _time != null ? AppColors.textPrimary : AppColors.textMuted)),
         ),
@@ -323,9 +417,10 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
         child: Row(
           children: [
             Expanded(
-              child: TextField(
+              child: TextFormField(
                 controller: _materials[i],
-                decoration: const InputDecoration(hintText: 'e.g. Yoga mat', isDense: true),
+                decoration: const InputDecoration(hintText: 'e.g. Yoga mat', isDense: true, errorMaxLines: 2),
+                validator: (v) => ContentLimits.materialError(v ?? ''),
               ),
             ),
             if (_materials.length > 1)

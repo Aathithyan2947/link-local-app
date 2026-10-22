@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/network/api_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/validation/name_rules.dart';
 import '../../../core/widgets/auth_header.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/primary_button.dart';
@@ -27,6 +29,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _confirm = TextEditingController();
   bool _loading = false;
   String? _error;
+  // Shown under the Name field (BUG-064/065), not in the banner.
+  String? _nameError;
 
   @override
   void dispose() {
@@ -38,10 +42,30 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     super.dispose();
   }
 
+  /// Validates the name and shows any problem under the field. True when it's fine.
+  bool _checkName() {
+    final error = NameRules.error(_name.text);
+    setState(() => _nameError = error);
+    return error == null;
+  }
+
+  /// A server rejection of the name goes under the Name field; anything else to the banner.
+  void _showError(Object e) {
+    final nameMsg = e is ApiException ? e.fieldError('name') : null;
+    setState(() {
+      if (nameMsg != null) {
+        _nameError = nameMsg;
+      } else {
+        _error = e.toString();
+      }
+    });
+  }
+
   Future<void> _sendOtp() async {
     final phone = _phone.text.trim();
-    if (_name.text.trim().isEmpty || phone.isEmpty) {
-      setState(() => _error = 'Enter your name and phone number');
+    if (!_checkName()) return;
+    if (phone.isEmpty) {
+      setState(() => _error = 'Enter your mobile number');
       return;
     }
     if (!RegExp(r'^[0-9]{10}$').hasMatch(phone)) {
@@ -63,7 +87,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             extra: OtpArgs(mobile: phone, name: _name.text.trim(), purpose: 'registration', devOtp: devOtp));
       }
     } catch (e) {
-      setState(() => _error = e.toString());
+      _showError(e);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -82,10 +106,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   }
 
   Future<void> _registerEmail() async {
-    if (_name.text.trim().isEmpty) {
-      setState(() => _error = 'Enter your name');
-      return;
-    }
+    if (!_checkName()) return;
     if (!_emailRe.hasMatch(_email.text.trim())) {
       setState(() => _error = 'Please enter a valid email address');
       return;
@@ -112,7 +133,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           );
       // Router redirect handles navigation.
     } catch (e) {
-      setState(() => _error = e.toString());
+      _showError(e);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -137,6 +158,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     onChanged: (i) => setState(() {
                       _tab = i;
                       _error = null;
+                      _nameError = null;
                     }),
                     tabs: const ['Mobile no.', 'Email'],
                   ),
@@ -163,12 +185,27 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     );
   }
 
+  Widget _nameField() => PillField(
+        controller: _name,
+        hint: 'Enter your Full Name',
+        icon: Icons.person_outline,
+        errorText: _nameError,
+        // Typing (or pasting) stops at 100 characters (BUG-064), and digits and symbols are
+        // dropped as typed; the remaining rules are checked on submit.
+        maxLength: NameRules.max,
+        inputFormatters: [NameRules.inputFormatter],
+        textCapitalization: TextCapitalization.words,
+        onChanged: (_) {
+          if (_nameError != null) setState(() => _nameError = null);
+        },
+      );
+
   List<Widget> _mobileForm() => [
-        PillField(controller: _name, hint: 'Full Name', icon: Icons.person_outline),
+        _nameField(),
         const SizedBox(height: 16),
         PillField(
           controller: _phone,
-          hint: 'Enter your 10-digit Phone No.',
+          hint: 'Enter your 10-digit Mobile No.',
           icon: Icons.phone_outlined,
           keyboardType: TextInputType.phone,
           maxLength: 10,
@@ -177,7 +214,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       ];
 
   List<Widget> _emailForm() => [
-        PillField(controller: _name, hint: 'Enter your Full Name', icon: Icons.person_outline),
+        _nameField(),
         const SizedBox(height: 16),
         PillField(controller: _email, hint: 'Enter your Email', icon: Icons.mail_outline, keyboardType: TextInputType.emailAddress),
         const SizedBox(height: 20),

@@ -11,6 +11,7 @@ import 'package:link_local/features/feed/data/feed_repository.dart';
 import 'package:link_local/features/feed/data/post_models.dart';
 import 'package:link_local/features/feed/presentation/post_detail_screen.dart';
 import 'package:link_local/features/feed/presentation/widgets/post_card.dart';
+import 'package:link_local/features/members/data/members_repository.dart';
 import 'package:link_local/features/messages/data/message_models.dart';
 import 'package:link_local/features/messages/data/messages_repository.dart';
 import 'package:link_local/features/messages/presentation/chat_screen.dart';
@@ -34,10 +35,10 @@ class _Messages implements MessagesRepository {
   final sent = <({int to, String content, String? entityType, int? entityId})>[];
   final refuse = <int, String>{};
   bool broken = false;
+  List<Conversation> chats = [_chat(7, 'Priya'), _chat(8, 'Ravi'), _chat(9, 'Meena')];
 
   @override
-  Future<List<Conversation>> conversations() async =>
-      [_chat(7, 'Priya'), _chat(8, 'Ravi'), _chat(9, 'Meena')];
+  Future<List<Conversation>> conversations() async => chats;
 
   @override
   Future<void> send({
@@ -64,6 +65,30 @@ class _Messages implements MessagesRepository {
   dynamic noSuchMethod(Invocation i) => throw UnimplementedError('${i.memberName}');
 }
 
+/// The neighbourhood directory on a fake server, searched by name like the real one.
+class _Members implements MembersRepository {
+  List<MemberItem> people = const [];
+
+  /// When set, the directory answers only once this completes (a slow server).
+  Completer<void>? slow;
+  int calls = 0;
+
+  @override
+  Future<MembersPage> list({required String scope, int? areaId, String? q, int page = 1, int pageSize = 30}) async {
+    calls++;
+    await slow?.future;
+    final query = (q ?? '').toLowerCase();
+    final hits = people.where((m) => m.name.toLowerCase().contains(query)).toList();
+    return MembersPage(items: hits, total: hits.length);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation i) => throw UnimplementedError('${i.memberName}');
+}
+
+MemberItem _person(int userId, String name) =>
+    MemberItem(profileId: userId + 100, userId: userId, name: name, isServiceProvider: false, areaName: 'Pai Nagar');
+
 class _Feed implements FeedRepository {
   final shares = <(int, String)>[];
 
@@ -85,13 +110,19 @@ final _post = PostItem.fromJson({
   '_count': {'shares': 0},
 });
 
-Future<(_Messages, _Feed)> _openCard(WidgetTester tester, {void Function(_Messages)? setUp}) async {
+Future<(_Messages, _Feed)> _openCard(
+  WidgetTester tester, {
+  void Function(_Messages)? setUp,
+  List<MemberItem> people = const [],
+  _Members? members,
+}) async {
   tester.view.physicalSize = const Size(1170, 2532);
   tester.view.devicePixelRatio = 3;
   addTearDown(tester.view.reset);
   final messages = _Messages();
   setUp?.call(messages);
   final feed = _Feed();
+  members ??= _Members()..people = people;
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -99,6 +130,7 @@ Future<(_Messages, _Feed)> _openCard(WidgetTester tester, {void Function(_Messag
         authControllerProvider.overrideWith(_SignedOut.new),
         messagesRepositoryProvider.overrideWithValue(messages),
         feedRepositoryProvider.overrideWithValue(feed),
+        membersRepositoryProvider.overrideWithValue(members),
       ],
       child: MaterialApp(
         theme: AppTheme.light,
@@ -189,6 +221,88 @@ void main() {
     expect(feed.shares, isEmpty);
     expect(find.text('Could not share'), findsOneWidget);
     expect(find.text('Send to'), findsOneWidget);
+  });
+
+  group('BUG-061: sharing with no chats yet', () {
+    testWidgets('neighbours from the directory are listed and can be sent to', (tester) async {
+      final (messages, feed) = await _openCard(
+        tester,
+        setUp: (m) => m.chats = [],
+        people: [_person(21, 'Asha'), _person(22, 'Kiran')],
+      );
+      await _openSheet(tester);
+
+      expect(find.text('People near you'), findsOneWidget);
+      expect(find.text('Asha'), findsOneWidget);
+      expect(find.text('Kiran'), findsOneWidget);
+      await tester.tap(find.text('Asha'));
+      await tester.pump();
+      await tester.tap(find.text('Send'));
+      await tester.pumpAndSettle();
+
+      expect(messages.sent.single.to, 21, reason: "addressed to the member's account id");
+      expect(feed.shares, hasLength(1));
+      expect(find.text('Sent to Asha'), findsOneWidget);
+    });
+
+    testWidgets('someone I already chat with is listed once, under Recent chats', (tester) async {
+      await _openCard(tester, people: [_person(7, 'Priya'), _person(21, 'Asha')]);
+      await _openSheet(tester);
+      expect(find.text('Recent chats'), findsOneWidget);
+      expect(find.text('People near you'), findsOneWidget);
+      expect(find.text('Priya'), findsOneWidget);
+      expect(find.text('Asha'), findsOneWidget);
+    });
+
+    testWidgets('searching finds directory members by name', (tester) async {
+      await _openCard(tester, setUp: (m) => m.chats = [], people: [_person(21, 'Asha'), _person(22, 'Kiran')]);
+      await _openSheet(tester);
+      await tester.enterText(find.widgetWithText(TextField, 'Search'), 'kir');
+      await tester.pump(const Duration(milliseconds: 400)); // the search waits for typing to pause
+      await tester.pumpAndSettle();
+      expect(find.text('Kiran'), findsOneWidget);
+      expect(find.text('Asha'), findsNothing);
+    });
+
+    testWidgets("while the directory loads, the chats show with a note that more are coming", (tester) async {
+      final members = _Members()
+        ..people = [_person(21, 'Asha')]
+        ..slow = Completer<void>();
+      await _openCard(tester, members: members);
+      // Not pumpAndSettle: the "finding people" spinner keeps animating until the directory answers.
+      await tester.tap(find.byIcon(Icons.share_outlined));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.text('Priya'), findsOneWidget);
+      expect(find.text('Finding people near you…'), findsOneWidget,
+          reason: 'two chats alone looked like the whole list');
+      expect(find.text('Asha'), findsNothing);
+
+      members.slow!.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('Finding people near you…'), findsNothing);
+      expect(find.text('Asha'), findsOneWidget, reason: 'appears without having to tap anything');
+    });
+
+    testWidgets('the directory is fetched once per session, not on every open', (tester) async {
+      final members = _Members()..people = [_person(21, 'Asha')];
+      await _openCard(tester, members: members);
+      await _openSheet(tester);
+      expect(find.text('Asha'), findsOneWidget);
+      Navigator.of(tester.element(find.text('Send to'))).pop();
+      await tester.pumpAndSettle();
+
+      await _openSheet(tester);
+      expect(find.text('Asha'), findsOneWidget, reason: 'there straight away the second time');
+      expect(members.calls, 1);
+    });
+
+    testWidgets('nobody at all says so instead of a blank sheet', (tester) async {
+      await _openCard(tester, setUp: (m) => m.chats = []);
+      await _openSheet(tester);
+      expect(find.text('No one to share with yet.'), findsOneWidget);
+    });
   });
 
   group('in the chat', () {

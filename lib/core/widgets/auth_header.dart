@@ -110,8 +110,10 @@ class AuthSegmentedTabs extends StatelessWidget {
   }
 }
 
-/// Pill input with a leading icon (matches the rounded Figma fields).
-class PillField extends StatelessWidget {
+/// Pill input with a leading icon (matches the rounded Figma fields). A password field
+/// (`obscure`) gets an eye button that shows/hides what was typed; `errorText` shows a
+/// message under the field.
+class PillField extends StatefulWidget {
   const PillField({
     super.key,
     required this.controller,
@@ -122,6 +124,9 @@ class PillField extends StatelessWidget {
     this.maxLength,
     this.inputFormatters,
     this.enabled = true,
+    this.errorText,
+    this.onChanged,
+    this.textCapitalization = TextCapitalization.none,
   });
   final TextEditingController controller;
   final String hint;
@@ -131,33 +136,58 @@ class PillField extends StatelessWidget {
   final TextInputType? keyboardType;
   final int? maxLength;
   final List<TextInputFormatter>? inputFormatters;
+  final String? errorText;
+  final ValueChanged<String>? onChanged;
+  final TextCapitalization textCapitalization;
+
+  @override
+  State<PillField> createState() => _PillFieldState();
+}
+
+class _PillFieldState extends State<PillField> {
+  bool _hidden = true;
+
+  OutlineInputBorder _border(Color color, [double width = 1]) => OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: color, width: width),
+      );
 
   @override
   Widget build(BuildContext context) {
     return TextField(
-      controller: controller,
-      enabled: enabled,
-      obscureText: obscure,
-      keyboardType: keyboardType,
-      maxLength: maxLength,
-      inputFormatters: inputFormatters,
-      buildCounter: maxLength == null
+      controller: widget.controller,
+      enabled: widget.enabled,
+      obscureText: widget.obscure && _hidden,
+      keyboardType: widget.keyboardType,
+      maxLength: widget.maxLength,
+      inputFormatters: widget.inputFormatters,
+      onChanged: widget.onChanged,
+      textCapitalization: widget.textCapitalization,
+      buildCounter: widget.maxLength == null
           ? null
           : (_, {required currentLength, required isFocused, maxLength}) => null,
       decoration: InputDecoration(
-        hintText: hint,
-        prefixIcon: icon != null ? Icon(icon, color: AppColors.textSecondary) : null,
+        hintText: widget.hint,
+        errorText: widget.errorText,
+        errorMaxLines: 2,
+        prefixIcon: widget.icon != null ? Icon(widget.icon, color: AppColors.textSecondary) : null,
+        suffixIcon: widget.obscure
+            ? IconButton(
+                tooltip: _hidden ? 'Show password' : 'Hide password',
+                icon: Icon(
+                  _hidden ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                  color: AppColors.textSecondary,
+                ),
+                onPressed: () => setState(() => _hidden = !_hidden),
+              )
+            : null,
         filled: true,
         fillColor: AppColors.surface,
         contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.border),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.primary, width: 1.6),
-        ),
+        enabledBorder: _border(AppColors.border),
+        focusedBorder: _border(AppColors.primary, 1.6),
+        errorBorder: _border(AppColors.error),
+        focusedErrorBorder: _border(AppColors.error, 1.6),
       ),
     );
   }

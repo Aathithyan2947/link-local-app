@@ -24,7 +24,6 @@ import '../../../profile/presentation/contact_visibility_screen.dart';
 import '../../../profile/presentation/login_security_screen.dart';
 import '../../../profile/presentation/notification_settings_screen.dart';
 import '../../../profile/presentation/profile_visibility_screen.dart';
-import '../../../profile/presentation/sections/basic_sections.dart';
 import '../../../referrals/presentation/referrals_screen.dart';
 import '../widgets/home_widgets.dart';
 import '../../../../core/navigation/push_guard.dart';
@@ -38,9 +37,10 @@ String? _roleLabel(ProfileDetail? profile) {
   return null;
 }
 
-/// The member's own profile — same destination for the card's Edit button and the "My
-/// Profile" menu item below it, so both do the same job. `ServiceProviderDetailScreen`
-/// itself trims down to the resident-appropriate sections when the owner isn't an SP.
+/// The member's own profile — the destination of both the card's Edit button and the "My
+/// Profile" menu item below it, for residents and providers alike (BUG-068: a resident's Edit
+/// used to open the bare Basic Info form). `ServiceProviderDetailScreen` itself trims down to
+/// the resident-appropriate sections, with a pencil by the name for name, birthday and gender.
 void _openMyProfile(BuildContext context, WidgetRef ref) {
   final myId = ref.read(myProfileProvider).asData?.value.id;
   if (myId == null) return;
@@ -83,25 +83,24 @@ class ProfileTab extends ConsumerWidget {
               _MenuItem(Icons.event_busy_outlined, 'Off days',
                   () => context.pushPage(MaterialPageRoute(builder: (_) => const BlackoutDatesScreen()))),
           ];
+    // The public contact the member edits on My Profile, else their sign-in one.
+    final phone = profile?.servicePhone?.trim().isNotEmpty == true ? profile!.servicePhone : user?.mobile;
+    final email = profile?.serviceEmail?.trim().isNotEmpty == true ? profile!.serviceEmail : user?.email;
     return Scaffold(
       backgroundColor: AppColors.primarySurface,
       body: ListView(
-        padding: const EdgeInsets.only(bottom: 32),
+        // Plus the system bottom inset: on edge-to-edge Android the Log Out button otherwise
+        // ends up under the navigation bar (BUG-062).
+        padding: EdgeInsets.only(bottom: 32 + MediaQuery.paddingOf(context).bottom),
         children: [
           _ProfileCard(
             name: user?.name ?? 'Member',
             role: _roleLabel(profile),
             address: profile?.address ?? user?.city,
-            email: user?.email,
-            phone: user?.mobile,
+            email: email,
+            phone: phone,
             photoUrl: user?.photoUrl,
-            onEdit: () {
-              if (user?.isServiceProvider == true) {
-                _openMyProfile(context, ref);
-              } else {
-                context.pushPage(MaterialPageRoute(builder: (_) => const BasicInfoScreen()));
-              }
-            },
+            onEdit: () => _openMyProfile(context, ref),
           ),
           // One card holding both, per the design. My Shop used to carry a mint fill of its own,
           // which read as a highlighted state it never actually had.

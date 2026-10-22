@@ -7,7 +7,9 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/media/image_editor.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/validation/content_limits.dart';
 import '../../../core/widgets/input_formatters.dart';
 import '../data/group_detail_models.dart';
 import '../discovery_repository.dart';
@@ -39,6 +41,8 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   XFile? _image;
   String? _existingPhotoUrl;
   bool _submitting = false;
+  /// The server's rejection of a field, shown under it until that field is edited.
+  Map<String, String> _serverErrors = const {};
 
   @override
   void initState() {
@@ -47,7 +51,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     if (g == null) return;
     _title.text = g.title;
     _description.text = g.description ?? '';
-    _price.text = g.price != null ? g.price!.toStringAsFixed(0) : '';
+    _price.text = g.price != null ? ContentLimits.priceText(g.price!) : '';
     _maxMembers.text = g.maxMembers?.toString() ?? '';
     _isPrivate = g.isPrivate;
     _isPaid = g.isPaid;
@@ -76,6 +80,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   }
 
   Future<void> _submit() async {
+    setState(() => _serverErrors = const {});
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {
@@ -111,13 +116,28 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           MaterialPageRoute(builder: (_) => GroupProfileScreen(id: id)),
         );
       }
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(widget.isEdit ? 'Could not save group' : 'Could not create group')));
+      _showSubmitError(e);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  /// A rejected field goes under that field; anything else says what the server said, not a
+  /// generic "Could not create group" (BUG-072).
+  void _showSubmitError(Object e) {
+    final err = ApiException.from(e);
+    final fields = err.fieldErrors;
+    if (fields.isNotEmpty) {
+      setState(() => _serverErrors = fields);
+      _formKey.currentState!.validate();
+      return;
+    }
+    final fallback = widget.isEdit ? 'Could not save group' : 'Could not create group';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(err.message == 'Something went wrong' ? fallback : err.message)),
+    );
   }
 
   @override
@@ -127,16 +147,22 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       appBar: AppBar(title: Text(widget.isEdit ? 'Edit Group' : 'Start a Group')),
       body: Form(
         key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
             _imagePicker(),
             const SizedBox(height: 16),
-            _field(_title, 'Group name', required: true),
+            _field(_title, 'Group name', serverKey: 'title',
+                maxLength: ContentLimits.titleMax,
+                formatters: [ContentLimits.titleInputFormatter],
+                validator: (v) => ContentLimits.titleError('Group name', v)),
             const SizedBox(height: 12),
-            _field(_description, 'Description / guidelines', maxLines: 4),
+            _field(_description, 'Description / guidelines', serverKey: 'description', maxLines: 4,
+                maxLength: ContentLimits.description, validator: ContentLimits.descriptionError),
             const SizedBox(height: 12),
-            _field(_maxMembers, 'Max members (optional)', keyboard: TextInputType.number, formatters: kIntegerInput),
+            _field(_maxMembers, 'Max members (optional)', serverKey: 'maxMembers',
+                keyboard: TextInputType.number, formatters: kIntegerInput, validator: ContentLimits.maxMembersError),
             const SizedBox(height: 8),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
@@ -161,7 +187,9 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
               value: _isPaid,
               onChanged: (v) => setState(() => _isPaid = v),
             ),
-            if (_isPaid) _field(_price, 'Price (₹)', keyboard: kDecimalKeyboard, formatters: kDecimalInput),
+            if (_isPaid)
+              _field(_price, 'Price (₹)', serverKey: 'price', keyboard: kDecimalKeyboard, formatters: kDecimalInput,
+                  validator: (v) => ContentLimits.priceError(v, what: 'group')),
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed: _submitting ? null : _submit,
@@ -204,14 +232,29 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         ),
       );
 
-  Widget _field(TextEditingController c, String label, {bool required = false, int maxLines = 1, TextInputType? keyboard, List<TextInputFormatter>? formatters}) {
+  /// A form field whose message comes from [validator] (the shared ContentLimits rules), or
+  /// from the server for [serverKey] until the field is edited again.
+  Widget _field(TextEditingController c, String label,
+      {required String serverKey,
+      required String? Function(String) validator,
+      int maxLines = 1,
+      int? maxLength,
+      TextInputType? keyboard,
+      List<TextInputFormatter>? formatters}) {
     return TextFormField(
       controller: c,
       maxLines: maxLines,
+      // With a limit, the field shows "12/80" under it and stops at the limit (BUG-071).
+      maxLength: maxLength,
       keyboardType: keyboard,
       inputFormatters: formatters,
-      decoration: InputDecoration(labelText: label),
-      validator: required ? (v) => (v == null || v.trim().isEmpty) ? 'Required' : null : null,
+      decoration: InputDecoration(labelText: label, errorMaxLines: 3),
+      onChanged: (_) {
+        if (_serverErrors.containsKey(serverKey)) {
+          setState(() => _serverErrors = {..._serverErrors}..remove(serverKey));
+        }
+      },
+      validator: (v) => _serverErrors[serverKey] ?? validator(v ?? ''),
     );
   }
 }

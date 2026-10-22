@@ -32,12 +32,17 @@ class EventReview {
 
 /// The event's host (creator profile summary).
 class EventHost {
-  const EventHost({required this.name, this.photoUrl, this.aboutMe, this.service, this.location});
+  const EventHost({required this.name, this.photoUrl, this.aboutMe, this.service, this.location, this.fullAddress});
   final String name;
   final String? photoUrl;
   final String? aboutMe;
   final String? service;
+
+  /// Neighbourhood and city — what everyone sees.
   final String? location;
+
+  /// The host's own saved address; the API sends it only when the viewer is the host.
+  final String? fullAddress;
 
   factory EventHost.fromJson(Map<String, dynamic>? creator) {
     final profile = creator?['profile'] as Map<String, dynamic>?;
@@ -45,7 +50,8 @@ class EventHost {
     final service = serviceTypes.isNotEmpty
         ? (serviceTypes.first['subcategory']?['name'] as String?)
         : null;
-    final area = (profile?['address'] as Map<String, dynamic>?)?['area'] as Map<String, dynamic>?;
+    final address = profile?['address'] as Map<String, dynamic>?;
+    final area = address?['area'] as Map<String, dynamic>?;
     final city = area?['city'] as Map<String, dynamic>?;
     final parts = <String>[
       if ((area?['areaName'] as String?)?.isNotEmpty == true) area!['areaName'] as String,
@@ -57,6 +63,9 @@ class EventHost {
       aboutMe: profile?['aboutMe'] as String?,
       service: service,
       location: parts.isEmpty ? null : parts.join(', '),
+      fullAddress: (address?['fullAddress'] as String?)?.trim().isNotEmpty == true
+          ? (address!['fullAddress'] as String).trim()
+          : null,
     );
   }
 }

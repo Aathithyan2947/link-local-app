@@ -124,6 +124,7 @@ class ServiceProviderDetail {
     this.service,
     this.services = const [],
     this.locationLabel,
+    this.fullAddress,
     this.ratingAvg,
     required this.ratingCount,
     this.willingToTravel = false,
@@ -161,6 +162,10 @@ class ServiceProviderDetail {
   final String? service; // primary service subcategory (shown under the name)
   final List<String> services;
   final String? locationLabel;
+
+  /// The owner's own saved address; the API sends it only to the owner (others get the area
+  /// and city, in [locationLabel]).
+  final String? fullAddress;
   final double? ratingAvg;
   final int ratingCount;
   final bool willingToTravel;
@@ -250,6 +255,9 @@ class ServiceProviderDetail {
       service: services.isNotEmpty ? services.first : null,
       services: services,
       locationLabel: locParts.isEmpty ? null : locParts.join(', '),
+      fullAddress: (address?['fullAddress'] as String?)?.trim().isNotEmpty == true
+          ? (address!['fullAddress'] as String).trim()
+          : null,
       ratingAvg: _asDouble(j['ratingAvg']),
       ratingCount: _asInt(j['ratingCount']),
       willingToTravel: (delivery?['offersHomeDelivery'] as bool?) ??

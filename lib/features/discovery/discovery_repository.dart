@@ -81,9 +81,14 @@ class DiscoveryRepository {
     });
   }
 
-  Future<List<WorkshopItem>> events({String? q}) async {
-    final res = await _dio.get('/events',
-        queryParameters: {'pageSize': 50, if (q != null && q.isNotEmpty) 'q': q});
+  /// Events to discover. [upcoming]: from today on, soonest first — My Events → Events near
+  /// you, which used to fill up with the oldest past events.
+  Future<List<WorkshopItem>> events({String? q, bool upcoming = false}) async {
+    final res = await _dio.get('/events', queryParameters: {
+      'pageSize': 50,
+      if (q != null && q.isNotEmpty) 'q': q,
+      if (upcoming) 'upcoming': 'true',
+    });
     return (res.data['data'] as List)
         .map((e) => WorkshopItem.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -301,9 +306,10 @@ final serviceProvidersProvider = FutureProvider<List<ServiceProviderItem>>((ref)
   return ref.watch(discoveryRepositoryProvider).serviceProviders();
 });
 
+/// My Events → "Events near you": today onwards, soonest first.
 final eventsProvider = FutureProvider<List<WorkshopItem>>((ref) {
   ref.bindToAccount();
-  return ref.watch(discoveryRepositoryProvider).events();
+  return ref.watch(discoveryRepositoryProvider).events(upcoming: true);
 });
 
 /// My Groups → "Groups near you": groups to discover, without the member's own or joined ones.

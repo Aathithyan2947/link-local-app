@@ -37,7 +37,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Future<void> _sendOtp() async {
     final phone = _phone.text.trim();
     if (phone.isEmpty) {
-      setState(() => _error = 'Enter your phone number');
+      setState(() => _error = 'Enter your mobile number');
       return;
     }
     // Mirrors the register screen: the field only admits digits, so this catches a short entry.
@@ -109,7 +109,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   if (_tab == 0)
                     PillField(
                       controller: _phone,
-                      hint: 'Enter your 10-digit Phone No.',
+                      hint: 'Enter your 10-digit Mobile No.',
                       icon: Icons.phone_outlined,
                       keyboardType: TextInputType.phone,
                       maxLength: 10,

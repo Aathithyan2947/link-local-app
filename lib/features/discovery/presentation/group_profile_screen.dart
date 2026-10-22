@@ -1,11 +1,13 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/navigation/push_guard.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/validation/content_limits.dart';
 import '../../home/data/home_models.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../../home/data/home_repository.dart';
@@ -113,28 +115,37 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
       isScrollControlled: true,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('Share with the group', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              minLines: 2,
-              maxLines: 4,
-              decoration: const InputDecoration(hintText: 'What would you like to share?'),
+      // Same 2000-character limit as a community post (BUG-070); Post waits until it fits.
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final error = ContentLimits.postTextError(controller.text);
+          return Padding(
+            padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text('Share with the group', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  minLines: 2,
+                  maxLines: 4,
+                  maxLength: ContentLimits.postText,
+                  maxLengthEnforcement: MaxLengthEnforcement.none,
+                  onChanged: (_) => setSheet(() {}),
+                  decoration: InputDecoration(hintText: 'What would you like to share?', errorText: error),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: error != null ? null : () => Navigator.pop(ctx, controller.text.trim()),
+                  child: const Text('Post'),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-              child: const Text('Post'),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
     if (text != null && text.isNotEmpty) {

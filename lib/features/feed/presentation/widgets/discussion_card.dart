@@ -182,8 +182,11 @@ class _DiscussionCardState extends ConsumerState<DiscussionCard> {
                     ),
                     if (_item.text.isNotEmpty) ...[
                       const SizedBox(height: 10),
+                      // A preview: the card opens the post, which shows it all.
                       Text(
                         _item.text,
+                        maxLines: kPostPreviewLines,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 14.5, color: AppColors.textPrimary, height: 1.35),
                       ),
                     ],

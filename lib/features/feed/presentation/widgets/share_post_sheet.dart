@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,30 +8,52 @@ import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../discovery/data/block_overrides.dart';
 import '../../../home/presentation/widgets/home_widgets.dart';
+import '../../../members/data/members_repository.dart';
 import '../../../messages/data/message_models.dart';
 import '../../../messages/data/messages_repository.dart';
 import '../../data/feed_repository.dart';
 
-/// Share a post into LinkLocal chats: pick people you've talked to, add an optional note, send.
+/// Share a post into LinkLocal chats: pick people you've talked to — or anyone from the
+/// neighbourhood directory, so a new member with no chats yet isn't stuck — add an optional
+/// note, send.
 /// Each gets a chat message pointing at the post, which their chat shows as a preview that opens
 /// it. Says how it went, and records one share if it reached anyone.
 ///
 /// Returns true when it was sent to at least one person (the caller bumps its share count).
-Future<bool> showSharePostSheet(BuildContext context, {required int postId}) async {
+Future<bool> showSharePostSheet(BuildContext context, {required int postId}) =>
+    _showShareSheet(context, SharePostSheet(postId: postId));
+
+/// The same sheet for an event (BUG-100): each recipient gets a chat message whose preview
+/// opens the event. Events share in-app only, like posts (native share is deferred).
+Future<bool> showShareEventSheet(BuildContext context, {required int eventId}) =>
+    _showShareSheet(context, SharePostSheet.event(eventId: eventId));
+
+Future<bool> _showShareSheet(BuildContext context, SharePostSheet sheet) async {
   final sent = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: AppColors.surface,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-    builder: (_) => SharePostSheet(postId: postId),
+    builder: (_) => sheet,
   );
   return sent ?? false;
 }
 
 class SharePostSheet extends ConsumerStatefulWidget {
-  const SharePostSheet({super.key, required this.postId});
-  final int postId;
+  const SharePostSheet({super.key, required int postId})
+      : entityId = postId,
+        entityType = 'post';
+  const SharePostSheet.event({super.key, required int eventId})
+      : entityId = eventId,
+        entityType = 'event';
+
+  /// What's being shared: `post` or `event`.
+  final String entityType;
+  final int entityId;
+
+  /// The message sent when the sharer adds no note; the chat then shows just the card.
+  String get defaultNote => entityType == 'event' ? 'Shared an event' : 'Shared a post';
 
   @override
   ConsumerState<SharePostSheet> createState() => _SharePostSheetState();
@@ -41,15 +65,59 @@ class _SharePostSheetState extends ConsumerState<SharePostSheet> {
   final _picked = <int, String>{}; // user id → name, in the order picked
   bool _sending = false;
 
+  // People from the Members directory (same visibility and block rules as the Members list),
+  // so someone with no chats isn't stuck (BUG-061). Without a search it's the session-cached
+  // shareRecipientsProvider; a search asks the server by name, and [_found] holds the answer
+  // for [_foundFor].
+  List<MemberItem>? _found;
+  String? _foundFor;
+  Timer? _debounce;
+  int _searchGen = 0;
+
   @override
   void dispose() {
+    _debounce?.cancel();
     _search.dispose();
     _note.dispose();
     super.dispose();
   }
 
-  void _toggle(Conversation c) => setState(() {
-        if (_picked.remove(c.otherId) == null) _picked[c.otherId] = c.otherName;
+  Future<void> _searchPeople(String q) async {
+    final gen = ++_searchGen;
+    List<MemberItem> found;
+    try {
+      final page = await ref.read(membersRepositoryProvider).list(scope: 'city', q: q, pageSize: 30);
+      found = page.items.where((m) => m.userId != null).toList();
+    } catch (_) {
+      found = const []; // chats still work; the directory is a bonus
+    }
+    if (!mounted || gen != _searchGen) return; // a newer search has started
+    setState(() {
+      _found = found;
+      _foundFor = q.toLowerCase();
+    });
+  }
+
+  void _onSearch(String value) {
+    setState(() {});
+    _debounce?.cancel();
+    final q = value.trim();
+    if (q.isEmpty) return; // back to the cached list
+    _debounce = Timer(const Duration(milliseconds: 350), () => _searchPeople(q));
+  }
+
+  /// Directory people for the current search, or null while they're still loading.
+  List<MemberItem>? _directory(String q) {
+    if (q.isNotEmpty) return _foundFor == q ? _found : null;
+    return switch (ref.watch(shareRecipientsProvider)) {
+      AsyncData(:final value) => value,
+      AsyncError() => const <MemberItem>[],
+      _ => null,
+    };
+  }
+
+  void _toggle(int userId, String name) => setState(() {
+        if (_picked.remove(userId) == null) _picked[userId] = name;
       });
 
   Future<void> _send() async {
@@ -65,10 +133,10 @@ class _SharePostSheetState extends ConsumerState<SharePostSheet> {
       try {
         await messages.send(
           receiverId: id,
-          content: note.isEmpty ? 'Shared a post' : note,
+          content: note.isEmpty ? widget.defaultNote : note,
           messageType: 'direct',
-          entityType: 'post',
-          entityId: widget.postId,
+          entityType: widget.entityType,
+          entityId: widget.entityId,
         );
         sentTo.add(name);
         ref.invalidate(threadProvider(id));
@@ -82,10 +150,13 @@ class _SharePostSheetState extends ConsumerState<SharePostSheet> {
 
     if (sentTo.isNotEmpty) {
       ref.invalidate(conversationsProvider);
-      try {
-        await ref.read(feedRepositoryProvider).sharePost(widget.postId);
-      } catch (_) {
-        // The messages went out; only the share count missed this one.
+      // Posts keep a share count; events don't have one.
+      if (widget.entityType == 'post') {
+        try {
+          await ref.read(feedRepositoryProvider).sharePost(widget.entityId);
+        } catch (_) {
+          // The messages went out; only the share count missed this one.
+        }
       }
     }
 
@@ -115,6 +186,7 @@ class _SharePostSheetState extends ConsumerState<SharePostSheet> {
   Widget build(BuildContext context) {
     final async = ref.watch(conversationsProvider);
     final q = _search.text.trim().toLowerCase();
+    final directory = _directory(q);
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SizedBox(
@@ -138,7 +210,7 @@ class _SharePostSheetState extends ConsumerState<SharePostSheet> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: TextField(
                 controller: _search,
-                onChanged: (_) => setState(() {}),
+                onChanged: _onSearch,
                 decoration: const InputDecoration(
                   hintText: 'Search',
                   prefixIcon: Icon(Icons.search),
@@ -157,23 +229,43 @@ class _SharePostSheetState extends ConsumerState<SharePostSheet> {
                   ),
                 ),
                 data: (all) {
-                  if (all.isEmpty) {
-                    return const Center(
+                  final chats = q.isEmpty ? all : all.where((c) => c.otherName.toLowerCase().contains(q)).toList();
+                  // Anyone already in a chat is listed there once, not again below.
+                  final inChats = {for (final c in all) c.otherId};
+                  final peopleLoading = directory == null;
+                  final people = (directory ?? const <MemberItem>[])
+                      .where((m) => !inChats.contains(m.userId))
+                      .toList();
+                  if (chats.isEmpty && people.isEmpty) {
+                    if (peopleLoading) {
+                      return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+                    }
+                    return Center(
                       child: Padding(
-                        padding: EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(24),
                         child: Text(
-                          "No conversations yet — start a chat from someone's profile to share with them.",
+                          q.isEmpty ? 'No one to share with yet.' : 'No matches.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: AppColors.textSecondary),
+                          style: const TextStyle(color: AppColors.textSecondary),
                         ),
                       ),
                     );
                   }
-                  final shown = q.isEmpty ? all : all.where((c) => c.otherName.toLowerCase().contains(q)).toList();
-                  if (shown.isEmpty) return const Center(child: Text('No matches.'));
-                  return ListView.builder(
-                    itemCount: shown.length,
-                    itemBuilder: (_, i) => _row(shown[i]),
+                  return ListView(
+                    children: [
+                      if (chats.isNotEmpty) ...[
+                        if (people.isNotEmpty || peopleLoading) _heading('Recent chats'),
+                        for (final c in chats) _row(c),
+                      ],
+                      // Said out loud, so a short list of chats doesn't look like everyone.
+                      if (peopleLoading) ...[
+                        _heading('People near you'),
+                        _loadingRow(),
+                      ] else if (people.isNotEmpty) ...[
+                        _heading('People near you'),
+                        for (final m in people) _personRow(m),
+                      ],
+                    ],
                   );
                 },
               ),
@@ -210,12 +302,55 @@ class _SharePostSheetState extends ConsumerState<SharePostSheet> {
     );
   }
 
+  Widget _heading(String text) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+        child: Text(text,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: AppColors.textSecondary)),
+      );
+
+  Widget _loadingRow() => const Padding(
+        padding: EdgeInsets.fromLTRB(20, 10, 20, 16),
+        child: Row(
+          children: [
+            SizedBox(
+              height: 16,
+              width: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+            ),
+            SizedBox(width: 12),
+            Flexible(
+              child: Text('Finding people near you…',
+                  overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary)),
+            ),
+          ],
+        ),
+      );
+
+  Widget _personRow(MemberItem m) {
+    final id = m.userId!;
+    final blocked = isBlockedNow(ref, id, fromServer: false);
+    final picked = _picked.containsKey(id);
+    return ListTile(
+      enabled: !blocked,
+      onTap: blocked ? null : () => _toggle(id, m.name),
+      leading: Avatar(name: m.name, photoUrl: m.photoUrl, radius: 20),
+      title: Text(m.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: blocked ? const Text('Blocked') : (m.subtitle.isEmpty ? null : Text(m.subtitle)),
+      trailing: blocked
+          ? null
+          : Icon(
+              picked ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+              color: picked ? AppColors.primary : AppColors.textMuted,
+            ),
+    );
+  }
+
   Widget _row(Conversation c) {
     final blocked = isBlockedNow(ref, c.otherId, fromServer: c.blockedByMe);
     final picked = _picked.containsKey(c.otherId);
     return ListTile(
       enabled: !blocked,
-      onTap: blocked ? null : () => _toggle(c),
+      onTap: blocked ? null : () => _toggle(c.otherId, c.otherName),
       leading: Avatar(name: c.otherName, photoUrl: c.otherPhoto, radius: 20),
       title: Text(c.otherName, style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: blocked ? const Text('Blocked') : null,

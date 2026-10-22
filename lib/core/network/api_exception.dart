@@ -34,6 +34,33 @@ class ApiException implements Exception {
     return ApiException(offlineMessage);
   }
 
+  /// Whatever a repository threw, as an [ApiException] — some repositories pass Dio's errors
+  /// through unconverted.
+  factory ApiException.from(Object e) {
+    if (e is ApiException) return e;
+    if (e is DioException) return ApiException.fromDio(e);
+    return ApiException('Something went wrong');
+  }
+
+  /// Each field the server rejected, with its message (zod `fieldErrors`).
+  Map<String, String> get fieldErrors {
+    final d = details;
+    if (d is! Map) return const {};
+    return {for (final key in d.keys) '$key': ?fieldError('$key')};
+  }
+
+  /// The server's message for one field (zod `fieldErrors`), so a form can show it under
+  /// that field instead of a generic banner. Null when the server didn't flag the field.
+  String? fieldError(String field) {
+    final d = details;
+    if (d is Map) {
+      final v = d[field];
+      if (v is List && v.isNotEmpty && v.first is String) return v.first as String;
+      if (v is String && v.isNotEmpty) return v;
+    }
+    return null;
+  }
+
   /// Pulls the first human-readable message out of a zod `flatten().fieldErrors`-shaped
   /// details map (`{ email: ["..."], password: ["..."] }`).
   static String? _firstFieldError(Object? details) {

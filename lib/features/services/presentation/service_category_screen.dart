@@ -7,12 +7,24 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../auth/application/auth_controller.dart';
+import '../../business/data/business_repository.dart';
+import '../../discovery/discovery_repository.dart';
+import '../../home/presentation/widgets/service_icons.dart';
+import '../../profile/data/profile_models.dart';
+import '../../profile/data/profile_repository.dart';
 import '../../reference/reference_models.dart';
 import '../../reference/reference_repository.dart';
 import '../data/service_profile_repository.dart';
+import 'category_fields_form_screen.dart';
 
+/// Picks the services a provider offers: the sign-up step, or My Services ([editing]).
 class ServiceCategoryScreen extends ConsumerStatefulWidget {
-  const ServiceCategoryScreen({super.key});
+  const ServiceCategoryScreen({super.key, this.editing = false});
+
+  /// My Services (BUG-096): the current services come ticked, including a typed-in "Other"
+  /// still waiting for approval (the list only has approved ones), and Save comes back here
+  /// instead of continuing sign-up.
+  final bool editing;
 
   @override
   ConsumerState<ServiceCategoryScreen> createState() => _ServiceCategoryScreenState();
@@ -27,6 +39,35 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
   bool _loading = false;
   String? _error;
 
+  /// My Services only: the services saved before this edit, and the pending ones still kept.
+  Set<int> _initial = {};
+  final List<MyService> _pending = [];
+  final Set<int> _droppedPending = {};
+  bool _loadingCurrent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.editing) _loadCurrent();
+  }
+
+  Future<void> _loadCurrent() async {
+    setState(() => _loadingCurrent = true);
+    try {
+      final services = (await ref.read(myProfileProvider.future)).services;
+      if (!mounted) return;
+      setState(() {
+        _initial = services.map((s) => s.subcategoryId).toSet();
+        _selected.addAll(services.where((s) => !s.isPending).map((s) => s.subcategoryId));
+        _pending.addAll(services.where((s) => s.isPending));
+      });
+    } catch (_) {
+      if (mounted) setState(() => _error = "Couldn't load your services. Go back and try again.");
+    } finally {
+      if (mounted) setState(() => _loadingCurrent = false);
+    }
+  }
+
   @override
   void dispose() {
     _otherCtrl.dispose();
@@ -38,29 +79,12 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
     return n == 'other' || n == 'others';
   }
 
-  IconData _iconFor(String name) {
-    final n = name.toLowerCase();
-    if (n.contains('yoga') || n.contains('fitness')) return Icons.self_improvement;
-    if (n.contains('tuition') || n.contains('teacher') || n.contains('tutor')) return Icons.menu_book_outlined;
-    if (n.contains('music')) return Icons.music_note_outlined;
-    if (n.contains('dance')) return Icons.nightlife_outlined;
-    if (n.contains('beautic') || n.contains('makeup') || n.contains('hair')) return Icons.spa_outlined;
-    if (n.contains('baby')) return Icons.child_care_outlined;
-    if (n.contains('pet')) return Icons.pets_outlined;
-    if (n.contains('cater') || n.contains('baker') || n.contains('food') || n.contains('chef')) return Icons.restaurant_outlined;
-    if (n.contains('candle') || n.contains('craft')) return Icons.local_fire_department_outlined;
-    if (n.contains('mehendi') || n.contains('design') || n.contains('tattoo')) return Icons.brush_outlined;
-    if (n.contains('account') || n.contains('tax') || n.contains('financ') || n.contains('ca ')) return Icons.calculate_outlined;
-    if (n.contains('sew') || n.contains('tailor') || n.contains('embroid') || n.contains('fashion')) return Icons.content_cut_outlined;
-    if (n.contains('sport') || n.contains('swim') || n.contains('cricket') || n.contains('football') || n.contains('karate')) return Icons.sports_soccer_outlined;
-    if (n.contains('doctor') || n.contains('dentist') || n.contains('physio') || n.contains('health')) return Icons.medical_services_outlined;
-    if (n.contains('web') || n.contains('app') || n.contains('ui')) return Icons.devices_outlined;
-    if (n.contains('party') || n.contains('event') || n.contains('wedding')) return Icons.celebration_outlined;
-    return Icons.handyman_outlined;
-  }
-
   Future<void> _continue() async {
-    final ids = _selected.toList();
+    final ids = [
+      ..._selected,
+      for (final s in _pending)
+        if (!_droppedPending.contains(s.subcategoryId)) s.subcategoryId,
+    ];
     final customServices = <Map<String, dynamic>>[];
 
     if (_otherSelected) {
@@ -85,15 +109,65 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
     try {
       await ref.read(serviceProfileRepositoryProvider).saveServiceTypes(ids, customServices: customServices);
       await ref.read(authControllerProvider.notifier).refreshUser();
-      if (mounted) context.go(Routes.verificationHold);
+      if (!mounted) return;
+      if (!widget.editing) {
+        context.go(Routes.verificationHold);
+        return;
+      }
+      await _afterEdit(ids.toSet().difference(_initial));
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  int get _selectionCount => _selected.length + (_otherSelected ? 1 : 0);
+  /// My Services saved: refresh what depends on the services, then offer to answer the setup
+  /// questions a newly added service brings, or come back.
+  Future<void> _afterEdit(Set<int> added) async {
+    ref.invalidate(myProfileProvider);
+    ref.invalidate(customFieldsProvider);
+    ref.invalidate(myProviderFeaturesProvider);
+    ref.invalidate(serviceProviderDetailProvider);
+
+    var newFields = const <CustomField>[];
+    var hasMenu = false;
+    if (added.isNotEmpty) {
+      try {
+        final fields = await ref.read(customFieldsProvider.future);
+        newFields = fields.where((f) => added.contains(f.subcategoryId)).toList();
+        if (newFields.isNotEmpty) hasMenu = (await ref.read(myProviderFeaturesProvider.future)).hasMenu;
+      } catch (_) {
+        // Saved either way; the profile banner still asks for anything required.
+      }
+    }
+    if (!mounted) return;
+    final steps = onboardingCategories(newFields, hasMenu: hasMenu);
+    if (steps.isNotEmpty) {
+      // Saved: Save shouldn't keep spinning behind the question.
+      setState(() => _loading = false);
+      final setUp = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Set up your new services?'),
+          content: const Text('Answer a few questions so neighbours know what you offer.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Later')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Set up now')),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      // The chain ends on the provider's own page, clearing this screen off the stack.
+      if (setUp == true) return pushOnboardingStep(context, ref, steps);
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Services updated')));
+    Navigator.pop(context);
+  }
+
+  int get _keptPending => _pending.where((s) => !_droppedPending.contains(s.subcategoryId)).length;
+
+  int get _selectionCount => _selected.length + _keptPending + (_otherSelected ? 1 : 0);
 
   @override
   Widget build(BuildContext context) {
@@ -102,7 +176,7 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(title: const Text('Your Services')),
+      appBar: AppBar(title: Text(widget.editing ? 'My Services' : 'Your Services')),
       body: SafeArea(
         child: Column(
           children: [
@@ -113,7 +187,10 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
                 children: [
                   Text('What services do you offer?', style: theme.textTheme.headlineSmall),
                   const SizedBox(height: 8),
-                  Text('Browse by category and select all that apply — you can change these anytime.',
+                  Text(
+                      widget.editing
+                          ? 'Tick every service you offer. Untick one to take it off your profile.'
+                          : 'Browse by category and select all that apply — you can change these anytime.',
                       style: theme.textTheme.bodyMedium),
                   const SizedBox(height: 16),
                   TextField(
@@ -127,7 +204,7 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
               ),
             ),
             Expanded(
-              child: categoriesAsync.when(
+              child: _loadingCurrent ? const Center(child: CircularProgressIndicator()) : categoriesAsync.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Center(child: Text('Failed to load services: $e')),
                 data: (categories) => _buildGroupedList(categories),
@@ -139,9 +216,11 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
                 children: [
                   if (_error != null) ...[ErrorBanner(message: _error!), const SizedBox(height: 12)],
                   PrimaryButton(
-                    label: _selectionCount == 0 ? 'Continue' : 'Continue ($_selectionCount)',
+                    label: widget.editing
+                        ? 'Save'
+                        : (_selectionCount == 0 ? 'Continue' : 'Continue ($_selectionCount)'),
                     loading: _loading,
-                    onPressed: _continue,
+                    onPressed: _loadingCurrent ? null : _continue,
                   ),
                 ],
               ),
@@ -156,6 +235,30 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
     // Category → matching-subcategory sections, with per-category "Other" options removed —
     // a single shared "Other" lives at the bottom of the whole list instead.
     final sections = <Widget>[];
+    // My Services: a typed-in service the admin hasn't approved yet isn't in the list below,
+    // so it gets its own rows; unticking one drops it on Save.
+    if (_pending.isNotEmpty) {
+      sections.add(_heading('WAITING FOR APPROVAL'));
+      for (final s in _pending) {
+        final kept = !_droppedPending.contains(s.subcategoryId);
+        sections.add(Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            leading: Icon(Icons.hourglass_top_rounded, color: kept ? AppColors.primary : AppColors.textSecondary),
+            title: Text(s.name,
+                style: TextStyle(fontWeight: FontWeight.w500, color: kept ? AppColors.primary : AppColors.textPrimary)),
+            subtitle: const Text('Shows on your profile once approved', style: TextStyle(fontSize: 12)),
+            trailing: Icon(kept ? Icons.check_circle : Icons.circle_outlined,
+                color: kept ? AppColors.primary : AppColors.divider),
+            onTap: () => setState(() {
+              kept ? _droppedPending.add(s.subcategoryId) : _droppedPending.remove(s.subcategoryId);
+            }),
+          ),
+        ));
+        sections.add(const Divider(height: 1, color: AppColors.border, indent: 20, endIndent: 20));
+      }
+    }
     for (final cat in categories) {
       final subs = cat.subcategories
           .where((s) => !_isOther(s))
@@ -163,13 +266,7 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
           .toList();
       if (subs.isEmpty) continue;
 
-      sections.add(Padding(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-        child: Text(
-          cat.name.toUpperCase(),
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, letterSpacing: 0.6, color: AppColors.textSecondary),
-        ),
-      ));
+      sections.add(_heading(cat.name.toUpperCase()));
 
       for (final s in subs) {
         final selected = _selected.contains(s.id);
@@ -177,7 +274,8 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            leading: Icon(_iconFor(s.name), color: selected ? AppColors.primary : AppColors.textSecondary),
+            leading: ServiceIcon(
+                serviceName: s.name, size: 24, color: selected ? AppColors.primary : AppColors.textSecondary),
             title: Text(s.name,
                 style: TextStyle(fontWeight: FontWeight.w500, color: selected ? AppColors.primary : AppColors.textPrimary)),
             trailing: Icon(
@@ -243,4 +341,12 @@ class _ServiceCategoryScreenState extends ConsumerState<ServiceCategoryScreen> {
 
     return ListView(padding: const EdgeInsets.only(bottom: 12), children: sections);
   }
+
+  Widget _heading(String text) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+        child: Text(
+          text,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, letterSpacing: 0.6, color: AppColors.textSecondary),
+        ),
+      );
 }

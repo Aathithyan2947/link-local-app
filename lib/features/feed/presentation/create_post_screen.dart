@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../address/presentation/address_proof_gate.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/media/image_editor.dart';
@@ -76,6 +78,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
     } catch (e) {
       if (!mounted) return;
       final err = ApiException.from(e);
+      if (handleAddressProofError(context, err, action: 'create a post')) return;
       final textMsg = err.fieldError('textContent');
       if (textMsg != null) {
         setState(() => _textError = textMsg);

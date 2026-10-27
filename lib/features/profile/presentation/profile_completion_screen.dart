@@ -89,7 +89,7 @@ class ProfileCompletionScreen extends ConsumerWidget {
     ];
     if (p.isServiceProvider) {
       base.add(
-        _Section(Icons.handyman_outlined, 'Services', p.serviceTypes.isNotEmpty, p.serviceTypes.isNotEmpty ? '${p.serviceTypes.length} selected' : 'Pick services', () => const ServiceCategoryScreen()),
+        _Section(Icons.handyman_outlined, 'Services', p.serviceTypes.isNotEmpty, p.serviceTypes.isNotEmpty ? '${p.serviceTypes.length} selected' : 'Pick services', () => const ServiceCategoryScreen(editing: true)),
       );
     }
     return base;

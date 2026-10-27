@@ -2,6 +2,7 @@ import '../../business/data/availability_models.dart';
 import '../../business/data/product_models.dart';
 import '../../business/data/rate_models.dart';
 import '../../home/data/home_models.dart';
+import '../../services/data/field_merge.dart';
 import '../../services/data/service_profile_repository.dart' show CustomField;
 
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
@@ -123,6 +124,7 @@ class ServiceProviderDetail {
     this.yearsOfExperience,
     this.service,
     this.services = const [],
+    this.pendingServices = const [],
     this.locationLabel,
     this.fullAddress,
     this.ratingAvg,
@@ -159,8 +161,12 @@ class ServiceProviderDetail {
   final String? photoUrl;
   final String? aboutMe;
   final int? yearsOfExperience;
-  final String? service; // primary service subcategory (shown under the name)
+  final String? service; // primary service subcategory
+  /// Every approved service, in the order picked; all shown under the name (BUG-099).
   final List<String> services;
+
+  /// Typed-in services still waiting for admin approval. The API sends them to the owner only.
+  final List<String> pendingServices;
   final String? locationLabel;
 
   /// The owner's own saved address; the API sends it only to the owner (others get the area
@@ -207,10 +213,14 @@ class ServiceProviderDetail {
 
   factory ServiceProviderDetail.fromJson(Map<String, dynamic> j) {
     final serviceTypes = (j['serviceTypes'] as List?) ?? [];
-    final services = serviceTypes
-        .map((e) => (e as Map<String, dynamic>)['subcategory']?['name'] as String?)
-        .whereType<String>()
-        .toList();
+    final services = <String>[];
+    final pendingServices = <String>[];
+    for (final e in serviceTypes) {
+      final sub = (e as Map<String, dynamic>)['subcategory'] as Map<String, dynamic>?;
+      final name = sub?['name'] as String?;
+      if (name == null) continue;
+      (sub?['isActive'] == false ? pendingServices : services).add(name);
+    }
     // Collect all feature signals: subcategory.type column + onboarding field types
     final featureTypes = <String>{};
     for (final e in serviceTypes) {
@@ -254,6 +264,7 @@ class ServiceProviderDetail {
       yearsOfExperience: j['yearsOfExperience'] != null ? _asInt(j['yearsOfExperience']) : null,
       service: services.isNotEmpty ? services.first : null,
       services: services,
+      pendingServices: pendingServices,
       locationLabel: locParts.isEmpty ? null : locParts.join(', '),
       fullAddress: (address?['fullAddress'] as String?)?.trim().isNotEmpty == true
           ? (address!['fullAddress'] as String).trim()
@@ -278,9 +289,11 @@ class ServiceProviderDetail {
       hasDateBooking: j['hasDateBooking'] as bool? ?? featureTypes.contains('date'),
       showCallButton: j['showCallButton'] as bool? ?? false,
       isBlocked: j['isBlocked'] as bool? ?? false,
-      customFields: ((j['customFields'] as List?) ?? [])
-          .map((e) => CustomField.fromJson(e as Map<String, dynamic>))
-          .toList(),
+      // A question several services share shows once, like the setup form asks it (BUG-099).
+      customFields: mergeSharedFields(((j['customFields'] as List?) ?? [])
+              .map((e) => CustomField.fromJson(e as Map<String, dynamic>))
+              .toList())
+          .fields,
       availability:
           j['availability'] == null ? null : SpAvailability.fromJson(j['availability'] as Map<String, dynamic>),
       rates: ((j['rates'] as List?) ?? []).map((e) => SpRate.fromJson(e as Map<String, dynamic>)).toList(),

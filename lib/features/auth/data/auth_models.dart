@@ -10,6 +10,7 @@ class AppUser {
     this.referralCode,
     this.isVerified = false,
     this.hasAddress = false,
+    this.hasServices,
     this.city,
   });
 
@@ -22,6 +23,10 @@ class AppUser {
   final String? referralCode;
   final bool isVerified;
   final bool hasAddress;
+
+  /// Whether the account has picked any services; null when the server didn't say (an older
+  /// backend, or a response without the profile), which must never trigger a redirect.
+  final bool? hasServices;
   final String? city;
 
   bool get isServiceProvider => userType == 'service_provider';
@@ -41,6 +46,10 @@ class AppUser {
       referralCode: json['referralCode'] as String?,
       isVerified: json['isVerified'] as bool? ?? false,
       hasAddress: address != null,
+      hasServices: switch (profile?['serviceTypeCount']) {
+        final num count => count > 0,
+        _ => null,
+      },
       city: city?['name'] as String?,
     );
   }

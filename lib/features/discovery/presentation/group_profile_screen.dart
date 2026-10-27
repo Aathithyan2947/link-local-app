@@ -2,10 +2,13 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../address/presentation/address_proof_gate.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/navigation/push_guard.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/validation/content_limits.dart';
 import '../../home/data/home_models.dart';
@@ -40,7 +43,25 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
 
   /// [membership]: the action changed whether the member is in the group (join / leave), so
   /// My Groups, the group lists and profiles reload too.
-  Future<void> _run(Future<void> Function() action, String okMsg, {bool membership = false}) async {
+  /// [ensureAddressProof] with the buttons disabled while the status loads, so a double tap
+  /// can't act twice.
+  Future<bool> _hasAddressProof(String action) async {
+    if (_busy) return false;
+    setState(() => _busy = true);
+    final ok = await hasAddressProof(ref);
+    if (!mounted) return false;
+    setState(() => _busy = false);
+    if (!ok) await showAddressProofRequired(context, action: action);
+    return ok;
+  }
+
+  /// [proofAction]: what the action needs an address proof for, so a refusal shows the popup.
+  Future<void> _run(
+    Future<void> Function() action,
+    String okMsg, {
+    bool membership = false,
+    String? proofAction,
+  }) async {
     setState(() => _busy = true);
     try {
       await action();
@@ -50,8 +71,9 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
       await ref.read(groupDetailProvider(widget.id).future);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(okMsg)));
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
+      if (proofAction != null && handleAddressProofError(context, e, action: proofAction)) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Something went wrong')));
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -61,7 +83,11 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
   /// A free group joins at once. A paid one opens the payment flow, and the backend makes
   /// the user a member only once that charge succeeds — Join itself never admits them.
   Future<void> _join(GroupDetail g) async {
-    if (!g.isPaid) return _run(() => _repo.joinGroup(g.id), 'You have joined!', membership: true);
+    // Joining needs an address proof (BUG-084), paid or free.
+    if (!await _hasAddressProof('join a group') || !mounted) return;
+    if (!g.isPaid) {
+      return _run(() => _repo.joinGroup(g.id), 'You have joined!', membership: true, proofAction: 'join a group');
+    }
     final paid = await context.pushPage<bool>(MaterialPageRoute(
       builder: (_) => PaymentMethodScreen(charge: groupCharge(g.id), total: g.price ?? 0),
     ));
@@ -92,6 +118,7 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
   }
 
   Future<void> _leave(GroupDetail g) async {
+    if (g.isCreator) return _adminExit(g);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -108,7 +135,88 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
     if (ok == true) await _run(() => _repo.leaveGroup(g.id), 'You have left the group', membership: true);
   }
 
+  /// The admin leaves (BUG-081): they first pick the member who takes over, or, as the only
+  /// member, close the group.
+  Future<void> _adminExit(GroupDetail g) async {
+    setState(() => _busy = true);
+    List<GroupMember> members;
+    try {
+      members = await _repo.groupMembers(g.id);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't load the members")));
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+
+    final others = members.where((m) => !m.isCreator).toList();
+    if (others.isEmpty) {
+      final close = await _confirm(
+        title: 'Close this group?',
+        message: 'You’re the only member, so exiting closes "${g.title}". It will no longer be listed anywhere.',
+        action: 'Exit and close',
+      );
+      if (close) await _exitAsAdmin(g);
+      return;
+    }
+
+    final next = await showModalBottomSheet<GroupMember>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _NewAdminSheet(members: others),
+    );
+    if (next == null || !mounted) return;
+    final go = await _confirm(
+      title: 'Make ${next.name} the admin?',
+      message: 'They’ll manage "${g.title}" from now on, and you’ll leave the group.',
+      action: 'Exit group',
+    );
+    if (go) await _exitAsAdmin(g, newAdmin: next);
+  }
+
+  Future<bool> _confirm({required String title, required String message, required String action}) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(action, style: const TextStyle(color: AppColors.error))),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Future<void> _exitAsAdmin(GroupDetail g, {GroupMember? newAdmin}) async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _busy = true);
+    try {
+      await _repo.leaveGroup(g.id, newAdminUserId: newAdmin?.userId);
+      if (!mounted) return;
+      ref.invalidateGroupLists(groupId: g.id);
+      Navigator.of(context).pop();
+      messenger.showSnackBar(SnackBar(
+        content: Text(newAdmin == null ? 'Group closed' : '${newAdmin.name} is now the admin. You have left the group.'),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(ApiException.from(e).message)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _post(GroupDetail g) async {
+    if (!await _hasAddressProof('post in a group') || !mounted) return;
     final controller = TextEditingController();
     final text = await showModalBottomSheet<String>(
       context: context,
@@ -149,7 +257,7 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
       ),
     );
     if (text != null && text.isNotEmpty) {
-      await _run(() => _repo.postToGroup(g.id, text: text), 'Posted to the group');
+      await _run(() => _repo.postToGroup(g.id, text: text), 'Posted to the group', proofAction: 'post in a group');
     }
   }
 
@@ -535,8 +643,8 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
 
   // ── Clear chat / Exit group ────────────────────────────────
   Widget _dangerTile(GroupDetail g) {
-    // The creator cannot leave their own group, but can still clear their own view of it.
-    final canExit = !g.isCreator;
+    // Members and the admin can exit; the admin hands the group over first (BUG-081).
+    final canExit = g.isMember;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Container(
@@ -587,4 +695,50 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
           ),
         ),
       );
+}
+
+/// "Choose a new admin": the members who could take the group over; tapping one picks them.
+class _NewAdminSheet extends StatelessWidget {
+  const _NewAdminSheet({required this.members});
+  final List<GroupMember> members;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.7),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 20, 20, 4),
+              child: Text('Choose a new admin', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text('Before you exit, pick a member to manage the group.',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+            ),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: const EdgeInsets.only(bottom: 12),
+                itemCount: members.length,
+                itemBuilder: (_, i) {
+                  final m = members[i];
+                  return ListTile(
+                    leading: Avatar(name: m.name, photoUrl: m.photoUrl, radius: 20),
+                    title: Text(m.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
+                    onTap: () => Navigator.pop(context, m),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

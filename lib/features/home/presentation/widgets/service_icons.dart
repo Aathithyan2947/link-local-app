@@ -7,11 +7,13 @@ import 'package:flutter/material.dart';
 /// catering icon. Rules are ordered: the first whose keyword appears in the name wins,
 /// so narrow terms ('tax', 'nail') must sit above broad ones ('agent', 'art').
 ///
-/// Anything unmatched falls back to a Material glyph rather than a wrong picture.
+/// A rule's icon is a brand PNG (its asset name) or, where the set has nothing that fits, a
+/// filled Material glyph. Anything unmatched falls back to a Material glyph rather than a wrong
+/// picture.
 abstract class ServiceIcons {
   static const String _dir = 'assets/icons';
 
-  static const List<(String asset, List<String> keywords)> _rules = [
+  static const List<(Object icon, List<String> keywords)> _rules = [
     // Food
     ('temaki_catering', ['baker', 'bake', 'cake', 'tiffin', 'biryani', 'chef', 'food', 'meal',
       'snack', 'dessert', 'caterer', 'catering', 'cook']),
@@ -21,9 +23,16 @@ abstract class ServiceIcons {
     ('mdi_dance-ballroom', ['dance', 'choreograph', 'zumba']),
     ('si_book-duotone', ['tutor', 'teacher', 'teaching', 'handwriting', 'coaching', 'academic',
       'tuition', 'school']),
-    // Beauty (before 'art' so 'nail art' / 'tattoo artist' don't fall through to paint)
-    ('temaki_beauty-salon', ['beaut', 'salon', 'make up', 'makeup', 'nail', 'hair', 'tattoo',
-      'mehendi', 'mehandi', 'spa', 'grooming']),
+    // Beauty (before 'art' so 'nail art' / 'tattoo artist' don't fall through to paint). The
+    // salon PNG is scissors and a comb, so it's for hair only: every Beautician type used to
+    // share it, "Beauty service provider" and "Hair stylist" included (BUG-088). Stopgap
+    // glyphs until the Figma icons arrive.
+    ('temaki_beauty-salon', ['hair', 'barber', 'salon']),
+    (Icons.front_hand, ['nail']),
+    (Icons.back_hand, ['mehendi', 'mehandi', 'henna']),
+    (Icons.draw, ['tattoo']),
+    (Icons.brush, ['make up', 'makeup']),
+    (Icons.face_retouching_natural, ['beaut', 'spa', 'grooming']),
     // Art & design
     ('mdi_paint', ['art', 'craft', 'paint', 'interior', 'architect', 'design', 'decor']),
     // Sports & wellness
@@ -49,17 +58,24 @@ abstract class ServiceIcons {
     ('streamline-plump_pet-paw-solid', ['pet', 'dog', 'cat ', 'grooming', 'veterinar']),
   ];
 
-  /// Asset path for [serviceName], or null when nothing in the icon set fits.
-  static String? assetFor(String? serviceName) {
+  /// The icon for [serviceName]: a brand PNG's asset path ([String]), a Material glyph
+  /// ([IconData]), or null when no rule fits.
+  static Object? lookup(String? serviceName) {
     final name = serviceName?.trim().toLowerCase();
     if (name == null || name.isEmpty) return null;
-    for (final (asset, keywords) in _rules) {
+    for (final (icon, keywords) in _rules) {
       for (final k in keywords) {
-        if (name.contains(k)) return '$_dir/$asset.png';
+        if (name.contains(k)) return icon is String ? '$_dir/$icon.png' : icon;
       }
     }
     return null;
   }
+
+  /// Asset path for [serviceName], or null when its icon isn't a brand PNG.
+  static String? assetFor(String? serviceName) => switch (lookup(serviceName)) {
+        final String asset => asset,
+        _ => null,
+      };
 
   /// Material fallback for names the icon set doesn't cover.
   static const IconData fallback = Icons.handyman_outlined;
@@ -78,7 +94,9 @@ class ServiceIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final asset = ServiceIcons.assetFor(serviceName);
+    final icon = ServiceIcons.lookup(serviceName);
+    if (icon is IconData) return Icon(icon, size: size, color: color);
+    final asset = icon is String ? icon : null;
     if (asset == null) return Icon(ServiceIcons.fallback, size: size, color: color);
     return Image.asset(
       asset,

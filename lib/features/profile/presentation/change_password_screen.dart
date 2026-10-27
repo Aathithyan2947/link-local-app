@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/navigation/push_guard.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/validation/password_rules.dart';
 import '../../../core/widgets/error_banner.dart';
+import '../../auth/application/auth_controller.dart';
+import '../../auth/presentation/forgot_password_screen.dart';
 import '../data/profile_repository.dart';
 
 /// "Change Password" — full page per the mockup (current / new / confirm + Confirm button).
@@ -29,8 +33,9 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
   }
 
   Future<void> _confirmChange() async {
-    if (_next.text.length < 6) {
-      setState(() => _error = 'New password must be at least 6 characters.');
+    // The sign-up policy, which the server now applies here too.
+    if (PasswordRules.error(_next.text) case final String problem) {
+      setState(() => _error = problem);
       return;
     }
     if (_next.text != _confirm.text) {
@@ -54,9 +59,15 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
     }
   }
 
-  void _forgetPassword() {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Password reset via OTP is coming soon.')));
+  /// Sets a new password with a code instead of the current one (BUG-066).
+  Future<void> _forgetPassword() async {
+    final user = ref.read(authControllerProvider).user;
+    final done = await context.pushPage<String>(MaterialPageRoute(
+      builder: (_) => ForgotPasswordScreen(identifier: user?.email ?? user?.mobile),
+    ));
+    if (done == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password updated')));
+    Navigator.of(context).pop();
   }
 
   @override
@@ -90,6 +101,8 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
               ),
               const SizedBox(height: 16),
               const Text('Create new password', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
+              const SizedBox(height: 4),
+              const Text(PasswordRules.hint, style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
               const SizedBox(height: 8),
               _PasswordField(controller: _next, hint: 'Enter new password'),
               const SizedBox(height: 12),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../address/presentation/address_proof_gate.dart';
+
 import '../../../core/theme/app_colors.dart';
 import '../../home/data/home_models.dart';
 import '../data/my_activity_models.dart';
@@ -57,12 +59,14 @@ class _MyEventsScreenState extends ConsumerState<MyEventsScreen> {
   }
 
   Future<void> _join(int id) async {
+    if (!await ensureAddressProof(context, ref, action: 'join an event')) return;
     try {
       await ref.read(discoveryRepositoryProvider).joinEvent(id);
       ref.invalidateEventLists();
       await ref.read(eventsProvider.future);
-    } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not join event')));
+    } catch (e) {
+      if (!mounted || handleAddressProofError(context, e, action: 'join an event')) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not join event')));
     }
   }
 

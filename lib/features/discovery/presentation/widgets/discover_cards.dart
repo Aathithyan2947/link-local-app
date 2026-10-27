@@ -339,7 +339,7 @@ class SpCard extends StatelessWidget {
                           style: const TextStyle(
                               fontWeight: FontWeight.w700, fontSize: 17, color: AppColors.ink)),
                       const SizedBox(height: 4),
-                      Text(sp.service ?? 'Service Provider',
+                      Text(sp.serviceLabel,
                           style: const TextStyle(fontSize: 14, color: AppColors.textSecondary)),
                       const SizedBox(height: 4),
                       // The provider's own area/city and rounded distance; [city] only

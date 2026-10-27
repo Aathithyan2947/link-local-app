@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../address/presentation/address_proof_gate.dart';
+
 import '../../../core/navigation/push_guard.dart';
 import '../../../core/theme/app_colors.dart';
 import '../data/feed_repository.dart';
@@ -39,7 +41,8 @@ class UserPostsScreen extends ConsumerWidget {
           ? FloatingActionButton.extended(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
-              onPressed: () => context.pushPage(MaterialPageRoute(builder: (_) => const CreatePostScreen())),
+              onPressed: () =>
+                  pushIfAddressProof(context, ref, action: 'create a post', page: (_) => const CreatePostScreen()),
               icon: const Icon(Icons.edit_outlined),
               label: const Text('Post'),
             )

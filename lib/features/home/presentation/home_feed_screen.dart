@@ -12,6 +12,7 @@ import '../../discovery/discovery_repository.dart';
 import '../../discovery/presentation/event_detail_screen.dart';
 import '../../discovery/presentation/group_profile_screen.dart';
 import '../../referrals/presentation/referrals_screen.dart';
+import '../../discovery/presentation/all_services_screen.dart';
 import '../../discovery/presentation/service_provider_detail_screen.dart';
 import '../../members/data/members_repository.dart';
 import '../../members/presentation/members_screen.dart';
@@ -255,7 +256,10 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                   items: spSection.items,
                   selectedCategory: _selectedCategory,
                   onSelect: _toggleCategory,
-                  onExploreMore: () => _goToDiscover(2),
+                  // Every service as a tile with its provider count (BUG-087); the Services tab
+                  // it used to open lists providers, not services.
+                  onExploreMore: () =>
+                      context.pushPage(MaterialPageRoute(builder: (_) => const AllServicesScreen())),
                 ),
                 const SizedBox(height: 12),
                 ...visibleSps.map((sp) => _SpCard(sp: sp)),
@@ -857,7 +861,7 @@ class _SpCard extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 3),
-                  Text(sp.service ?? 'Service Provider',
+                  Text(sp.serviceLabel,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),

@@ -3,12 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/navigation/push_guard.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/auth_header.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../application/auth_controller.dart';
+import 'forgot_password_screen.dart';
 import 'otp_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -61,6 +63,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Forgot password (BUG-066): back here with the account filled in once a new one is set.
+  Future<void> _forgotPassword() async {
+    final identifier = await context.pushPage<String>(
+      MaterialPageRoute(builder: (_) => ForgotPasswordScreen(identifier: _email.text.trim())),
+    );
+    if (identifier == null || !mounted) return;
+    setState(() {
+      _email.text = identifier;
+      _password.clear();
+      _error = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Password updated. Log in with your new password.')),
+    );
   }
 
   Future<void> _loginEmail() async {
@@ -119,6 +137,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     PillField(controller: _email, hint: 'Enter your Email', icon: Icons.mail_outline, keyboardType: TextInputType.emailAddress),
                     const SizedBox(height: 16),
                     PillField(controller: _password, hint: 'Enter your Password', icon: Icons.lock_outline, obscure: true),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _loading ? null : _forgotPassword,
+                        style: TextButton.styleFrom(foregroundColor: AppColors.primary),
+                        child: const Text('Forgot password?', style: TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                    ),
                   ],
                   if (_error != null) ...[
                     const SizedBox(height: 16),

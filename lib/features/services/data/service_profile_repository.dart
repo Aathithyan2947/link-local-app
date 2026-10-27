@@ -32,6 +32,7 @@ class SelectedArea {
 class CustomField {
   CustomField({
     required this.fieldId,
+    this.subcategoryId,
     required this.subcategoryName,
     required this.category,
     required this.fieldName,
@@ -45,6 +46,7 @@ class CustomField {
   });
 
   final int fieldId;
+  final int? subcategoryId;
   final String subcategoryName;
   final String category; // basic_details | travel | payment | service_type | delivery
   final String fieldName;
@@ -58,6 +60,7 @@ class CustomField {
 
   factory CustomField.fromJson(Map<String, dynamic> j) => CustomField(
         fieldId: j['fieldId'] as int,
+        subcategoryId: j['subcategoryId'] as int?,
         subcategoryName: j['subcategoryName'] as String? ?? '',
         category: j['category'] as String? ?? 'basic_details',
         fieldName: j['fieldName'] as String? ?? '',

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../address/presentation/address_proof_gate.dart';
+
 import '../../../../core/theme/app_colors.dart';
 import '../../../home/data/home_models.dart';
 import '../../../home/presentation/widgets/home_widgets.dart';
@@ -53,7 +55,9 @@ class _DiscussionCardState extends ConsumerState<DiscussionCard> {
     onChanged: () {
       if (mounted) setState(() {});
     },
-    onError: (_) => _snack('Could not update like'),
+    onError: (e) {
+      if (mounted && !handleAddressProofError(context, e, action: 'like a post')) _snack('Could not update like');
+    },
   );
   late int _comments = widget.item.comments;
   late int _shares = widget.item.shares;
@@ -91,7 +95,11 @@ class _DiscussionCardState extends ConsumerState<DiscussionCard> {
 
   void _needsJoin() => _snack('Join the group to like, comment or share', offerJoin: true);
 
-  void _tapLike() => _item.canInteract ? _like.tap() : _needsJoin();
+  void _tapLike() {
+    if (!_item.canInteract) return _needsJoin();
+    // Liking needs an address proof (BUG-084).
+    if (checkAddressProofNow(context, ref, action: 'like a post')) _like.tap();
+  }
 
   Future<void> _openComments({bool focusComposer = false}) async {
     final count = await showCommentsSheet(

@@ -2,6 +2,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../address/presentation/address_proof_gate.dart';
+
 import '../../../../core/config/app_config.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../discovery/presentation/user_profile_screen.dart';
@@ -32,7 +34,9 @@ class _PostCardState extends ConsumerState<PostCard> {
     onChanged: () {
       if (mounted) setState(() {});
     },
-    onError: (_) => _snack('Could not update like'),
+    onError: (e) {
+      if (mounted && !handleAddressProofError(context, e, action: 'like a post')) _snack('Could not update like');
+    },
   );
   late int _shares = widget.post.shares;
   bool _sharing = false;
@@ -60,8 +64,11 @@ class _PostCardState extends ConsumerState<PostCard> {
   }
 
   // A group post is view-only for anyone outside the group: no like, comment or share.
-  void _toggleLike() =>
-      widget.post.canInteract ? _like.tap() : _snack('Join the group to like, comment or share');
+  void _toggleLike() {
+    if (!widget.post.canInteract) return _snack('Join the group to like, comment or share');
+    // Liking needs an address proof (BUG-084).
+    if (checkAddressProofNow(context, ref, action: 'like a post')) _like.tap();
+  }
 
   void _openAuthor() {
     final pid = widget.post.authorProfileId;

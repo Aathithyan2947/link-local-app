@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../address/presentation/address_proof_gate.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
@@ -181,6 +183,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
       }
     } catch (e) {
       if (!mounted) return;
+      if (handleAddressProofError(context, ApiException.from(e), action: 'host an event')) return;
       _showSubmitError(e);
     } finally {
       if (mounted) setState(() => _submitting = false);

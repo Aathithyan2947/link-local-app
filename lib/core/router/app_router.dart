@@ -53,6 +53,21 @@ bool lastPopWasMenuOrDialog() {
   return r is PopupRoute && r is! ModalBottomSheetRoute;
 }
 
+/// The step a member with an address skipped by quitting sign-up, when [loc] isn't part of
+/// finishing it; null otherwise. The address is saved before the role and services steps, so
+/// quitting after it used to land on Home (BUG-095): as a resident who never chose a role, or
+/// as a provider with no services.
+String? unfinishedSignupRedirect(AuthState auth, String loc) {
+  if (auth.signupUnfinished) {
+    const signupSteps = {Routes.address, Routes.verifyAddress, Routes.roleSelection, Routes.serviceCategory};
+    return signupSteps.contains(loc) ? null : Routes.roleSelection;
+  }
+  if (auth.user?.isServiceProvider == true && auth.user?.hasServices == false) {
+    return loc == Routes.serviceCategory || loc == Routes.roleSelection ? null : Routes.serviceCategory;
+  }
+  return null;
+}
+
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier(0);
   ref.listen(authControllerProvider, (_, _) => refresh.value++);
@@ -104,6 +119,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (needsAddress) {
         return onAddressFlow ? null : Routes.address;
       }
+      if (unfinishedSignupRedirect(auth, loc) case final String step) return step;
 
       // Fully onboarded → leave splash/auth screens for home.
       if (loc == Routes.splash || authScreens.contains(loc)) return Routes.home;

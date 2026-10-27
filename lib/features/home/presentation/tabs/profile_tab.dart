@@ -25,14 +25,18 @@ import '../../../profile/presentation/login_security_screen.dart';
 import '../../../profile/presentation/notification_settings_screen.dart';
 import '../../../profile/presentation/profile_visibility_screen.dart';
 import '../../../referrals/presentation/referrals_screen.dart';
+import '../../../services/presentation/service_category_screen.dart';
 import '../widgets/home_widgets.dart';
 import '../../../../core/navigation/push_guard.dart';
 
-/// SP → their service subcategory (e.g. "Home Baker"); resident → their
-/// profession if set; otherwise omitted, same as the other optional card lines.
+/// SP → every service they offer (e.g. "Home Baker · Yoga"; only the first used to show,
+/// BUG-099); resident → their profession if set; otherwise omitted, same as the other optional
+/// card lines.
 String? _roleLabel(ProfileDetail? profile) {
   if (profile == null) return null;
-  if (profile.isServiceProvider && profile.serviceTypes.isNotEmpty) return profile.serviceTypes.first.label;
+  if (profile.isServiceProvider && profile.serviceTypes.isNotEmpty) {
+    return profile.serviceTypes.map((s) => s.label).join(' · ');
+  }
   if (profile.professions.isNotEmpty) return profile.professions.first.label;
   return null;
 }
@@ -108,6 +112,10 @@ class ProfileTab extends ConsumerWidget {
             if (user?.isServiceProvider == true)
               _MenuItem(Icons.storefront_outlined, 'My Shop',
                   () => context.pushPage(MaterialPageRoute(builder: (_) => const SpDashboardScreen()))),
+            // Add or remove services after sign-up (BUG-096).
+            if (user?.isServiceProvider == true)
+              _MenuItem(Icons.handyman_outlined, 'My Services',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const ServiceCategoryScreen(editing: true)))),
             _MenuItem(Icons.account_circle_outlined, 'My Profile', () => _openMyProfile(context, ref)),
           ]),
           if (shopSettingsItems.isNotEmpty) _Section('My Shop Settings', shopSettingsItems),
@@ -258,7 +266,7 @@ class _ProfileCard extends StatelessWidget {
                         if (role != null && role!.isNotEmpty) ...[
                           const SizedBox(height: 3),
                           Text(role!,
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(color: Colors.white, fontSize: 13.5)),
                         ],

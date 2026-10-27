@@ -39,8 +39,11 @@ import '../../profile/presentation/sections/contact_field_sheet.dart';
 import '../../business/presentation/setup/sp_setup_wizard_screen.dart';
 import '../../business/presentation/sp_products_screen.dart';
 import '../../services/data/basic_details_fields.dart';
+import '../../services/data/field_merge.dart';
 import '../../services/data/service_profile_repository.dart';
 import '../../services/presentation/category_fields_form_screen.dart';
+import '../../services/presentation/service_category_screen.dart';
+import '../../address/presentation/address_proof_gate.dart';
 import '../../../core/widgets/brand_wordmark.dart';
 import '../data/sp_detail_models.dart';
 import '../data/block_overrides.dart';
@@ -243,6 +246,17 @@ class _Band extends StatelessWidget {
 }
 
 /// Plain muted edit-pencil icon (Figma's `mingcute:edit-fill` style — not a filled square).
+/// Every service under the name, not just the first (BUG-099). The owner also sees the ones
+/// waiting for admin approval, and a prompt when there are none.
+String? _servicesLine(ServiceProviderDetail sp, bool isOwner) {
+  final names = [
+    ...sp.services,
+    if (isOwner) ...sp.pendingServices.map((n) => '$n (awaiting approval)'),
+  ];
+  if (names.isNotEmpty) return names.join(' · ');
+  return isOwner && sp.isServiceProvider ? 'Add your services' : null;
+}
+
 class _EditIconButton extends StatelessWidget {
   const _EditIconButton({required this.onTap});
   final VoidCallback onTap;
@@ -438,11 +452,24 @@ class _ProfileHeaderState extends ConsumerState<_ProfileHeader> {
                           ),
                       ],
                     ),
-                    if (sp.service != null) ...[
+                    if (_servicesLine(sp, isOwner) case final String services) ...[
                       const SizedBox(height: 4),
-                      Text(sp.service!,
-                          style: const TextStyle(
-                              color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 14)),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(services,
+                                style: const TextStyle(
+                                    color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 14)),
+                          ),
+                          // My Services (BUG-096); this page refetches when it closes.
+                          if (isOwner && sp.isServiceProvider)
+                            _EditIconButton(
+                              onTap: () => context.pushPage(MaterialPageRoute(
+                                builder: (_) => const ServiceCategoryScreen(editing: true),
+                              )),
+                            ),
+                        ],
+                      ),
                     ],
                     if (sp.locationLabel != null || isOwner) ...[
                       const SizedBox(height: 6),
@@ -829,6 +856,7 @@ class _EnterAmountSheetState extends ConsumerState<_EnterAmountSheet> {
         _openPayment(context, order);
       }
     } on DioException catch (e) {
+      if (!mounted || handleAddressProofError(context, e, action: 'make a payment')) return;
       final message = (e.response?.data is Map ? (e.response!.data as Map)['message'] as String? : null) ??
           'Could not start payment';
       setState(() => _error = message);
@@ -1526,13 +1554,26 @@ class _CategoryFieldsBlock extends ConsumerWidget {
   Widget _categorySection(
       BuildContext context, WidgetRef ref, String category, List<CustomField> fields) {
     final pencil = isOwner ? _EditIconButton(onTap: () => _editSection(context, ref, sp, category)) : null;
+    // Payment and Service Type are answered per service: say which service each line is for.
+    final headings = !kSharedFieldCategories.contains(category) && spansSeveralServices(fields);
+    List<Widget> withHeadings(Widget Function(CustomField) line) => [
+          for (final (i, f) in fields.indexed) ...[
+            if (headings && (i == 0 || fields[i - 1].subcategoryName != f.subcategoryName))
+              Padding(
+                padding: EdgeInsets.only(top: i == 0 ? 0 : 6, bottom: 6),
+                child: Text(f.subcategoryName,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.ink)),
+              ),
+            line(f),
+          ],
+        ];
 
     if (category == 'payment') {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SectionTitle(kCategoryLabels[category] ?? category, trailing: pencil),
-          ...fields.map((f) => Padding(
+          ...withHeadings((f) => Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Text('${f.fieldName}: ${f.value ?? ''}',
                     style: const TextStyle(fontSize: 13.5, color: AppColors.textPrimary)),
@@ -1545,7 +1586,7 @@ class _CategoryFieldsBlock extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _SectionTitle(kCategoryLabels[category] ?? category, trailing: pencil),
-        ...fields.map((f) => Padding(
+        ...withHeadings((f) => Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2080,7 +2121,16 @@ class _SubmitReviewState extends ConsumerState<_SubmitReview> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tap a star to rate first')));
       return;
     }
+    // Reviews need an address proof (BUG-084). Checked with the button already disabled, so a
+    // double tap can't send two.
     setState(() => _submitting = true);
+    final allowed = await hasAddressProof(ref);
+    if (!mounted) return;
+    if (!allowed) {
+      setState(() => _submitting = false);
+      await showAddressProofRequired(context, action: 'submit a review');
+      return;
+    }
     try {
       await ref.read(discoveryRepositoryProvider).submitReview(
             widget.id,
@@ -2097,8 +2147,8 @@ class _SubmitReviewState extends ConsumerState<_SubmitReview> {
       await ref.read(serviceProviderDetailProvider(widget.id).future);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Thanks for your review!')));
-    } catch (_) {
-      if (!mounted) return;
+    } catch (e) {
+      if (!mounted || handleAddressProofError(context, e, action: 'submit a review')) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not submit review')));
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -2351,7 +2401,7 @@ class _SpEventCard extends StatelessWidget {
 }
 
 // ── Posts ────────────────────────────────────────────────────
-class _PostsBlock extends StatelessWidget {
+class _PostsBlock extends ConsumerWidget {
   const _PostsBlock({required this.posts, required this.userId, required this.name});
   final List<DiscussionItem> posts;
   final int? userId; // whose posts these are
@@ -2361,7 +2411,7 @@ class _PostsBlock extends StatelessWidget {
       context.pushPage(MaterialPageRoute(builder: (_) => PostDetailScreen(id: p.id)));
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 6, 20, 18),
       child: Container(
@@ -2380,8 +2430,8 @@ class _PostsBlock extends StatelessWidget {
               _EmptyStateCta(
                 label: 'No Post Found',
                 cta: 'Create a post now',
-                onTap: () => Navigator.of(context)
-                    .push(MaterialPageRoute(builder: (_) => const CreatePostScreen())),
+                onTap: () =>
+                    pushIfAddressProof(context, ref, action: 'create a post', page: (_) => const CreatePostScreen()),
               ),
             ...posts.take(2).map((p) => InkWell(
                   onTap: () => _openPost(context, p),
@@ -2653,6 +2703,10 @@ Future<void> _makePayment(BuildContext context, WidgetRef ref, ServiceProviderDe
   // Menu/product SPs (bakers, food, delivery): payment always attaches to a real placed
   // order — cart/quantities/delivery must exist before there's anything to pay for.
   if (!sp.hasMenu) {
+    // A direct payment starts a new order, which needs an address proof (BUG-084). Paying an
+    // order already placed (below) doesn't.
+    if (!await ensureAddressProof(context, ref, action: 'make a payment')) return;
+    if (!context.mounted) return;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -2730,7 +2784,7 @@ Future<void> _openPayment(BuildContext context, OrderModel order) async {
 
 Future<void> _shareProfile(BuildContext context, WidgetRef ref, ServiceProviderDetail sp) async {
   final parts = <String>[sp.name];
-  if (sp.service != null) parts.add(sp.service!);
+  if (sp.services.isNotEmpty) parts.add(sp.services.join(', '));
   if (sp.showCallButton && (sp.publishedPhone?.isNotEmpty ?? false)) parts.add('Contact: ${sp.publishedPhone}');
   await SharePlus.instance.share(ShareParams(text: parts.join(' · ')));
   try {

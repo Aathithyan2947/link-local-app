@@ -6,6 +6,7 @@ import '../../discovery/discovery_repository.dart';
 import '../../discovery/presentation/create_event_screen.dart';
 import '../../discovery/presentation/create_group_screen.dart';
 import '../../discovery/presentation/discover_screen.dart';
+import '../../address/presentation/address_proof_gate.dart';
 import '../../feed/presentation/create_post_screen.dart';
 import 'home_feed_screen.dart';
 import 'tabs/profile_tab.dart';
@@ -88,18 +89,16 @@ class _HomeShellState extends ConsumerState<HomeShell> {
               decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2)),
             ),
             const SizedBox(height: 8),
+            // Each needs an address proof first (BUG-084).
             _createTile(ctx, Icons.post_add_rounded, 'Create a Post', 'Ask, offer help or share an update',
-                onTap: () => context.pushPage(
-                      MaterialPageRoute(builder: (_) => const CreatePostScreen()),
-                    )),
+                onTap: () => pushIfAddressProof(context, ref,
+                    action: 'create a post', page: (_) => const CreatePostScreen())),
             _createTile(ctx, Icons.event_rounded, 'Host an Event', 'Organise a workshop or meetup',
-                onTap: () => context.pushPage(
-                      MaterialPageRoute(builder: (_) => const CreateEventScreen()),
-                    )),
+                onTap: () => pushIfAddressProof(context, ref,
+                    action: 'host an event', page: (_) => const CreateEventScreen())),
             _createTile(ctx, Icons.groups_rounded, 'Start a Group', 'Bring neighbours together',
-                onTap: () => context.pushPage(
-                      MaterialPageRoute(builder: (_) => const CreateGroupScreen()),
-                    )),
+                onTap: () => pushIfAddressProof(context, ref,
+                    action: 'start a group', page: (_) => const CreateGroupScreen())),
             const SizedBox(height: 8),
           ],
         ),

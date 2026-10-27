@@ -7,6 +7,7 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/validation/name_rules.dart';
+import '../../../core/validation/password_rules.dart';
 import '../../../core/widgets/auth_header.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/primary_button.dart';
@@ -95,15 +96,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   static final _emailRe = RegExp(r'^[\w.+-]+@[\w-]+\.[\w.-]+$');
 
-  /// Mirrors the backend password policy so the user gets an instant, specific message.
-  String? _passwordError(String p) {
-    if (p.length < 8) return 'Password must be at least 8 characters';
-    if (!RegExp(r'[A-Z]').hasMatch(p)) return 'Password must include an uppercase letter';
-    if (!RegExp(r'[a-z]').hasMatch(p)) return 'Password must include a lowercase letter';
-    if (!RegExp(r'[0-9]').hasMatch(p)) return 'Password must include a number';
-    if (!RegExp(r'[^A-Za-z0-9]').hasMatch(p)) return 'Password must include a special character';
-    return null;
-  }
 
   Future<void> _registerEmail() async {
     if (!_checkName()) return;
@@ -111,7 +103,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       setState(() => _error = 'Please enter a valid email address');
       return;
     }
-    final pwdError = _passwordError(_password.text);
+    final pwdError = PasswordRules.error(_password.text);
     if (pwdError != null) {
       setState(() => _error = pwdError);
       return;
@@ -220,10 +212,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         const SizedBox(height: 20),
         const Text('Create a strong password', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
         const SizedBox(height: 4),
-        const Text(
-          'At least 8 characters with an uppercase letter, a lowercase letter, a number and a special character.',
-          style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
-        ),
+        const Text(PasswordRules.hint, style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
         const SizedBox(height: 12),
         PillField(controller: _password, hint: 'Create your Password', icon: Icons.lock_outline, obscure: true),
         const SizedBox(height: 16),

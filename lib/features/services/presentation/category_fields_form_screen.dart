@@ -24,6 +24,7 @@ import '../../discovery/presentation/service_provider_detail_screen.dart';
 import '../../profile/data/profile_models.dart';
 import '../../profile/data/profile_repository.dart';
 import '../data/basic_details_fields.dart';
+import '../data/field_merge.dart';
 import '../data/service_profile_repository.dart';
 import 'area_picker_screen.dart';
 import '../../../core/navigation/push_guard.dart';
@@ -168,7 +169,9 @@ class CategoryFieldsFormScreen extends ConsumerStatefulWidget {
 }
 
 class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScreen> {
+  /// One per question: a question several services share is asked once ([mergeSharedFields]).
   List<CustomField>? _fields;
+  MergedFields? _merged;
   final _ctrls = <int, TextEditingController>{};
   final _pincodeSelections = <int, List<SelectedArea>>{};
   final _uploading = <int>{};
@@ -200,7 +203,8 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
   Future<void> _load() async {
     try {
       final all = await ref.read(serviceProfileRepositoryProvider).getCustomFields();
-      final fields = all.where((f) => f.category == widget.category).toList();
+      final merged = mergeSharedFields(all.where((f) => f.category == widget.category).toList());
+      final fields = merged.fields;
       final profile = widget.category == 'basic_details' ? await _profileForPrefill() : null;
       final user = ref.read(authControllerProvider).user;
       for (final f in fields) {
@@ -224,7 +228,12 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
           _pincodeSelections[f.fieldId] = f.resolvedAreas ?? [];
         }
       }
-      if (mounted) setState(() => _fields = fields);
+      if (mounted) {
+        setState(() {
+          _merged = merged;
+          _fields = fields;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     }
@@ -336,10 +345,13 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
       _error = null;
     });
     try {
-      final values = _visibleFields
-          .where((f) => !isFeatureMarker(f))
-          .map((f) => {'fieldId': f.fieldId, 'value': _ctrls[f.fieldId]!.text})
-          .toList();
+      // A merged question's answer is saved to every service that asks it.
+      final values = [
+        for (final f in _visibleFields)
+          if (!isFeatureMarker(f))
+            for (final id in _merged?.membersOf(f.fieldId) ?? [f.fieldId])
+              {'fieldId': id, 'value': _ctrls[f.fieldId]!.text},
+      ];
       await ref.read(serviceProfileRepositoryProvider).saveCustomFields(values);
       // The Service Phone/Email answers also live on the profile, which is what the Contact
       // Info block shows and edits — keep the two in step.
@@ -374,7 +386,8 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
         if (details is Map)
           for (final entry in details.entries)
             if (int.tryParse('${entry.key}') case final int id)
-              if (entry.value is List && (entry.value as List).isNotEmpty) id: '${(entry.value as List).first}',
+              if (entry.value is List && (entry.value as List).isNotEmpty)
+                _merged?.shownIdOf(id) ?? id: '${(entry.value as List).first}',
       };
       setState(() {
         if (byField.isNotEmpty) {
@@ -427,7 +440,10 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
               : ListView(
                   padding: const EdgeInsets.all(24),
                   children: [
-                    for (final f in fields) ...[
+                    for (final (i, f) in fields.indexed) ...[
+                      // Payment and Service Type are asked per service: say which one.
+                      if (_perServiceHeadings(fields) && (i == 0 || fields[i - 1].subcategoryName != f.subcategoryName))
+                        _ServiceHeading(f.subcategoryName, first: i == 0),
                       _fieldWidget(f),
                       const SizedBox(height: 16),
                     ],
@@ -437,6 +453,9 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
                 ),
     );
   }
+
+  bool _perServiceHeadings(List<CustomField> fields) =>
+      !kSharedFieldCategories.contains(widget.category) && spansSeveralServices(fields);
 
   /// Opens the native editor a marker field points at. Availability needs the SP's current
   /// template and feature flags, so they're fetched first; a failure just opens it empty.
@@ -731,4 +750,18 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
     } catch (_) {}
     return raw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
   }
+}
+
+/// The service a run of per-service questions belongs to (Payment & Fee, Service Type).
+class _ServiceHeading extends StatelessWidget {
+  const _ServiceHeading(this.name, {required this.first});
+  final String name;
+  final bool first;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: EdgeInsets.only(top: first ? 0 : 8, bottom: 12),
+        child: Text(name,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.primary)),
+      );
 }

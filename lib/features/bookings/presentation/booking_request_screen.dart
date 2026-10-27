@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../address/presentation/address_proof_gate.dart';
+
 import '../../../core/theme/app_colors.dart';
 import '../../business/data/availability_models.dart';
 import '../../business/data/rate_models.dart';
@@ -70,6 +72,7 @@ class _BookingRequestScreenState extends ConsumerState<BookingRequestScreen> {
       if (mounted) Navigator.of(context).pop();
     } on DioException catch (e) {
       if (!mounted) return;
+      if (handleAddressProofError(context, e, action: 'book a service')) return;
       if (e.response?.statusCode == 409) {
         setState(() => _slot = null);
         ref.invalidate(spSlotsProvider(widget.sp.id));

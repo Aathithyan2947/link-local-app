@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../address/presentation/address_proof_gate.dart';
+
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../home/data/home_models.dart';
@@ -59,6 +61,14 @@ class _MyGroupsScreenState extends ConsumerState<MyGroupsScreen> {
   Future<void> _join(GroupItem g) async {
     if (!_joining.add(g.id)) return; // already joining
     setState(() {});
+    // Joining needs an address proof (BUG-084); the button spins while that's checked.
+    if (!await hasAddressProof(ref)) {
+      _joining.remove(g.id);
+      if (!mounted) return;
+      setState(() {});
+      return showAddressProofRequired(context, action: 'join a group');
+    }
+    if (!mounted) return;
     try {
       if (g.isPaid) return await _payToJoin(g);
       final status = await ref.read(discoveryRepositoryProvider).joinGroup(g.id);
@@ -66,6 +76,7 @@ class _MyGroupsScreenState extends ConsumerState<MyGroupsScreen> {
       _joined(g, pending: status == 'pending_approval');
     } on DioException catch (e) {
       if (!mounted) return;
+      if (handleAddressProofError(context, e, action: 'join a group')) return;
       final err = ApiException.fromDio(e);
       if (err.statusCode == 402) return await _payToJoin(g); // it became paid since the list loaded
       _toast(err.statusCode == 400 || err.statusCode == 409 ? err.message : 'Could not join ${g.title}');

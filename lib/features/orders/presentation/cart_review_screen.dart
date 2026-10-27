@@ -2,6 +2,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../address/presentation/address_proof_gate.dart';
+
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../business/data/product_models.dart';
@@ -85,7 +87,16 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please choose a delivery time')));
       return;
     }
+    // Ordering needs an address proof (BUG-084); the cart stays as it is meanwhile. Checked
+    // with the button already disabled, so a double tap can't place two orders.
     setState(() => _placing = true);
+    final allowed = await hasAddressProof(ref);
+    if (!mounted) return;
+    if (!allowed) {
+      setState(() => _placing = false);
+      await showAddressProofRequired(context, action: 'place an order');
+      return;
+    }
     try {
       final repo = ref.read(ordersRepositoryProvider);
       final order = await repo.placeOrder({
@@ -128,8 +139,8 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
           ),
         );
       }
-    } catch (_) {
-      if (!mounted) return;
+    } catch (e) {
+      if (!mounted || handleAddressProofError(context, e, action: 'place an order')) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not place order')));
     } finally {
       if (mounted) setState(() => _placing = false);

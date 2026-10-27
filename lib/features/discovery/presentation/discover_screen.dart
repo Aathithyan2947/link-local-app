@@ -5,7 +5,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../home/data/home_models.dart';
 import '../../home/data/home_repository.dart';
 import '../../home/presentation/widgets/area_picker_sheet.dart';
+import '../../home/presentation/widgets/service_icons.dart';
 import '../../profile/data/profile_repository.dart';
+import '../data/service_catalog_models.dart';
 import '../discovery_repository.dart';
 import 'event_detail_screen.dart';
 import 'group_profile_screen.dart';
@@ -36,10 +38,17 @@ void openGroup(BuildContext context, int id) {
 /// Groups) over a shared, live search box. Matches the Figma "Events" /
 /// "Service Providers" / "Groups" / "Search results" frames.
 class DiscoverScreen extends ConsumerStatefulWidget {
-  const DiscoverScreen({super.key, this.onBack});
+  const DiscoverScreen({super.key, this.onBack, this.service});
 
-  /// Invoked by the header back chevron (returns to Home in the shell).
+  /// Invoked by the header back chevron (returns to Home in the shell). A pushed copy without
+  /// one just goes back.
   final VoidCallback? onBack;
+
+  /// Only this service's providers (BUG-087): the Service Providers list, opened from an All
+  /// Services tile. The filter can't be cleared here; going back to All Services picks another.
+  /// The area picker and search still work within it, and its search and tab are its own, so
+  /// the Services tab underneath keeps its state.
+  final CatalogService? service;
 
   @override
   ConsumerState<DiscoverScreen> createState() => _DiscoverScreenState();
@@ -47,6 +56,9 @@ class DiscoverScreen extends ConsumerStatefulWidget {
 
 class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
   late final TextEditingController _search;
+
+  /// The search within [DiscoverScreen.service]'s providers.
+  String _serviceQuery = '';
 
   static const _titles = [
     'Search for Events, Services & Groups',
@@ -58,7 +70,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
   @override
   void initState() {
     super.initState();
-    _search = TextEditingController(text: ref.read(discoverQueryProvider));
+    _search = TextEditingController(text: widget.service == null ? ref.read(discoverQueryProvider) : '');
   }
 
   @override
@@ -92,8 +104,58 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     a == null ? notifier.setScope('city') : notifier.setArea(a.id, a.areaName);
   }
 
+  VoidCallback get _back => widget.onBack ?? () => Navigator.of(context).maybePop();
+
+  /// [DiscoverScreen.service]'s providers in the app-wide location, filtered on the server.
+  Widget _buildForService(CatalogService service) {
+    final async = ref.watch(providersForServiceProvider(service.id));
+    final feed = ref.watch(homeFeedProvider).asData?.value;
+    final city = feed?.city?.name ?? 'your area';
+    final all = async.asData?.value.items ?? const <ServiceProviderItem>[];
+    final sps = _filter(all, _serviceQuery, (e) => e.searchText);
+    final count = _serviceQuery.isEmpty ? (async.asData?.value.total ?? sps.length) : sps.length;
+    final scope = _Scope(
+      place: locationLabel(ref.watch(homeScopeProvider), feed, fallback: city),
+      eventsCount: 0,
+      spsCount: count,
+      groupsCount: 0,
+      onPickArea: () => _pickArea(city),
+    );
+    return Material(
+      color: AppColors.background,
+      child: Column(
+        children: [
+          _Header(
+            title: _titles[2],
+            controller: _search,
+            activeTab: 2,
+            counts: [count, 0, count, 0],
+            onBack: _back,
+            onTab: (_) {},
+            onQuery: (v) => setState(() => _serviceQuery = v),
+            service: service.name,
+          ),
+          Expanded(
+            child: all.isEmpty && async.isLoading
+                ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                : all.isEmpty && async.hasError
+                    ? _DiscoverError(onRetry: () => ref.invalidate(providersForServiceProvider(service.id)))
+                    : _SpList(
+                        sps: sps,
+                        scope: scope,
+                        prefix: '${service.name} in',
+                        emptyMessage: 'No ${service.name} providers found',
+                        onRefresh: () => ref.refresh(providersForServiceProvider(service.id).future),
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.service case final service?) return _buildForService(service);
     final tab = ref.watch(discoverTabProvider);
     final query = ref.watch(discoverQueryProvider);
 
@@ -149,7 +211,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
               scope.spsCount,
               scope.groupsCount,
             ],
-            onBack: widget.onBack,
+            onBack: _back,
             onTab: _selectTab,
             onQuery: (v) => ref.read(discoverQueryProvider.notifier).set(v),
           ),
@@ -192,8 +254,12 @@ class _Header extends StatelessWidget {
     required this.onBack,
     required this.onTab,
     required this.onQuery,
+    this.service,
   });
   final String title;
+
+  /// The service the list is limited to, shown where the tabs are (no tabs then).
+  final String? service;
   final TextEditingController controller;
   final int activeTab;
   final List<int> counts;
@@ -262,7 +328,7 @@ class _Header extends StatelessWidget {
                     decoration: InputDecoration(
                       isCollapsed: true,
                       filled: false,
-                      hintText: _hints[activeTab],
+                      hintText: service != null ? 'Search providers' : _hints[activeTab],
                       hintStyle: const TextStyle(color: AppColors.textMuted),
                       contentPadding: EdgeInsets.zero,
                       border: InputBorder.none,
@@ -289,28 +355,31 @@ class _Header extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          // Tab row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            // Tabs shrink to fit rather than overflowing on a narrow screen (the counts are real
-            // totals and can run to several digits) — but all by the same factor. Each tab's
-            // share of the row is proportional to its natural width, so "Service Providers"
-            // can't end up smaller than "All". When everything fits, nothing shrinks.
-            children: List.generate(4, (i) {
-              return Flexible(
-                flex: (_TabItem.naturalWidth(context, _labels[i], counts[i]) * 10).round(),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: _TabItem(
-                    label: _labels[i],
-                    count: counts[i],
-                    active: i == activeTab,
-                    onTap: () => onTab(i),
+          // The tab row, or for one service's list, that service in its place.
+          if (service != null)
+            _ServiceFilter(name: service!)
+          else
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              // Tabs shrink to fit rather than overflowing on a narrow screen (the counts are real
+              // totals and can run to several digits) — but all by the same factor. Each tab's
+              // share of the row is proportional to its natural width, so "Service Providers"
+              // can't end up smaller than "All". When everything fits, nothing shrinks.
+              children: List.generate(4, (i) {
+                return Flexible(
+                  flex: (_TabItem.naturalWidth(context, _labels[i], counts[i]) * 10).round(),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: _TabItem(
+                      label: _labels[i],
+                      count: counts[i],
+                      active: i == activeTab,
+                      onTap: () => onTab(i),
+                    ),
                   ),
-                ),
-              );
-            }),
-          ),
+                );
+              }),
+            ),
         ],
       ),
     );
@@ -385,6 +454,44 @@ class _TabItem extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The service a pushed provider list is limited to. Not removable: the user goes back to All
+/// Services to pick another (BUG-087).
+class _ServiceFilter extends StatelessWidget {
+  const _ServiceFilter({required this.name});
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Semantics(
+          label: 'Showing $name only',
+          excludeSemantics: true,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ServiceIcon(serviceName: name, size: 16, color: AppColors.primary),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 13.5)),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -533,21 +640,32 @@ class _EventsList extends ConsumerWidget {
 }
 
 class _SpList extends ConsumerWidget {
-  const _SpList({required this.sps, required this.scope});
+  const _SpList({
+    required this.sps,
+    required this.scope,
+    this.prefix = 'Service Providers in',
+    this.emptyMessage = 'No service providers found',
+    this.onRefresh,
+  });
   final List<ServiceProviderItem> sps;
   final _Scope scope;
+  final String prefix;
+  final String emptyMessage;
+
+  /// Defaults to the whole Service Providers list.
+  final Future<void> Function()? onRefresh;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return RefreshIndicator(
       color: AppColors.primary,
-      onRefresh: () => ref.refresh(discoverServiceProvidersProvider.future),
+      onRefresh: onRefresh ?? () => ref.refresh(discoverServiceProvidersProvider.future),
       child: ListView(
         padding: EdgeInsets.only(bottom: 66 + MediaQuery.of(context).padding.bottom + 24),
         children: [
-          _SectionHeader(prefix: 'Service Providers in', place: scope.place, count: scope.spsCount, onTap: scope.onPickArea),
+          _SectionHeader(prefix: prefix, place: scope.place, count: scope.spsCount, onTap: scope.onPickArea),
           if (sps.isEmpty)
-            const _EmptyState(icon: Icons.person_search_outlined, message: 'No service providers found')
+            _EmptyState(icon: Icons.person_search_outlined, message: emptyMessage)
           else
             ...sps.map((sp) => Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),

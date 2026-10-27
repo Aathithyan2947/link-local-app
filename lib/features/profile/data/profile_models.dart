@@ -13,6 +13,16 @@ class IdName {
   final int? masterId;
 }
 
+/// A service the provider offers, by its catalogue id (what `/profiles/me/service-types`
+/// takes). [isPending] is a typed-in "Other" still waiting for admin approval: it's not in the
+/// picker's list, and only the owner sees it.
+class MyService {
+  const MyService({required this.subcategoryId, required this.name, this.isPending = false});
+  final int subcategoryId;
+  final String name;
+  final bool isPending;
+}
+
 /// One education entry as stored: each part is optional, but at least one is set.
 class EducationEntry {
   const EducationEntry({this.degree, this.schoolName, this.collegeName});
@@ -43,6 +53,7 @@ class ProfileDetail {
     required this.contacts,
     required this.products,
     required this.serviceTypes,
+    this.services = const [],
     required this.hasDelivery,
     required this.hasPaymentMethods,
     this.cityId,
@@ -89,6 +100,9 @@ class ProfileDetail {
   final List<IdName> contacts;
   final List<IdName> products;
   final List<IdName> serviceTypes;
+
+  /// The same services as [serviceTypes], by catalogue id — what My Services edits.
+  final List<MyService> services;
   final bool hasDelivery;
   final bool hasPaymentMethods;
 
@@ -162,6 +176,14 @@ class ProfileDetail {
       serviceTypes: list('serviceTypes').map((e) {
         final sub = (e['subcategory'] as Map<String, dynamic>?)?['name'] as String?;
         return IdName(_asInt(e['id']), sub ?? 'Service');
+      }).toList(),
+      services: list('serviceTypes').map((e) {
+        final sub = e['subcategory'] as Map<String, dynamic>?;
+        return MyService(
+          subcategoryId: _asInt(e['subcategoryId'] ?? sub?['id']),
+          name: sub?['name'] as String? ?? 'Service',
+          isPending: sub?['isActive'] == false,
+        );
       }).toList(),
       hasDelivery: j['delivery'] != null,
       hasPaymentMethods: ((j['paymentMethods'] as List?) ?? []).isNotEmpty,

@@ -11,6 +11,7 @@ import 'data/event_detail_models.dart';
 import 'data/group_detail_models.dart';
 import 'data/my_activity_models.dart';
 import 'data/public_profile_models.dart';
+import 'data/service_catalog_models.dart';
 import 'data/sp_detail_models.dart';
 
 class DiscoveryRepository {
@@ -42,6 +43,29 @@ class DiscoveryRepository {
       _discoverPage('/events', WorkshopItem.fromJson, scope: scope, areaId: areaId);
   Future<Section<GroupItem>> discoverGroups({String scope = 'city', int? areaId}) =>
       _discoverPage('/groups', GroupItem.fromJson, scope: scope, areaId: areaId);
+
+  /// Every approved service by category, with how many providers in scope offer each: the
+  /// All Services page behind Home's "Explore More" (BUG-087).
+  Future<List<ServiceCatalogCategory>> serviceCatalog({String scope = 'city', int? areaId}) async {
+    final res = await _dio.get('/service-providers/services', queryParameters: {'scope': scope, 'areaId': ?areaId});
+    return ((res.data['data'] as List?) ?? [])
+        .map((e) => ServiceCatalogCategory.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// The providers in scope offering one service: what an All Services tile opens.
+  Future<Section<ServiceProviderItem>> providersForService(int subcategoryId, {String scope = 'city', int? areaId}) async {
+    final res = await _dio.get('/service-providers', queryParameters: {
+      'subcategoryId': subcategoryId,
+      'pageSize': 50,
+      'scope': scope,
+      'areaId': ?areaId,
+    });
+    return Section(
+      total: ((res.data['meta'] as Map?)?['total'] as num?)?.toInt() ?? (res.data['data'] as List).length,
+      items: (res.data['data'] as List).map((e) => ServiceProviderItem.fromJson(e as Map<String, dynamic>)).toList(),
+    );
+  }
 
   Future<List<ServiceProviderItem>> serviceProviders({String? q}) async {
     final res = await _dio.get('/service-providers',
@@ -208,7 +232,10 @@ class DiscoveryRepository {
 
   /// Hides the group's existing discussions from this member only.
   Future<void> clearGroupChat(int id) async => _dio.post('/groups/$id/clear-chat');
-  Future<void> leaveGroup(int id) async => _dio.post('/groups/$id/leave');
+  /// Leaves a group. The admin names the member taking over ([newAdminUserId]); as the only
+  /// member, they leave it out and the group closes (BUG-081).
+  Future<void> leaveGroup(int id, {int? newAdminUserId}) async =>
+      _dio.post('/groups/$id/leave', data: {'newAdminUserId': ?newAdminUserId});
 
   Future<void> payForGroup(int id, {String? couponCode}) async {
     await _dio.post('/groups/$id/pay', data: {if (couponCode != null && couponCode.isNotEmpty) 'couponCode': couponCode});
@@ -290,6 +317,22 @@ final discoverServiceProvidersProvider = FutureProvider<Section<ServiceProviderI
   final s = ref.watch(homeScopeProvider);
   return ref.watch(discoveryRepositoryProvider).discoverServiceProviders(scope: s.scope, areaId: s.overrideAreaId);
 });
+/// All Services (BUG-087), for the app-wide location.
+final serviceCatalogProvider = FutureProvider<List<ServiceCatalogCategory>>((ref) {
+  ref.bindToAccount();
+  final s = ref.watch(homeScopeProvider);
+  return ref.watch(discoveryRepositoryProvider).serviceCatalog(scope: s.scope, areaId: s.overrideAreaId);
+});
+
+/// The providers of one service (by subcategory id), for the app-wide location.
+final providersForServiceProvider = FutureProvider.family<Section<ServiceProviderItem>, int>((ref, subcategoryId) {
+  ref.bindToAccount();
+  final s = ref.watch(homeScopeProvider);
+  return ref
+      .watch(discoveryRepositoryProvider)
+      .providersForService(subcategoryId, scope: s.scope, areaId: s.overrideAreaId);
+});
+
 final discoverEventsProvider = FutureProvider<Section<WorkshopItem>>((ref) {
   ref.bindToAccount();
   final s = ref.watch(homeScopeProvider);

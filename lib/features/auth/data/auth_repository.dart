@@ -100,6 +100,26 @@ class AuthRepository {
     }
   }
 
+  /// Sends a code for setting a new password to the account with this email or mobile number
+  /// (BUG-066). The server answers the same whether or not one exists. Returns the code where
+  /// OTPs are exposed for testing.
+  Future<String?> requestPasswordReset(String identifier) async {
+    try {
+      final res = await _dio.post('/auth/password/forgot', data: {'identifier': identifier});
+      return res.data['data']?['devOtp'] as String?;
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
+    }
+  }
+
+  Future<void> resetPassword({required String identifier, required String otp, required String newPassword}) async {
+    try {
+      await _dio.post('/auth/password/reset', data: {'identifier': identifier, 'otp': otp, 'newPassword': newPassword});
+    } on DioException catch (e) {
+      throw ApiException.fromDio(e);
+    }
+  }
+
   Future<void> setUserType(String userType) async {
     try {
       await _dio.patch('/profiles/me/user-type', data: {'userType': userType});

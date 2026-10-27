@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../address/presentation/address_proof_gate.dart';
+
 import '../../../core/theme/app_colors.dart';
 import '../../home/data/home_repository.dart';
 import '../data/feed_repository.dart';
@@ -33,7 +35,7 @@ class FeedScreen extends ConsumerWidget {
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         onPressed: () async {
-          await context.pushPage(MaterialPageRoute(builder: (_) => const CreatePostScreen()));
+          await pushIfAddressProof(context, ref, action: 'create a post', page: (_) => const CreatePostScreen());
           ref.invalidate(feedProvider);
         },
         icon: const Icon(Icons.edit_outlined),

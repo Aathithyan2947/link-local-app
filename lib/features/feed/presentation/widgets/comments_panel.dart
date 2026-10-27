@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../address/presentation/address_proof_gate.dart';
+
 import '../../../../core/theme/app_colors.dart';
 import '../../../home/presentation/widgets/home_widgets.dart';
 import '../../data/feed_repository.dart';
@@ -121,8 +123,11 @@ class _CommentsPanelState extends ConsumerState<CommentsPanel> {
   void initState() {
     super.initState();
     _loadMore();
+    // Not when the proof is known to be missing: the box is read-only then (BUG-084).
     if (widget.autofocus && widget.canInteract) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !addressProofKnownMissing(ref)) _focus.requestFocus();
+      });
     }
   }
 
@@ -193,6 +198,7 @@ class _CommentsPanelState extends ConsumerState<CommentsPanel> {
   }
 
   void _startReply(PostComment c) {
+    if (!checkAddressProofNow(context, ref, action: 'comment on a post')) return;
     setState(() => _replyTo = c);
     _focus.requestFocus();
   }
@@ -200,6 +206,9 @@ class _CommentsPanelState extends ConsumerState<CommentsPanel> {
   Future<void> _send() async {
     final text = _composer.text.trim();
     if (text.isEmpty || _sending) return;
+    // Commenting needs an address proof (BUG-084); the text stays in the box meanwhile.
+    if (!await ensureAddressProof(context, ref, action: 'comment on a post')) return;
+    if (!mounted) return;
     final replyTo = _replyTo;
     // Replies are one level deep: replying to a reply joins its top-level thread.
     final threadId = replyTo == null ? null : (replyTo.parentId ?? replyTo.id);
@@ -223,8 +232,9 @@ class _CommentsPanelState extends ConsumerState<CommentsPanel> {
       widget.onCountChanged?.call(_total);
       // Show the reply in its thread, opening the thread if it was collapsed.
       if (threadId != null && !_replies.containsKey(threadId)) await _loadReplies(threadId);
-    } catch (_) {
-      if (mounted) _snack(replyTo != null ? 'Could not post reply' : 'Could not post comment');
+    } catch (e) {
+      if (!mounted || handleAddressProofError(context, e, action: 'comment on a post')) return;
+      _snack(replyTo != null ? 'Could not post reply' : 'Could not post comment');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -437,6 +447,14 @@ class _CommentsPanelState extends ConsumerState<CommentsPanel> {
                 child: TextField(
                   controller: _composer,
                   focusNode: _focus,
+                  // Without an address proof the box doesn't open the keyboard, and a tap says
+                  // why before anything is typed (BUG-084).
+                  readOnly: watchAddressProofMissing(ref),
+                  onTap: () {
+                    if (addressProofKnownMissing(ref)) {
+                      showAddressProofRequired(context, action: 'comment on a post');
+                    }
+                  },
                   minLines: 1,
                   maxLines: 4,
                   textInputAction: TextInputAction.newline,
@@ -515,12 +533,16 @@ class _CommentRowState extends ConsumerState<CommentRow> {
     onChanged: () {
       if (mounted) setState(() {});
     },
-    onError: (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not update like')));
-      }
+    onError: (e) {
+      if (!mounted || handleAddressProofError(context, e, action: 'like a comment')) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not update like')));
     },
   );
+
+  /// Liking needs an address proof (BUG-084).
+  void _tapLike() {
+    if (checkAddressProofNow(context, ref, action: 'like a comment')) _like.tap();
+  }
 
   @override
   void didUpdateWidget(CommentRow old) {
@@ -569,7 +591,7 @@ class _CommentRowState extends ConsumerState<CommentRow> {
               Row(
                 children: [
                   _ActionButton(
-                    onTap: widget.canInteract ? _like.tap : null,
+                    onTap: widget.canInteract ? _tapLike : null,
                     semanticLabel: _like.liked ? 'Unlike comment' : 'Like comment',
                     child: Row(
                       mainAxisSize: MainAxisSize.min,

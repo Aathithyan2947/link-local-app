@@ -1,6 +1,8 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../address/presentation/address_proof_gate.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -39,7 +41,20 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
 
   DiscoveryRepository get _repo => ref.read(discoveryRepositoryProvider);
 
-  Future<void> _run(Future<void> Function() action, String okMsg) async {
+  /// [ensureAddressProof] with the buttons disabled while the status loads, so a double tap
+  /// can't act twice.
+  Future<bool> _hasAddressProof(String action) async {
+    if (_busy) return false;
+    setState(() => _busy = true);
+    final ok = await hasAddressProof(ref);
+    if (!mounted) return false;
+    setState(() => _busy = false);
+    if (!ok) await showAddressProofRequired(context, action: action);
+    return ok;
+  }
+
+  /// [proofAction]: what the action needs an address proof for, so a refusal shows the popup.
+  Future<void> _run(Future<void> Function() action, String okMsg, {String? proofAction}) async {
     setState(() => _busy = true);
     try {
       await action();
@@ -50,8 +65,9 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
       await ref.read(eventDetailProvider(widget.id).future);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(okMsg)));
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
+      if (proofAction != null && handleAddressProofError(context, e, action: proofAction)) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Something went wrong')));
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -60,8 +76,11 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
 
   /// A free event joins at once. A paid one opens the payment flow, and the backend adds the
   /// attendee only once that charge succeeds — Join itself never admits them.
-  Future<void> _join(EventDetail e) =>
-      e.isPaid ? _pay(e) : _run(() => _repo.joinEvent(e.id), 'You have joined!');
+  Future<void> _join(EventDetail e) async {
+    // Joining needs an address proof (BUG-084), paid or free.
+    if (!await _hasAddressProof('join an event')) return;
+    return e.isPaid ? _pay(e) : _run(() => _repo.joinEvent(e.id), 'You have joined!', proofAction: 'join an event');
+  }
 
   Future<void> _pay(EventDetail e) async {
     final paid = await context.pushPage<bool>(MaterialPageRoute(
@@ -83,7 +102,8 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tap a star to rate first')));
       return;
     }
-    await _run(() async {
+    if (!await _hasAddressProof('submit a review')) return;
+    await _run(proofAction: 'submit a review', () async {
       await _repo.rateEvent(widget.id, rating: _stars, review: _review.text);
       // Profile → My Reviews is cached for the session (BUG-098).
       ref.invalidate(myReviewsProvider);

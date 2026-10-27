@@ -302,6 +302,13 @@ class ServiceProviderItem {
     return [place, distanceLabel ?? ''].where((s) => s.isNotEmpty).join(' | ');
   }
 
+  /// The card's service line: the first service, plus how many more ("Yoga +2"). Cards used
+  /// to show only the first, so a provider's other services never appeared (BUG-099).
+  String get serviceLabel {
+    if (services.length > 1) return '${services.first} +${services.length - 1}';
+    return service ?? 'Service Provider';
+  }
+
   /// Lower-cased haystack for search: provider name + every service/subcategory.
   String get searchText => '$name ${services.join(' ')}'.toLowerCase();
 

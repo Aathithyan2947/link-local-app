@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_scope.dart';
 import '../../../core/storage/intro_seen.dart';
+import '../../../core/storage/signup_progress.dart';
 import '../../../core/storage/token_storage.dart';
 import '../data/auth_models.dart';
 import '../data/auth_repository.dart';
@@ -9,12 +10,18 @@ import '../data/auth_repository.dart';
 enum AuthStatus { unknown, authenticated, unauthenticated }
 
 class AuthState {
-  const AuthState({this.status = AuthStatus.unknown, this.user});
+  const AuthState({this.status = AuthStatus.unknown, this.user, this.signupUnfinished = false});
   final AuthStatus status;
   final AppUser? user;
 
-  AuthState copyWith({AuthStatus? status, AppUser? user}) =>
-      AuthState(status: status ?? this.status, user: user ?? this.user);
+  /// A new account that hasn't picked Resident or Service Provider yet ([SignupProgress]).
+  final bool signupUnfinished;
+
+  AuthState copyWith({AuthStatus? status, AppUser? user, bool? signupUnfinished}) => AuthState(
+        status: status ?? this.status,
+        user: user ?? this.user,
+        signupUnfinished: signupUnfinished ?? this.signupUnfinished,
+      );
 
   bool get isAuthenticated => status == AuthStatus.authenticated;
 }
@@ -49,7 +56,7 @@ class AuthController extends Notifier<AuthState> {
     }
     try {
       final user = await _repo.me();
-      _setAuthState(AuthState(status: AuthStatus.authenticated, user: user));
+      await _signIn(user);
     } catch (_) {
       await _tokens.clear();
       _setAuthState(const AuthState(status: AuthStatus.unauthenticated));
@@ -61,7 +68,13 @@ class AuthController extends Notifier<AuthState> {
     await _tokens.save(accessToken: result.accessToken, refreshToken: result.refreshToken);
     // Re-fetch full profile (so we know whether the address step is complete).
     final user = await _repo.me();
-    _setAuthState(AuthState(status: AuthStatus.authenticated, user: user));
+    await _signIn(user);
+  }
+
+  /// Signed in as [user]; resumes an unfinished sign-up started on this device.
+  Future<void> _signIn(AppUser user) async {
+    final unfinished = await SignupProgress.isUnfinished(user.id);
+    _setAuthState(AuthState(status: AuthStatus.authenticated, user: user, signupUnfinished: unfinished));
   }
 
   Future<void> register({
@@ -83,7 +96,8 @@ class AuthController extends Notifier<AuthState> {
       referralSourceId: referralSourceId,
     );
     await _tokens.save(accessToken: result.accessToken, refreshToken: result.refreshToken);
-    _setAuthState(AuthState(status: AuthStatus.authenticated, user: result.user));
+    await SignupProgress.markUnfinished(result.user.id);
+    _setAuthState(AuthState(status: AuthStatus.authenticated, user: result.user, signupUnfinished: true));
   }
 
   Future<String?> requestOtp({
@@ -115,12 +129,16 @@ class AuthController extends Notifier<AuthState> {
     );
     await _tokens.save(accessToken: result.accessToken, refreshToken: result.refreshToken);
     final user = await _repo.me();
-    _setAuthState(AuthState(status: AuthStatus.authenticated, user: user));
+    if (purpose == 'registration') await SignupProgress.markUnfinished(user.id);
+    await _signIn(user);
   }
 
   /// Sets resident vs service_provider (after address, per PRD) and refreshes.
   Future<void> setUserType(String userType) async {
     await _repo.setUserType(userType);
+    final id = state.user?.id;
+    if (id != null) await SignupProgress.clear(id);
+    _setAuthState(state.copyWith(signupUnfinished: false));
     await refreshUser();
   }
 

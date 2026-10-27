@@ -40,6 +40,7 @@ import '../../business/presentation/setup/sp_setup_wizard_screen.dart';
 import '../../business/presentation/sp_products_screen.dart';
 import '../../services/data/basic_details_fields.dart';
 import '../../services/data/field_merge.dart';
+import '../../orders/data/advance_terms.dart';
 import '../../services/data/service_profile_repository.dart';
 import '../../services/presentation/category_fields_form_screen.dart';
 import '../../services/presentation/service_category_screen.dart';
@@ -885,6 +886,22 @@ class _EnterAmountSheetState extends ConsumerState<_EnterAmountSheet> {
           const SizedBox(height: 4),
           const Text('Enter the amount you\'ve agreed with the provider.',
               style: TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
+          // Their advance terms, for reference (BUG-097): the amount here is still the
+          // resident's to set, so it isn't split.
+          if (_advanceNote(widget.sp) case final String note) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline, size: 16, color: AppColors.primary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(note,
+                      style: const TextStyle(fontSize: 12.5, color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 14),
           TextField(
             controller: _ctrl,
@@ -2677,6 +2694,15 @@ Future<void> _showProfileActionsMenu(BuildContext anchorContext, WidgetRef ref, 
     case 'block':
       await _toggleBlockSp(anchorContext, ref, sp);
   }
+}
+
+/// The provider's advance terms in a sentence, or null when they set none.
+String? _advanceNote(ServiceProviderDetail sp) {
+  final percent = advancePercentOf(sp.customFields);
+  if (percent == null) return null;
+  if (percent == 0) return '${sp.name} takes no advance.';
+  if (percent >= 100) return '${sp.name} asks for full payment in advance.';
+  return '${sp.name} asks for a ${percentLabel(percent)} advance.';
 }
 
 /// Best-effort prefill only (not authoritative — the resident can change it freely):

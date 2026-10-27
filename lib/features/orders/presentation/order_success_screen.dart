@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../discovery/presentation/service_provider_detail_screen.dart';
+import '../data/order_models.dart';
 import 'my_orders_screen.dart';
 
 /// Confirmation after a successful (mock-paid) order.
@@ -14,13 +15,27 @@ class OrderSuccessScreen extends ConsumerWidget {
     super.key,
     required this.orderId,
     required this.total,
+    this.balance = 0,
     this.spProfileId,
     this.spName,
   });
   final int orderId;
+
+  /// Paid now: everything, the advance, or nothing for a seller who takes no advance.
   final double total;
+
+  /// Left to pay from My Orders (BUG-097).
+  final double balance;
   final int? spProfileId;
   final String? spName;
+
+  String get _message {
+    if (balance <= 0.005) return 'Order #$orderId · ${inr(total)} paid.\nThe seller will confirm shortly.';
+    if (total <= 0.005) {
+      return 'Order #$orderId placed. Pay ${inr(balance)} later from My Orders.\nThe seller will confirm shortly.';
+    }
+    return 'Order #$orderId · ${inr(total)} advance paid.\n${inr(balance)} is left to pay from My Orders.';
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -39,7 +54,7 @@ class OrderSuccessScreen extends ConsumerWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 22, color: AppColors.ink)),
               const SizedBox(height: 8),
-              Text('Order #$orderId · ₹${total.toStringAsFixed(0)} paid.\nThe seller will confirm shortly.',
+              Text(_message,
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.5)),
               const SizedBox(height: 32),

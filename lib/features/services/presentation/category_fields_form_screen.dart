@@ -21,6 +21,7 @@ import '../../business/presentation/setup/sp_setup_wizard_screen.dart';
 import '../../business/presentation/sp_products_screen.dart';
 import '../../discovery/discovery_repository.dart';
 import '../../discovery/presentation/service_provider_detail_screen.dart';
+import '../../orders/data/advance_terms.dart';
 import '../../profile/data/profile_models.dart';
 import '../../profile/data/profile_repository.dart';
 import '../data/basic_details_fields.dart';
@@ -320,12 +321,19 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
   bool _isDistance(CustomField f) =>
       isTravelDistanceField(category: f.category, fieldName: f.fieldName, fieldType: f.fieldType);
 
-  /// Per-field checks that need more than "required": today, the travel distance limit.
+  /// Per-field checks that need more than "required": the travel distance limit, and the
+  /// advance percentage checkout charges (1–100, BUG-097).
   Map<int, String> _checkFields() => {
         for (final f in _visibleFields)
-          if (_isDistance(f))
-            if (travelDistanceError(_ctrls[f.fieldId]!.text) case final String e) f.fieldId: e,
+          if (_fieldProblem(f) case final String e) f.fieldId: e,
       };
+
+  String? _fieldProblem(CustomField f) {
+    final text = _ctrls[f.fieldId]!.text;
+    if (_isDistance(f)) return travelDistanceError(text);
+    if (isAdvancePercentField(f.fieldName)) return advancePercentError(text);
+    return null;
+  }
 
   Future<void> _save() async {
     for (final f in _visibleFields) {
@@ -406,7 +414,7 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
   /// Keeps a shown field error current as the provider edits that field.
   void _recheck(CustomField f) {
     if (!_fieldErrors.containsKey(f.fieldId)) return;
-    final e = _isDistance(f) ? travelDistanceError(_ctrls[f.fieldId]!.text) : null;
+    final e = _fieldProblem(f);
     setState(() => e == null ? _fieldErrors.remove(f.fieldId) : _fieldErrors[f.fieldId] = e);
   }
 
@@ -716,7 +724,11 @@ class _CategoryFieldsFormScreenState extends ConsumerState<CategoryFieldsFormScr
                 onChanged: (_) => _recheck(f),
                 decoration: InputDecoration(
                   hintText: f.fieldName,
-                  helperText: _isDistance(f) ? 'In km, up to $kMaxTravelKm' : null,
+                  helperText: _isDistance(f)
+                      ? 'In km, up to $kMaxTravelKm'
+                      : isAdvancePercentField(f.fieldName)
+                          ? 'Between 1 and 100'
+                          : null,
                   errorText: _fieldErrors[f.fieldId],
                 )),
             _prefillNote(f),

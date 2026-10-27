@@ -75,12 +75,11 @@ class DiscoveryRepository {
         .toList();
   }
 
-  /// Service providers narrowed to a single picked area — powers the Home feed's
-  /// "Service provider in X ▾" section header when a per-section area is chosen (distinct
-  /// from the whole-feed [HomeScopeState] scoping).
-  Future<Section<ServiceProviderItem>> serviceProvidersScoped(int areaId, {int pageSize = 8}) async {
+  /// Service providers in the areas picked in Home's "Service provider in X ▾" header
+  /// (distinct from the whole-feed [HomeScopeState] scoping).
+  Future<Section<ServiceProviderItem>> serviceProvidersScoped(List<int> areaIds, {int pageSize = 8}) async {
     final res = await _dio.get('/service-providers',
-        queryParameters: {'scope': 'area', 'areaId': areaId, 'pageSize': pageSize});
+        queryParameters: {'areaIds': areaIds.join(','), 'pageSize': pageSize});
     return Section(
       total: (res.data['meta']['total'] as num).toInt(),
       items: (res.data['data'] as List).map((e) => ServiceProviderItem.fromJson(e as Map<String, dynamic>)).toList(),
@@ -118,11 +117,9 @@ class DiscoveryRepository {
         .toList();
   }
 
-  /// Workshops/events narrowed to a single picked area — powers the Home feed's
-  /// "Workshops in X ▾" section header when a per-section area is chosen.
-  Future<Section<WorkshopItem>> eventsScoped(int areaId, {int pageSize = 6}) async {
-    final res =
-        await _dio.get('/events', queryParameters: {'scope': 'area', 'areaId': areaId, 'pageSize': pageSize});
+  /// Workshops/events in the areas picked in Home's "Workshops in X ▾" header.
+  Future<Section<WorkshopItem>> eventsScoped(List<int> areaIds, {int pageSize = 6}) async {
+    final res = await _dio.get('/events', queryParameters: {'areaIds': areaIds.join(','), 'pageSize': pageSize});
     return Section(
       total: (res.data['meta']['total'] as num).toInt(),
       items: (res.data['data'] as List).map((e) => WorkshopItem.fromJson(e as Map<String, dynamic>)).toList(),
@@ -142,11 +139,9 @@ class DiscoveryRepository {
         .toList();
   }
 
-  /// Groups narrowed to a single picked area — powers the Home feed's "Groups in X ▾"
-  /// section header when a per-section area is chosen.
-  Future<Section<GroupItem>> groupsScoped(int areaId, {int pageSize = 6}) async {
-    final res =
-        await _dio.get('/groups', queryParameters: {'scope': 'area', 'areaId': areaId, 'pageSize': pageSize});
+  /// Groups in the areas picked in Home's "Groups in X ▾" header.
+  Future<Section<GroupItem>> groupsScoped(List<int> areaIds, {int pageSize = 6}) async {
+    final res = await _dio.get('/groups', queryParameters: {'areaIds': areaIds.join(','), 'pageSize': pageSize});
     return Section(
       total: (res.data['meta']['total'] as num).toInt(),
       items: (res.data['data'] as List).map((e) => GroupItem.fromJson(e as Map<String, dynamic>)).toList(),
@@ -373,20 +368,20 @@ final spSlotsProvider = FutureProvider.family<List<OpenSlot>, int>((ref, id) {
   return ref.watch(discoveryRepositoryProvider).serviceProviderSlots(id);
 });
 
-/// Service providers/events/groups for a single picked area, keyed by areaId — backs the
-/// Home feed's per-section area overrides (see `home/data/home_repository.dart`'s
-/// `SectionAreaOverride` providers).
-final spSectionScopedProvider = FutureProvider.family<Section<ServiceProviderItem>, int>((ref, areaId) {
+/// Service providers/events/groups for a Home section's picked areas, keyed by
+/// [SectionAreas.key] ("3,7") — backs the per-section area dropdowns (see
+/// `home/data/home_repository.dart`).
+final spSectionScopedProvider = FutureProvider.family<Section<ServiceProviderItem>, String>((ref, areaKey) {
   ref.bindToAccount();
-  return ref.watch(discoveryRepositoryProvider).serviceProvidersScoped(areaId);
+  return ref.watch(discoveryRepositoryProvider).serviceProvidersScoped(areaIdsOf(areaKey));
 });
-final workshopsSectionScopedProvider = FutureProvider.family<Section<WorkshopItem>, int>((ref, areaId) {
+final workshopsSectionScopedProvider = FutureProvider.family<Section<WorkshopItem>, String>((ref, areaKey) {
   ref.bindToAccount();
-  return ref.watch(discoveryRepositoryProvider).eventsScoped(areaId);
+  return ref.watch(discoveryRepositoryProvider).eventsScoped(areaIdsOf(areaKey));
 });
-final groupsSectionScopedProvider = FutureProvider.family<Section<GroupItem>, int>((ref, areaId) {
+final groupsSectionScopedProvider = FutureProvider.family<Section<GroupItem>, String>((ref, areaKey) {
   ref.bindToAccount();
-  return ref.watch(discoveryRepositoryProvider).groupsScoped(areaId);
+  return ref.watch(discoveryRepositoryProvider).groupsScoped(areaIdsOf(areaKey));
 });
 
 /// Full event detail, keyed by event id.

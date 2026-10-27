@@ -137,19 +137,16 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
     ref.invalidate(discussionsSectionScopedProvider);
   }
 
-  Future<void> _pickSectionArea(NotifierProvider<SectionAreaNotifier, SectionAreaOverride?> provider) async {
+  /// One or several areas for the section (BUG-086); none is the whole city again.
+  Future<void> _pickSectionArea(NotifierProvider<SectionAreaNotifier, SectionAreas?> provider) async {
     final cityId = ref.read(myProfileProvider).asData?.value.cityId;
-    final current = ref.read(provider);
-    final picked = await showAreaScopeSheet(
+    final picked = await showAreaMultiSheet(
       context,
       cityId: cityId,
       cityName: _cityName,
-      selectedAreaId: current?.areaId,
-      wholeCitySelected: current == null,
+      initial: ref.read(provider)?.areas ?? const [],
     );
-    if (picked == null) return;
-    final area = picked.area;
-    area == null ? ref.read(provider.notifier).clear() : ref.read(provider.notifier).set(area.id, area.areaName);
+    if (picked != null) ref.read(provider.notifier).setAreas(picked);
   }
 
   @override
@@ -164,13 +161,13 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
     final discussionsOverride = ref.watch(discussionsSectionAreaProvider);
     final workshopsOverride = ref.watch(workshopsSectionAreaProvider);
     final groupsOverride = ref.watch(groupsSectionAreaProvider);
-    final spScopedAsync = spOverride != null ? ref.watch(spSectionScopedProvider(spOverride.areaId)) : null;
+    final spScopedAsync = spOverride != null ? ref.watch(spSectionScopedProvider(spOverride.key)) : null;
     final discussionsScopedAsync =
-        discussionsOverride != null ? ref.watch(discussionsSectionScopedProvider(discussionsOverride.areaId)) : null;
+        discussionsOverride != null ? ref.watch(discussionsSectionScopedProvider(discussionsOverride.key)) : null;
     final workshopsScopedAsync =
-        workshopsOverride != null ? ref.watch(workshopsSectionScopedProvider(workshopsOverride.areaId)) : null;
+        workshopsOverride != null ? ref.watch(workshopsSectionScopedProvider(workshopsOverride.key)) : null;
     final groupsScopedAsync =
-        groupsOverride != null ? ref.watch(groupsSectionScopedProvider(groupsOverride.areaId)) : null;
+        groupsOverride != null ? ref.watch(groupsSectionScopedProvider(groupsOverride.key)) : null;
 
     // Gentle, dismissible reminder to upload address proof (only when not yet submitted/approved).
     final proof = ref.watch(myAddressProofProvider).asData?.value;

@@ -10,6 +10,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../../messages/presentation/chat_screen.dart';
 import '../data/order_models.dart';
+import 'widgets/order_payment_status.dart';
 import '../data/orders_repository.dart';
 import '../../../core/navigation/push_guard.dart';
 import '../../../core/text/plural.dart';
@@ -265,6 +266,11 @@ class _NewOrderCard extends StatelessWidget {
                       Text('Order Placed: ${_timeAgo(order.placedAt!)}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
                     if (order.deliveryTimeWindow != null && order.deliveryTimeWindow!.isNotEmpty)
                       Text('Expected Delivery: ${order.deliveryTimeWindow}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                    // What the buyer has paid so far, and what's still due (BUG-097).
+                    if (order.paid || order.payLater) ...[
+                      const SizedBox(height: 4),
+                      OrderPaymentStatus(order: order),
+                    ],
                   ],
                 ),
               ),

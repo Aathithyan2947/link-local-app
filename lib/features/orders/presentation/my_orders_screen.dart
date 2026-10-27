@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../home/presentation/widgets/home_widgets.dart';
 import '../data/order_models.dart';
+import 'widgets/order_payment_status.dart';
 import '../data/orders_repository.dart';
 import 'order_tracking_screen.dart';
 import '../../../core/navigation/push_guard.dart';
@@ -146,13 +147,9 @@ class OrderCard extends StatelessWidget {
               ],
             ),
           ],
-          if (order.paid) ...[
+          if (order.paid || order.payLater) ...[
             const SizedBox(height: 4),
-            Row(children: const [
-              Icon(Icons.verified, size: 15, color: AppColors.primary),
-              SizedBox(width: 4),
-              Text('Paid', style: TextStyle(fontSize: 12.5, color: AppColors.primary)),
-            ]),
+            OrderPaymentStatus(order: order),
           ],
           if (trailing != null) ...[const SizedBox(height: 12), trailing!],
         ],

@@ -91,7 +91,9 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
               }
             }
 
-            final pending = mine.where((o) => !o.paid && !_terminalStatuses.contains(o.status)).toList();
+            // Unpaid orders, and advance orders with a balance left (BUG-097).
+            final pending =
+                mine.where((o) => (!o.paid || o.hasBalance) && !_terminalStatuses.contains(o.status)).toList();
 
             return RefreshIndicator(
               color: AppColors.primary,
@@ -302,13 +304,14 @@ class _PendingTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Pay ${order.spName}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5)),
+                    Text(order.hasBalance ? 'Balance for ${order.spName}' : 'Pay ${order.spName}',
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5)),
                     const SizedBox(height: 2),
                     Text(dateLabel, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                   ],
                 ),
               ),
-              Text('₹${order.totalAmount.toStringAsFixed(0)}',
+              Text(inr(order.amountDue),
                   style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.ink)),
             ],
           ),

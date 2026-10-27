@@ -7,6 +7,7 @@ import '../../payments/presentation/payment_method_screen.dart';
 import '../../payments/data/payment_charge.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
+import 'widgets/order_payment_status.dart';
 import '../../../core/navigation/push_guard.dart';
 
 /// Order/booking status timeline — the "Accepted (Buyer)" frame.
@@ -15,6 +16,7 @@ class OrderTrackingScreen extends ConsumerWidget {
   const OrderTrackingScreen({super.key, required this.orderId});
   final int orderId;
 
+  /// Pays what's due now: an accepted booking, or a product order's advance or balance.
   Future<void> _confirmAndPay(BuildContext context, WidgetRef ref, OrderModel o) async {
     final paid = await context.pushPage<bool>(
       MaterialPageRoute(builder: (_) => PaymentMethodScreen(charge: orderCharge(o.id), total: o.amountDue)),
@@ -22,6 +24,10 @@ class OrderTrackingScreen extends ConsumerWidget {
     if (paid == true) {
       ref.invalidate(orderByIdProvider(orderId));
       ref.invalidate(myOrdersProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('${inr(o.amountDue)} paid for order #${o.id}')));
+      }
     }
   }
 
@@ -30,18 +36,30 @@ class OrderTrackingScreen extends ConsumerWidget {
     final async = ref.watch(orderByIdProvider(orderId));
     final o = async.asData?.value;
     final myUserId = ref.watch(authControllerProvider).user?.id;
-    final canPay = o != null && o.isBooking && o.status == 'accepted' && !o.paid && o.buyerId == myUserId;
+    final mine = o != null && o.buyerId == myUserId;
+    final canPayBooking = mine && o.isBooking && o.status == 'accepted' && !o.paid;
+    // A product order with something left to pay (BUG-097): the balance after an advance, a
+    // "no advance" order, or a checkout that was left before paying.
+    final canPayOrder = mine &&
+        !o.isBooking &&
+        o.status != 'cancelled' &&
+        o.status != 'rejected' &&
+        o.balanceDue > 0.005;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: Text('Order #$orderId')),
-      bottomNavigationBar: !canPay
+      bottomNavigationBar: !(canPayBooking || canPayOrder)
           ? null
           : SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: ElevatedButton(
                   onPressed: () => _confirmAndPay(context, ref, o),
-                  child: Text('Confirm & pay  ·  ₹${o.totalAmount.toStringAsFixed(0)}'),
+                  child: Text(canPayBooking
+                      ? 'Confirm & pay  ·  ₹${o.totalAmount.toStringAsFixed(0)}'
+                      : o.hasBalance
+                          ? 'Pay balance  ·  ${inr(o.amountDue)}'
+                          : 'Pay  ·  ${inr(o.amountDue)}'),
                 ),
               ),
             ),
@@ -84,13 +102,9 @@ class OrderTrackingScreen extends ConsumerWidget {
                     style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
               ]),
             ],
-            if (o.paid) ...[
+            if (o.paid || o.payLater) ...[
               const SizedBox(height: 8),
-              Row(children: const [
-                Icon(Icons.verified, size: 16, color: AppColors.primary),
-                SizedBox(width: 4),
-                Text('Paid', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
-              ]),
+              OrderPaymentStatus(order: o, fontSize: 14),
             ],
           ],
         ),

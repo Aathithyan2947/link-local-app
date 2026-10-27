@@ -3,6 +3,9 @@ import '../../../core/time/server_time.dart';
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 double _asDouble(dynamic v) => v == null ? 0 : (v is num ? v.toDouble() : double.tryParse('$v') ?? 0);
 
+/// "₹500", or "₹499.50" when there are paise: an advance split can leave them.
+String inr(double v) => '₹${v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2)}';
+
 /// One line item within an order.
 class OrderLine {
   const OrderLine({
@@ -44,7 +47,10 @@ class OrderQuote {
     required this.total,
     this.freeDeliveryThreshold,
     this.freeDeliveryRemaining = 0,
-  });
+    this.advancePercent = 100,
+    double? advanceAmount,
+    this.payLater = false,
+  }) : advanceAmount = advanceAmount ?? total;
   final double subtotal;
   final double deliveryCharge;
   final double packagingCharge;
@@ -53,6 +59,15 @@ class OrderQuote {
   final double total;
   final double? freeDeliveryThreshold;
   final double freeDeliveryRemaining;
+
+  /// The provider's advance terms (BUG-097): the share of [total] paid at checkout (100 is
+  /// everything), that amount, and whether nothing is paid now ("No Advance").
+  final double advancePercent;
+  final double advanceAmount;
+  final bool payLater;
+
+  /// Something is left to pay after checkout.
+  bool get hasBalance => total - advanceAmount > 0.005;
 
   factory OrderQuote.fromJson(Map<String, dynamic> j) => OrderQuote(
         subtotal: _asDouble(j['subtotal']),
@@ -63,6 +78,9 @@ class OrderQuote {
         total: _asDouble(j['total']),
         freeDeliveryThreshold: j['freeDeliveryThreshold'] != null ? _asDouble(j['freeDeliveryThreshold']) : null,
         freeDeliveryRemaining: _asDouble(j['freeDeliveryRemaining']),
+        advancePercent: j['advancePercent'] != null ? _asDouble(j['advancePercent']) : 100,
+        advanceAmount: j['advanceAmount'] != null ? _asDouble(j['advanceAmount']) : null,
+        payLater: j['payLater'] as bool? ?? false,
       );
 }
 
@@ -171,7 +189,11 @@ class OrderModel {
     this.items = const [],
     this.paid = false,
     this.payments = const [],
-  });
+    this.amountPaid = 0,
+    double? balanceDue,
+    this.advancePercent = 100,
+    this.payLater = false,
+  }) : balanceDue = balanceDue ?? (paid ? 0 : totalAmount);
 
   final int id;
   final String orderKind; // product | booking
@@ -183,9 +205,25 @@ class OrderModel {
   final double platformFee;
   final double discountApplied;
   final double totalAmount;
-  /// Amount owed for the "pay now" step — equals [totalAmount] unless the SP configured a
-  /// partial-advance % (product orders only; see backend `computeAmountDue`).
+  /// What the next payment charges (BUG-097): the advance at checkout when the provider asks
+  /// for one, then whatever is left (see backend `paymentSummary`).
   final double amountDue;
+
+  /// Paid so far, and still owed.
+  final double amountPaid;
+  final double balanceDue;
+
+  /// The share of the total charged at checkout: 100 is everything, 0 is nothing.
+  final double advancePercent;
+
+  /// "No Advance": placed without paying, then paid from Order Tracking.
+  final bool payLater;
+
+  /// Something has been paid and something is still owed (an advance order's balance).
+  bool get hasBalance => paid && balanceDue > 0.005;
+
+  /// Nothing more to pay.
+  bool get fullyPaid => paid && balanceDue <= 0.005;
   final String? rateType;
   final double? rateAmount;
   final String? specialInstructions;
@@ -237,6 +275,10 @@ class OrderModel {
         items: items,
         paid: paid,
         payments: payments,
+        amountPaid: amountPaid,
+        balanceDue: balanceDue,
+        advancePercent: advancePercent,
+        payLater: payLater,
       );
 
   String get statusLabel =>
@@ -250,6 +292,8 @@ class OrderModel {
     final sp = j['spProfile'] as Map<String, dynamic>?;
     final payments = (j['payments'] as List?) ?? [];
     final slot = j['scheduledSlot'] as Map<String, dynamic>?;
+    final paidPayments = payments.where((p) => (p as Map)['paymentStatus'] == 'paid');
+    final paidSum = paidPayments.fold<double>(0, (s, p) => s + _asDouble((p as Map)['amount']));
     return OrderModel(
       id: _asInt(j['id']),
       orderKind: j['orderKind'] as String? ?? 'product',
@@ -277,8 +321,13 @@ class OrderModel {
       spPhoto: sp?['photoUrl'] as String?,
       spUserId: _asInt(sp?['userId']),
       items: ((j['items'] as List?) ?? []).map((e) => OrderLine.fromJson(e as Map<String, dynamic>)).toList(),
-      paid: payments.any((p) => (p as Map)['paymentStatus'] == 'paid'),
+      paid: paidPayments.isNotEmpty,
       payments: payments.map((p) => OrderPaymentModel.fromJson(p as Map<String, dynamic>)).toList(),
+      // An older backend sends none of these: one payment settled the order.
+      amountPaid: j['amountPaid'] != null ? _asDouble(j['amountPaid']) : paidSum,
+      balanceDue: j['balanceDue'] != null ? _asDouble(j['balanceDue']) : null,
+      advancePercent: j['advancePercent'] != null ? _asDouble(j['advancePercent']) : 100,
+      payLater: j['payLater'] as bool? ?? false,
     );
   }
 }

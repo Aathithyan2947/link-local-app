@@ -7,19 +7,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/auth/auth_scope.dart';
+import '../../services/data/service_profile_repository.dart' show SelectedArea;
 import 'home_models.dart';
 
 class HomeRepository {
   HomeRepository(this._dio);
   final Dio _dio;
 
-  /// Community Discussions for one picked area — backs that section's own header dropdown.
-  /// Reads `/feed`, which returns the same Post shape Home embeds, so [DiscussionItem]
-  /// parses it unchanged.
-  Future<List<DiscussionItem>> discussionsScoped(int areaId, {int limit = 3}) async {
+  /// Community Discussions for the areas picked in that section's own header dropdown. Reads
+  /// `/posts`, which returns the same Post shape Home embeds, so [DiscussionItem] parses it
+  /// unchanged.
+  Future<List<DiscussionItem>> discussionsScoped(List<int> areaIds, {int limit = 3}) async {
     try {
       // The community feed's own endpoint; `/feed` never existed, so this used to 404.
-      final res = await _dio.get('/posts', queryParameters: {'areaId': areaId, 'pageSize': limit});
+      final res = await _dio.get('/posts', queryParameters: {'areaIds': areaIds.join(','), 'pageSize': limit});
       return ((res.data['data'] as List?) ?? [])
           .map((e) => DiscussionItem.fromJson(e as Map<String, dynamic>))
           .toList();
@@ -168,30 +169,55 @@ class SectionAreaOverride {
   final String label;
 }
 
-class SectionAreaNotifier extends Notifier<SectionAreaOverride?> {
+/// The areas picked for ONE Home section in its header dropdown (BUG-086: one or several).
+/// Never empty; "All of the city" is no pick at all (null).
+class SectionAreas {
+  SectionAreas(List<SelectedArea> areas) : areas = List.unmodifiable(areas) {
+    assert(areas.isNotEmpty);
+  }
+  final List<SelectedArea> areas;
+
+  /// The ids, sorted: what the scoped providers are keyed by, so the same set in any order
+  /// is one cached fetch.
+  String get key => (areas.map((a) => a.id).toList()..sort()).join(',');
+
+  /// For the header: "Pai Nagar", "Pai Nagar, Gaimukh", or "Pai Nagar +2".
+  String get label => switch (areas.length) {
+        1 => areas.first.areaName,
+        2 => '${areas[0].areaName}, ${areas[1].areaName}',
+        final n => '${areas.first.areaName} +${n - 1}',
+      };
+}
+
+/// The ids in a [SectionAreas.key].
+List<int> areaIdsOf(String key) => key.split(',').map(int.parse).toList();
+
+class SectionAreaNotifier extends Notifier<SectionAreas?> {
   @override
-  SectionAreaOverride? build() {
+  SectionAreas? build() {
     ref.bindToAccount();
     ref.watch(homeScopeProvider); // a new app-wide location clears this section's pick
     return null;
   }
-  void set(int areaId, String label) => state = SectionAreaOverride(areaId: areaId, label: label);
+
+  /// [areas] for this section; none means back to the default, city-wide slice.
+  void setAreas(List<SelectedArea> areas) => state = areas.isEmpty ? null : SectionAreas(areas);
+
+  /// One area.
+  void set(int areaId, String label) => setAreas([SelectedArea(id: areaId, areaName: label)]);
 
   /// Back to the section's default, city-wide slice.
   void clear() => state = null;
 }
 
-final spSectionAreaProvider = NotifierProvider<SectionAreaNotifier, SectionAreaOverride?>(SectionAreaNotifier.new);
-final discussionsSectionAreaProvider =
-    NotifierProvider<SectionAreaNotifier, SectionAreaOverride?>(SectionAreaNotifier.new);
+final spSectionAreaProvider = NotifierProvider<SectionAreaNotifier, SectionAreas?>(SectionAreaNotifier.new);
+final discussionsSectionAreaProvider = NotifierProvider<SectionAreaNotifier, SectionAreas?>(SectionAreaNotifier.new);
 
-/// Discussions for a single picked area, keyed by areaId — the discussions counterpart to
-/// `spSectionScopedProvider` and friends in discovery_repository.dart.
-final discussionsSectionScopedProvider = FutureProvider.family<List<DiscussionItem>, int>((ref, areaId) {
+/// Discussions for a section's picked areas, keyed by [SectionAreas.key] — the discussions
+/// counterpart to `spSectionScopedProvider` and friends in discovery_repository.dart.
+final discussionsSectionScopedProvider = FutureProvider.family<List<DiscussionItem>, String>((ref, areaKey) {
   ref.bindToAccount();
-  return ref.watch(homeRepositoryProvider).discussionsScoped(areaId);
+  return ref.watch(homeRepositoryProvider).discussionsScoped(areaIdsOf(areaKey));
 });
-final workshopsSectionAreaProvider =
-    NotifierProvider<SectionAreaNotifier, SectionAreaOverride?>(SectionAreaNotifier.new);
-final groupsSectionAreaProvider =
-    NotifierProvider<SectionAreaNotifier, SectionAreaOverride?>(SectionAreaNotifier.new);
+final workshopsSectionAreaProvider = NotifierProvider<SectionAreaNotifier, SectionAreas?>(SectionAreaNotifier.new);
+final groupsSectionAreaProvider = NotifierProvider<SectionAreaNotifier, SectionAreas?>(SectionAreaNotifier.new);

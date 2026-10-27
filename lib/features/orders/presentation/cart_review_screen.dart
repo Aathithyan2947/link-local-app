@@ -11,6 +11,7 @@ import '../../discovery/data/sp_detail_models.dart';
 import '../../discovery/discovery_repository.dart';
 import '../../payments/presentation/payment_method_screen.dart';
 import '../../payments/data/payment_charge.dart';
+import '../data/advance_terms.dart';
 import '../data/cart.dart';
 import '../data/order_models.dart';
 import '../data/orders_repository.dart';
@@ -117,10 +118,13 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
         'deliveryTimeWindow': _selectedWindow,
       });
       if (!mounted) return;
-      // Route through the Payment method + UPI pages (mock gateway).
-      final paid = await context.pushPage<bool>(
-        MaterialPageRoute(builder: (_) => PaymentMethodScreen(charge: orderCharge(order.id), total: order.amountDue)),
-      );
+      // Route through the Payment method + UPI pages (mock gateway), for the advance when the
+      // seller asks for one (BUG-097). A seller with "No Advance" is paid later, from My Orders.
+      final bool? paid = order.payLater
+          ? true
+          : await context.pushPage<bool>(
+              MaterialPageRoute(builder: (_) => PaymentMethodScreen(charge: orderCharge(order.id), total: order.amountDue)),
+            );
       if (!mounted) return;
       if (paid == true) {
         // Read the seller before clearing — the cart is where that lives.
@@ -132,7 +136,8 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
           MaterialPageRoute(
             builder: (_) => OrderSuccessScreen(
               orderId: order.id,
-              total: order.totalAmount,
+              total: order.payLater ? 0 : order.amountDue,
+              balance: order.payLater ? order.totalAmount : (order.totalAmount - order.amountDue).clamp(0, double.infinity),
               spProfileId: spProfileId,
               spName: spName,
             ),
@@ -189,7 +194,7 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
                   onPressed: _placing ? null : () => _confirm(cart),
                   child: _placing
                       ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Text('Confirm  ·  ₹${total.toStringAsFixed(0)}'),
+                      : Text(_buttonLabel(total)),
                 ),
               ),
             ),
@@ -353,8 +358,37 @@ class _CartReviewScreenState extends ConsumerState<CartReviewScreen> {
           ),
         const SizedBox(height: 6),
         _row('Total', _quoting ? '…' : '₹${(q?.total ?? cart.subtotal).toStringAsFixed(0)}', bold: true),
+        if (q != null && !_quoting && (q.payLater || q.hasBalance)) _advanceSplit(q),
       ],
     );
+  }
+
+  /// What's paid now and what's left (BUG-097): the seller's advance, or nothing now when they
+  /// take no advance.
+  Widget _advanceSplit(OrderQuote q) => Container(
+        margin: const EdgeInsets.only(top: 10),
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+        decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(12)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _row(q.payLater ? 'Pay now' : 'Pay now (${percentLabel(q.advancePercent)} advance)', inr(q.advanceAmount)),
+            _row('Pay later', inr(q.total - q.advanceAmount)),
+            Text(
+              q.payLater
+                  ? 'This seller takes no advance. Pay from My Orders once you have your order.'
+                  : 'Pay the rest from My Orders any time.',
+              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+            ),
+          ],
+        ),
+      );
+
+  String _buttonLabel(double total) {
+    final q = _quote;
+    if (q != null && q.payLater) return 'Confirm  ·  Pay later';
+    if (q != null && q.hasBalance) return 'Confirm  ·  Pay ${inr(q.advanceAmount)} now';
+    return 'Confirm  ·  ₹${total.toStringAsFixed(0)}';
   }
 
   Widget _couponField() => Row(

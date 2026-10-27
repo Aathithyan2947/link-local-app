@@ -75,7 +75,7 @@ void main() {
     for (final p in [
       homeFeedProvider,
       feedProvider,
-      discussionsSectionScopedProvider(3),
+      discussionsSectionScopedProvider('3'),
       serviceProviderDetailProvider(60),
       publicProfileProvider(60),
     ]) {

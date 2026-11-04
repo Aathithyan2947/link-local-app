@@ -24,6 +24,7 @@ import '../../../profile/presentation/contact_visibility_screen.dart';
 import '../../../profile/presentation/login_security_screen.dart';
 import '../../../profile/presentation/notification_settings_screen.dart';
 import '../../../profile/presentation/profile_visibility_screen.dart';
+import '../../../profile/presentation/widgets/profile_completion_card.dart';
 import '../../../referrals/presentation/referrals_screen.dart';
 import '../../../services/presentation/service_category_screen.dart';
 import '../widgets/home_widgets.dart';
@@ -92,104 +93,112 @@ class ProfileTab extends ConsumerWidget {
     final email = profile?.serviceEmail?.trim().isNotEmpty == true ? profile!.serviceEmail : user?.email;
     return Scaffold(
       backgroundColor: AppColors.primarySurface,
-      body: ListView(
+      // A plain scroll view, not a lazy ListView: the completion card grows from nothing once
+      // it loads, and on iOS the lazy list then kept its old length, leaving Log Out out of
+      // reach. The tab is one short screen, so building it all at once costs nothing.
+      body: SingleChildScrollView(
         // Plus the system bottom inset: on edge-to-edge Android the Log Out button otherwise
         // ends up under the navigation bar (BUG-062).
         padding: EdgeInsets.only(bottom: 32 + MediaQuery.paddingOf(context).bottom),
-        children: [
-          _ProfileCard(
-            name: user?.name ?? 'Member',
-            role: _roleLabel(profile),
-            address: profile?.address ?? user?.city,
-            email: email,
-            phone: phone,
-            photoUrl: user?.photoUrl,
-            onEdit: () => _openMyProfile(context, ref),
-          ),
-          // One card holding both, per the design. My Shop used to carry a mint fill of its own,
-          // which read as a highlighted state it never actually had.
-          _PlainSection([
-            if (user?.isServiceProvider == true)
-              _MenuItem(Icons.storefront_outlined, 'My Shop',
-                  () => context.pushPage(MaterialPageRoute(builder: (_) => const SpDashboardScreen()))),
-            // Add or remove services after sign-up (BUG-096).
-            if (user?.isServiceProvider == true)
-              _MenuItem(Icons.handyman_outlined, 'My Services',
-                  () => context.pushPage(MaterialPageRoute(builder: (_) => const ServiceCategoryScreen(editing: true)))),
-            _MenuItem(Icons.account_circle_outlined, 'My Profile', () => _openMyProfile(context, ref)),
-          ]),
-          if (shopSettingsItems.isNotEmpty) _Section('My Shop Settings', shopSettingsItems),
-          _Section('Personal', [
-            _MenuItem(Icons.event_outlined, 'My Events',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const MyEventsScreen()))),
-            _MenuItem(Icons.groups_outlined, 'My Groups',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const MyGroupsScreen()))),
-            _MenuItem(Icons.star_border_rounded, 'My Reviews',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const MyReviewsScreen()))),
-            _MenuItem(Icons.chat_bubble_outline, 'My Posts', () {
-              final me = user;
-              if (me == null) return;
-              context.pushPage(MaterialPageRoute(
-                builder: (_) => UserPostsScreen(userId: me.id, name: me.name ?? 'Me', mine: true),
-              ));
-            }),
-            _MenuItem(Icons.attach_money_rounded, 'My Referrals',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const ReferralsScreen()))),
-          ]),
-          _Section('Transaction History', [
-            _MenuItem(Icons.credit_card_outlined, 'Payments',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const PaymentsScreen())),
-                count: ref.watch(paymentsCountProvider)),
-            _MenuItem(Icons.receipt_long_outlined, 'Order History',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const OrdersHubScreen())),
-                count: ref.watch(ordersCountProvider)),
-            _MenuItem(Icons.forum_outlined, 'Messages',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const ConversationsScreen())),
-                count: ref.watch(conversationsCountProvider)),
-          ]),
-          _Section('Privacy', [
-            _MenuItem(Icons.visibility_outlined, 'Profile visibility',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const ProfileVisibilityScreen()))),
-            _MenuItem(Icons.lock_outline, 'Log In & Change Password',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const LoginSecurityScreen()))),
-            _MenuItem(Icons.notifications_none_rounded, 'Notifications & Alerts',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()))),
-            _MenuItem(Icons.block_outlined, 'Blocked users',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const BlockedUsersScreen()))),
-            _MenuItem(Icons.contact_phone_outlined, 'Contact Details Visiblity',
-                () => context.pushPage(MaterialPageRoute(builder: (_) => const ContactVisibilityScreen()))),
-          ]),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Column(
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () => _soon(context, 'Customer Care'),
-                  icon: const Icon(Icons.headset_mic_outlined, color: AppColors.primary),
-                  label: const Text('Customer Care'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    minimumSize: const Size.fromHeight(50),
-                    side: const BorderSide(color: AppColors.primary),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () => ref.read(authControllerProvider.notifier).logout(),
-                  icon: const Icon(Icons.logout, color: AppColors.error),
-                  label: const Text('Log Out', style: TextStyle(color: AppColors.error)),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(50),
-                    side: const BorderSide(color: AppColors.error),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _ProfileCard(
+              name: user?.name ?? 'Member',
+              role: _roleLabel(profile),
+              address: profile?.address ?? user?.city,
+              email: email,
+              phone: phone,
+              photoUrl: user?.photoUrl,
+              onEdit: () => _openMyProfile(context, ref),
             ),
-          ),
-        ],
+            // How complete the profile is, and what's next (the reviewer's "70% complete").
+            const ProfileCompletionCard(),
+            // One card holding both, per the design. My Shop used to carry a mint fill of its own,
+            // which read as a highlighted state it never actually had.
+            _PlainSection([
+              if (user?.isServiceProvider == true)
+                _MenuItem(Icons.storefront_outlined, 'My Shop',
+                    () => context.pushPage(MaterialPageRoute(builder: (_) => const SpDashboardScreen()))),
+              // Add or remove services after sign-up (BUG-096).
+              if (user?.isServiceProvider == true)
+                _MenuItem(Icons.handyman_outlined, 'My Services',
+                    () => context.pushPage(MaterialPageRoute(builder: (_) => const ServiceCategoryScreen(editing: true)))),
+              _MenuItem(Icons.account_circle_outlined, 'My Profile', () => _openMyProfile(context, ref)),
+            ]),
+            if (shopSettingsItems.isNotEmpty) _Section('My Shop Settings', shopSettingsItems),
+            _Section('Personal', [
+              _MenuItem(Icons.event_outlined, 'My Events',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const MyEventsScreen()))),
+              _MenuItem(Icons.groups_outlined, 'My Groups',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const MyGroupsScreen()))),
+              _MenuItem(Icons.star_border_rounded, 'My Reviews',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const MyReviewsScreen()))),
+              _MenuItem(Icons.chat_bubble_outline, 'My Posts', () {
+                final me = user;
+                if (me == null) return;
+                context.pushPage(MaterialPageRoute(
+                  builder: (_) => UserPostsScreen(userId: me.id, name: me.name ?? 'Me', mine: true),
+                ));
+              }),
+              _MenuItem(Icons.attach_money_rounded, 'My Referrals',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const ReferralsScreen()))),
+            ]),
+            _Section('Transaction History', [
+              _MenuItem(Icons.credit_card_outlined, 'Payments',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const PaymentsScreen())),
+                  count: ref.watch(paymentsCountProvider)),
+              _MenuItem(Icons.receipt_long_outlined, 'Order History',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const OrdersHubScreen())),
+                  count: ref.watch(ordersCountProvider)),
+              _MenuItem(Icons.forum_outlined, 'Messages',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const ConversationsScreen())),
+                  count: ref.watch(conversationsCountProvider)),
+            ]),
+            _Section('Privacy', [
+              _MenuItem(Icons.visibility_outlined, 'Profile visibility',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const ProfileVisibilityScreen()))),
+              _MenuItem(Icons.lock_outline, 'Log In & Change Password',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const LoginSecurityScreen()))),
+              _MenuItem(Icons.notifications_none_rounded, 'Notifications & Alerts',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()))),
+              _MenuItem(Icons.block_outlined, 'Blocked users',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const BlockedUsersScreen()))),
+              _MenuItem(Icons.contact_phone_outlined, 'Contact Details Visiblity',
+                  () => context.pushPage(MaterialPageRoute(builder: (_) => const ContactVisibilityScreen()))),
+            ]),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _soon(context, 'Customer Care'),
+                    icon: const Icon(Icons.headset_mic_outlined, color: AppColors.primary),
+                    label: const Text('Customer Care'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      minimumSize: const Size.fromHeight(50),
+                      side: const BorderSide(color: AppColors.primary),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => ref.read(authControllerProvider.notifier).logout(),
+                    icon: const Icon(Icons.logout, color: AppColors.error),
+                    label: const Text('Log Out', style: TextStyle(color: AppColors.error)),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(50),
+                      side: const BorderSide(color: AppColors.error),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

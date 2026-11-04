@@ -10,7 +10,10 @@ bool isPrivateProfileError(Object error) => error is DioException && error.respo
 /// Shown instead of a profile its owner has hidden from this viewer. No Retry: it won't change
 /// until they change their setting. Keeps a back button, since the page has no app bar.
 class PrivateProfileView extends StatelessWidget {
-  const PrivateProfileView({super.key});
+  const PrivateProfileView({super.key, this.showBack = true});
+
+  /// Off on a page with its own app bar (a profile's "View More" posts).
+  final bool showBack;
 
   @override
   Widget build(BuildContext context) {
@@ -18,10 +21,11 @@ class PrivateProfileView extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          IconButton(
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.chevron_left, size: 28, color: AppColors.ink),
-          ),
+          if (showBack)
+            IconButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.chevron_left, size: 28, color: AppColors.ink),
+            ),
           const Expanded(
             child: Center(
               child: Padding(

@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:link_local/core/network/api_exception.dart';
 import 'package:link_local/core/theme/app_theme.dart';
+import 'package:link_local/core/validation/email_rules.dart';
 import 'package:link_local/core/validation/password_rules.dart';
+import 'package:link_local/core/widgets/error_banner.dart';
 import 'package:link_local/features/auth/application/auth_controller.dart';
 import 'package:link_local/features/auth/data/auth_models.dart';
 import 'package:link_local/features/auth/data/auth_repository.dart';
@@ -25,10 +27,28 @@ class _SignedIn extends AuthController {
       );
 }
 
-/// A server that sends code 482913 and accepts only that code.
+/// Signed up with a mobile number only, so there's no email to send a reset code to.
+class _MobileOnly extends AuthController {
+  @override
+  AuthState build() => const AuthState(
+        status: AuthStatus.authenticated,
+        user: AppUser(id: 6, userType: 'resident', mobile: '9876543210'),
+      );
+}
+
+/// A server that sends code 482913 and accepts only that code. Email login fails with
+/// [loginError], so a test never gets as far as signing in.
 class _Server implements AuthRepository {
   final requests = <String>[];
   final resets = <Map<String, String>>[];
+  final logins = <String>[];
+  Object loginError = ApiException('Invalid credentials', statusCode: 401);
+
+  @override
+  Future<AuthResult> login({required String identifier, required String password}) async {
+    logins.add(identifier);
+    throw loginError;
+  }
 
   @override
   Future<String?> requestPasswordReset(String identifier) async {
@@ -104,7 +124,7 @@ void main() {
       await _tap(tester, 'Forgot password?');
 
       expect(find.byType(ForgotPasswordScreen), findsOneWidget);
-      expect(tester.widget<TextField>(_field('Enter your Email or Mobile No.')).controller!.text, 'asha@example.com',
+      expect(tester.widget<TextField>(_field('Enter your Email')).controller!.text, 'asha@example.com',
           reason: 'the email typed on Login carries over');
       await _tap(tester, 'Send code');
       expect(server.requests, ['asha@example.com']);
@@ -130,7 +150,7 @@ void main() {
     });
 
     testWidgets("a wrong code says so under the code field", (tester) async {
-      final server = await _pump(tester, const ForgotPasswordScreen(identifier: '9876543210'));
+      final server = await _pump(tester, const ForgotPasswordScreen(identifier: 'asha@example.com'));
       await _tap(tester, 'Send code');
       await tester.enterText(_field('Enter 6-digit code'), '000000');
       await tester.enterText(_field('New password'), 'Passw0rd!');
@@ -140,13 +160,16 @@ void main() {
       expect(server.resets, isEmpty);
     });
 
-    testWidgets('an email or mobile number is required before sending a code', (tester) async {
+    testWidgets('BUG-106: an email is required before sending a code, not a mobile number', (tester) async {
       final server = await _pump(tester, const ForgotPasswordScreen());
       await _tap(tester, 'Send code');
-      expect(find.text('Enter your email or mobile number'), findsOneWidget);
-      await tester.enterText(_field('Enter your Email or Mobile No.'), 'asha@');
+      expect(find.text('Enter your email'), findsOneWidget);
+      await tester.enterText(_field('Enter your Email'), 'asha@');
       await _tap(tester, 'Send code');
-      expect(find.text('Enter a valid email or 10-digit mobile number'), findsOneWidget);
+      expect(find.text('Enter a valid email address'), findsOneWidget);
+      await tester.enterText(_field('Enter your Email'), '9876543210');
+      await _tap(tester, 'Send code');
+      expect(find.text('Enter a valid email address'), findsOneWidget);
       expect(server.requests, isEmpty);
     });
 
@@ -154,7 +177,15 @@ void main() {
       await _pump(tester, const ChangePasswordScreen(), auth: _SignedIn.new, profile: _Profile());
       await _tap(tester, 'Forget password?');
       expect(find.byType(ForgotPasswordScreen), findsOneWidget);
-      expect(tester.widget<TextField>(_field('Enter your Email or Mobile No.')).controller!.text, 'asha@example.com');
+      expect(tester.widget<TextField>(_field('Enter your Email')).controller!.text, 'asha@example.com');
+    });
+
+    testWidgets("BUG-106: Change Password's “Forget password?” explains that a reset needs an email", (tester) async {
+      await _pump(tester, const ChangePasswordScreen(), auth: _MobileOnly.new, profile: _Profile());
+      await _tap(tester, 'Forget password?');
+      expect(find.byType(ForgotPasswordScreen), findsNothing, reason: "the code can't go to a mobile number");
+      expect(find.text('Resetting your password needs an email on your account. Add one in My Email first.'),
+          findsOneWidget);
     });
 
     testWidgets('Change Password uses the sign-up policy, not "6 characters"', (tester) async {
@@ -165,6 +196,65 @@ void main() {
       await _tap(tester, 'Confirm');
       expect(find.text('Password must be at least 8 characters'), findsOneWidget);
       expect(profile.changes, 0);
+    });
+  });
+
+  group('BUG-106: the Email tab takes an email, not a phone number', () {
+    test('EmailRules', () {
+      expect(EmailRules.isValid('asha@example.com'), isTrue);
+      expect(EmailRules.isValid(' asha@example.com '), isTrue);
+      expect(EmailRules.isValid("o'brien@example.com"), isTrue, reason: 'the server accepts it');
+      expect(EmailRules.isValid('9876543210'), isFalse);
+      expect(EmailRules.isValid('asha@'), isFalse);
+    });
+
+    Future<_Server> pumpEmailTab(WidgetTester tester) async {
+      final server = await _pump(tester, const LoginScreen());
+      await tester.tap(find.text('Email'));
+      await tester.pumpAndSettle();
+      return server;
+    }
+
+    String? emailError(WidgetTester tester) => tester.widget<TextField>(_field('Enter your Email')).decoration!.errorText;
+
+    testWidgets('a phone number is flagged under the field and never sent', (tester) async {
+      final server = await pumpEmailTab(tester);
+      await tester.enterText(_field('Enter your Email'), '9876543210');
+      await tester.enterText(_field('Enter your Password'), 'Passw0rd!');
+      await _tap(tester, 'Log in');
+
+      expect(emailError(tester), 'Enter a valid email address');
+      expect(find.byType(ErrorBanner), findsNothing);
+      expect(server.logins, isEmpty);
+
+      await tester.enterText(_field('Enter your Email'), '98765');
+      await tester.pump();
+      expect(emailError(tester), isNull, reason: 'editing the field clears it');
+    });
+
+    testWidgets('a valid email is sent; a server email message lands under the field', (tester) async {
+      final server = await pumpEmailTab(tester);
+      server.loginError = ApiException('Enter a valid email address', statusCode: 400, details: {
+        'identifier': ['Enter a valid email address'],
+      });
+      await tester.enterText(_field('Enter your Email'), ' asha@example.c ');
+      await tester.enterText(_field('Enter your Password'), 'Passw0rd!');
+      await _tap(tester, 'Log in');
+
+      expect(server.logins, ['asha@example.c']);
+      expect(emailError(tester), 'Enter a valid email address');
+      expect(find.byType(ErrorBanner), findsNothing);
+    });
+
+    testWidgets('wrong credentials still show the banner', (tester) async {
+      final server = await pumpEmailTab(tester);
+      await tester.enterText(_field('Enter your Email'), 'asha@example.com');
+      await tester.enterText(_field('Enter your Password'), 'wrong');
+      await _tap(tester, 'Log in');
+
+      expect(server.logins, ['asha@example.com']);
+      expect(emailError(tester), isNull);
+      expect(find.widgetWithText(ErrorBanner, 'Invalid credentials'), findsOneWidget);
     });
   });
 }

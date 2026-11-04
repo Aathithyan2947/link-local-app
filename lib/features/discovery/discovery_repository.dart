@@ -215,11 +215,12 @@ class DiscoveryRepository {
         .toList();
   }
 
-  Future<List<GroupMember>> groupMembers(int id) async {
+  Future<GroupMembers> groupMembers(int id) async {
     final res = await _dio.get('/groups/$id/members');
-    return ((res.data['data'] as List?) ?? [])
-        .map((e) => GroupMember.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return GroupMembers(
+      ((res.data['data'] as List?) ?? []).map((e) => GroupMember.fromJson(e as Map<String, dynamic>)).toList(),
+      hiddenCount: ((res.data['meta'] as Map?)?['hiddenCount'] as num?)?.toInt() ?? 0,
+    );
   }
 
   Future<void> setGroupMuted(int id, bool muted) async =>
@@ -356,11 +357,20 @@ final groupsProvider = FutureProvider<List<GroupItem>>((ref) {
   return ref.watch(discoveryRepositoryProvider).groups(excludeMine: true);
 });
 
-/// Full service-provider profile, keyed by profile id.
-final serviceProviderDetailProvider = FutureProvider.family<ServiceProviderDetail, int>((ref, id) {
+/// Riverpod's automatic retry, except for a profile hidden from this viewer (403): asking again
+/// won't change their setting, and the retries kept a spinner up for ~40s before "This profile
+/// is private" showed (BUG-104).
+Duration? retryUnlessPrivate(int retryCount, Object error) =>
+    error is DioException && error.response?.statusCode == 403
+        ? null
+        : ProviderContainer.defaultRetry(retryCount, error);
+
+/// Full service-provider profile, keyed by profile id. Dropped once no screen shows it, so
+/// opening the profile again refetches it and a changed Profile visibility applies (BUG-104).
+final serviceProviderDetailProvider = FutureProvider.autoDispose.family<ServiceProviderDetail, int>((ref, id) {
   ref.bindToAccount();
   return ref.watch(discoveryRepositoryProvider).serviceProvider(id);
-});
+}, retry: retryUnlessPrivate);
 
 /// Open bookable slots for an SP, keyed by profile id.
 final spSlotsProvider = FutureProvider.family<List<OpenSlot>, int>((ref, id) {
@@ -415,11 +425,12 @@ final groupDiscussionsScopedProvider =
   return ref.watch(discoveryRepositoryProvider).groupDiscussions(key.groupId, areaId: key.areaId);
 });
 
-/// A member's public profile, keyed by profile id.
-final publicProfileProvider = FutureProvider.family<PublicProfile, int>((ref, id) {
+/// A member's public profile, keyed by profile id. Refetched each time it's opened, like
+/// [serviceProviderDetailProvider].
+final publicProfileProvider = FutureProvider.autoDispose.family<PublicProfile, int>((ref, id) {
   ref.bindToAccount();
   return ref.watch(discoveryRepositoryProvider).publicProfile(id);
-});
+}, retry: retryUnlessPrivate);
 
 /// The current user's own hosted/joined events, owned/joined groups, and submitted reviews —
 /// back the Profile tab's "Events" / "Groups" / "Reviews" screens.

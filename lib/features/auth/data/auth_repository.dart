@@ -100,9 +100,9 @@ class AuthRepository {
     }
   }
 
-  /// Sends a code for setting a new password to the account with this email or mobile number
-  /// (BUG-066). The server answers the same whether or not one exists. Returns the code where
-  /// OTPs are exposed for testing.
+  /// Sends a code for setting a new password to the account with this email (BUG-066; email
+  /// only since BUG-106). The server answers the same whether or not one exists. Returns the
+  /// code where OTPs are exposed for testing.
   Future<String?> requestPasswordReset(String identifier) async {
     try {
       final res = await _dio.post('/auth/password/forgot', data: {'identifier': identifier});

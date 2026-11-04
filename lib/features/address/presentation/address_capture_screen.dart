@@ -15,6 +15,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/auth_header.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../auth/application/auth_controller.dart';
 import '../../feed/data/feed_repository.dart';
 import '../../home/data/home_repository.dart';
 import '../../profile/data/profile_repository.dart';
@@ -788,6 +789,10 @@ class _AddressCaptureScreenState extends ConsumerState<AddressCaptureScreen> {
         ref.invalidate(myAddressProofProvider);
         ref.invalidate(homeFeedProvider);
         ref.invalidate(feedProvider);
+        // The server unverified the member with the move; re-read them so the proof popup
+        // asks before actions now, not after a restart (BUG-103). A failed refresh keeps the
+        // current user and doesn't hold up the proof screen.
+        unawaited(ref.read(authControllerProvider.notifier).refreshUser());
         // Straight on to proving the new address; that screen returns to the profile.
         Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const AddressProofScreen()));
       } else {

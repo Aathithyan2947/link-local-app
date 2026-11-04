@@ -5,6 +5,7 @@ import '../../address/presentation/address_proof_gate.dart';
 
 import '../../../core/navigation/push_guard.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../discovery/presentation/widgets/private_profile_view.dart';
 import '../data/feed_repository.dart';
 import 'create_post_screen.dart';
 import 'post_detail_screen.dart';
@@ -49,20 +50,24 @@ class UserPostsScreen extends ConsumerWidget {
           : null,
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
-        error: (e, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text("Couldn't load the posts"),
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: () => ref.invalidate(userPostsProvider(userId)),
-                style: OutlinedButton.styleFrom(minimumSize: const Size(120, 44)),
-                child: const Text('Retry'),
+        // Their posts are part of their profile: hidden by its owner, they say so like the
+        // profile does (BUG-104), with no Retry.
+        error: (e, _) => isPrivateProfileError(e)
+            ? const PrivateProfileView(showBack: false)
+            : Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text("Couldn't load the posts"),
+                    const SizedBox(height: 12),
+                    OutlinedButton(
+                      onPressed: () => ref.invalidate(userPostsProvider(userId)),
+                      style: OutlinedButton.styleFrom(minimumSize: const Size(120, 44)),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
         data: (posts) {
           if (posts.isEmpty) {
             return Center(child: Text(mine ? "You haven't posted yet." : 'No posts yet.'));

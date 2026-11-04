@@ -69,12 +69,17 @@ class DirectoryResults {
 class AddressProofInfo {
   const AddressProofInfo({
     required this.hasAddress,
+    this.addressId,
     this.fullAddress,
     this.city,
     required this.status,
   });
 
   final bool hasAddress;
+
+  /// Changes with every address change (each one is a new address), so it tells which
+  /// address a dismissed reminder was for.
+  final int? addressId;
   final String? fullAddress;
   final String? city;
   final String status; // none | pending | approved | rejected
@@ -104,6 +109,7 @@ class AddressProofInfo {
     final city = area?['city'] as Map<String, dynamic>?;
     return AddressProofInfo(
       hasAddress: true,
+      addressId: a['id'] as int?,
       fullAddress: a['fullAddress'] as String?,
       city: city?['name'] as String?,
       status: status,

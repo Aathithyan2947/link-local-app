@@ -4,20 +4,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/validation/email_rules.dart';
 import '../../../core/validation/password_rules.dart';
 import '../../../core/widgets/auth_header.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../data/auth_repository.dart';
 
-/// Forgot password (BUG-066): a code to the account's email or mobile number, then a new
-/// password with it. Pops with the identifier once the password is set, so Login can fill it
-/// in. Mobile sign-in has no password (it's a one-time code each time), so it's reached from
-/// the Email tab and from Change Password.
+/// Forgot password (BUG-066): a code to the account's email, then a new password with it.
+/// Pops with the email once the password is set, so Login can fill it in. Email only
+/// (BUG-106): mobile sign-in has no password (it's a one-time code each time), so it's
+/// reached from the Email tab and from Change Password.
 class ForgotPasswordScreen extends ConsumerStatefulWidget {
   const ForgotPasswordScreen({super.key, this.identifier});
 
-  /// Pre-filled email or mobile number.
+  /// Pre-filled email.
   final String? identifier;
 
   @override
@@ -29,9 +30,6 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
   final _code = TextEditingController();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
-
-  static final _emailRe = RegExp(r'^[\w.+-]+@[\w-]+\.[\w.-]+$');
-  static final _mobileRe = RegExp(r'^[0-9]{10}$');
 
   bool _codeSent = false;
   bool _loading = false;
@@ -55,9 +53,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
 
   Future<void> _sendCode() async {
     final id = _id;
-    final problem = id.isEmpty
-        ? 'Enter your email or mobile number'
-        : (_emailRe.hasMatch(id) || _mobileRe.hasMatch(id) ? null : 'Enter a valid email or 10-digit mobile number');
+    final problem = id.isEmpty ? 'Enter your email' : (EmailRules.isValid(id) ? null : EmailRules.invalid);
     setState(() {
       _identifierError = problem;
       _error = null;
@@ -132,7 +128,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                           ? null
                           : () => _codeSent ? setState(() => _codeSent = false) : Navigator.pop(context),
                       icon: const Icon(Icons.arrow_back, size: 18),
-                      label: Text(_codeSent ? 'Change email or number' : 'Back to log in'),
+                      label: Text(_codeSent ? 'Change email' : 'Back to log in'),
                       style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
                     ),
                   ),
@@ -175,12 +171,13 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
         const AuthHeading(
           title: 'Forgot your password?',
           highlight: 'password',
-          subtitle: 'Enter the email or mobile number on your account and we’ll send you a code to set a new password.',
+          subtitle: 'Enter the email on your account and we’ll send you a code to set a new password. '
+              'Signed up with a mobile number? Log in with an OTP on the Mobile no. tab instead.',
         ),
         const SizedBox(height: 24),
         PillField(
           controller: _identifier,
-          hint: 'Enter your Email or Mobile No.',
+          hint: 'Enter your Email',
           icon: Icons.mail_outline,
           keyboardType: TextInputType.emailAddress,
           errorText: _identifierError,

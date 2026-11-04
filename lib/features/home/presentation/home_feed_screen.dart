@@ -170,9 +170,13 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
         groupsOverride != null ? ref.watch(groupsSectionScopedProvider(groupsOverride.key)) : null;
 
     // Gentle, dismissible reminder to upload address proof (only when not yet submitted/approved).
+    // A member the admin verified needs none: the action gate lets them through as well.
     final proof = ref.watch(myAddressProofProvider).asData?.value;
-    final reminderDismissed = ref.watch(docReminderDismissedProvider).asData?.value ?? true;
+    // `.value`: the dismissal reloads with every proof status refresh (it's per address);
+    // keep the last answer meanwhile so the reminder doesn't blink.
+    final reminderDismissed = ref.watch(docReminderDismissedProvider).value ?? true;
     final showDocReminder = proof != null &&
+        user?.isVerified != true &&
         proof.hasAddress &&
         !reminderDismissed &&
         (proof.status == 'none' || proof.status == 'rejected');

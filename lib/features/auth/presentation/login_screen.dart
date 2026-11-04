@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/navigation/push_guard.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/validation/email_rules.dart';
 import '../../../core/widgets/auth_header.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/primary_button.dart';
@@ -27,6 +29,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _password = TextEditingController();
   bool _loading = false;
   String? _error;
+  String? _emailError;
 
   @override
   void dispose() {
@@ -72,9 +75,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
     if (identifier == null || !mounted) return;
     setState(() {
-      _email.text = identifier;
+      if (EmailRules.isValid(identifier)) _email.text = identifier;
       _password.clear();
       _error = null;
+      _emailError = null;
     });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Password updated. Log in with your new password.')),
@@ -82,20 +86,36 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _loginEmail() async {
-    if (_email.text.trim().isEmpty || _password.text.isEmpty) {
+    final email = _email.text.trim();
+    // Email only (BUG-106): a mobile number logs in with an OTP on the Mobile tab.
+    if (email.isNotEmpty && !EmailRules.isValid(email)) {
+      setState(() {
+        _emailError = EmailRules.invalid;
+        _error = null;
+      });
+      return;
+    }
+    if (email.isEmpty || _password.text.isEmpty) {
       setState(() => _error = 'Enter your email and password');
       return;
     }
     setState(() {
       _loading = true;
       _error = null;
+      _emailError = null;
     });
     try {
       await ref
           .read(authControllerProvider.notifier)
-          .login(identifier: _email.text.trim(), password: _password.text);
+          .login(identifier: email, password: _password.text);
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (!mounted) return;
+      // The server's email message, if any, goes under the field like the app's own.
+      final err = ApiException.from(e);
+      setState(() {
+        _emailError = err.fieldError('identifier');
+        if (_emailError == null) _error = e.toString();
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -134,7 +154,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     )
                   else ...[
-                    PillField(controller: _email, hint: 'Enter your Email', icon: Icons.mail_outline, keyboardType: TextInputType.emailAddress),
+                    PillField(
+                      controller: _email,
+                      hint: 'Enter your Email',
+                      icon: Icons.mail_outline,
+                      keyboardType: TextInputType.emailAddress,
+                      errorText: _emailError,
+                      onChanged: (_) {
+                        if (_emailError != null) setState(() => _emailError = null);
+                      },
+                    ),
                     const SizedBox(height: 16),
                     PillField(controller: _password, hint: 'Enter your Password', icon: Icons.lock_outline, obscure: true),
                     Align(

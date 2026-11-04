@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/validation/email_rules.dart';
 import '../../../core/validation/name_rules.dart';
 import '../../../core/validation/password_rules.dart';
 import '../../../core/widgets/auth_header.dart';
@@ -94,13 +95,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     }
   }
 
-  static final _emailRe = RegExp(r'^[\w.+-]+@[\w-]+\.[\w.-]+$');
-
-
   Future<void> _registerEmail() async {
     if (!_checkName()) return;
-    if (!_emailRe.hasMatch(_email.text.trim())) {
-      setState(() => _error = 'Please enter a valid email address');
+    if (!EmailRules.isValid(_email.text)) {
+      setState(() => _error = EmailRules.invalid);
       return;
     }
     final pwdError = PasswordRules.error(_password.text);

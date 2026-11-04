@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import 'profile_completion.dart';
 import 'profile_models.dart';
 
 class ProfileRepository {
@@ -23,6 +24,10 @@ class ProfileRepository {
 
   Future<ProfileDetail> getMyProfile() =>
       _wrap(() => _dio.get('/profiles/me'), (d) => ProfileDetail.fromJson(d as Map<String, dynamic>));
+
+  /// "Complete your profile": the percentage and its checklist, worked out fresh.
+  Future<ProfileCompletion> completion() => _wrap(
+      () => _dio.get('/profiles/me/completion'), (d) => ProfileCompletion.fromJson(d as Map<String, dynamic>));
 
   Future<void> updateBasic(Map<String, dynamic> data) =>
       _wrap(() => _dio.patch('/profiles/me', data: data), (_) {});
@@ -189,6 +194,13 @@ final profileRepositoryProvider = Provider<ProfileRepository>((ref) {
 final myProfileProvider = FutureProvider<ProfileDetail>((ref) {
   ref.bindToAccount();
   return ref.watch(profileRepositoryProvider).getMyProfile();
+});
+
+/// The Profile tab's completion meter and its checklist. A quick call (unlike /profiles/me),
+/// refetched whenever an editor opened from those screens closes.
+final profileCompletionProvider = FutureProvider.autoDispose<ProfileCompletion>((ref) {
+  ref.bindToAccount();
+  return ref.watch(profileRepositoryProvider).completion();
 });
 
 final professionMasterProvider = FutureProvider<List<IdName>>((ref) {

@@ -110,7 +110,7 @@ void main() {
   testWidgets('BUG-062: Log Out sits above the Android navigation bar', (tester) async {
     const navBar = 48.0; // a 3-button navigation bar
     await _openProfileTab(tester, navBar: navBar);
-    await tester.drag(find.byType(ListView), const Offset(0, -5000));
+    await tester.drag(find.byType(SingleChildScrollView), const Offset(0, -5000));
     await tester.pumpAndSettle();
 
     final logout = tester.getRect(find.widgetWithText(OutlinedButton, 'Log Out'));

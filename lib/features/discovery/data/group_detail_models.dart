@@ -6,18 +6,40 @@ double? _asDouble(dynamic v) => v == null ? null : (v is num ? v.toDouble() : do
 
 /// One joined member, for the Members action on the group profile.
 class GroupMember {
-  const GroupMember({required this.userId, required this.name, this.photoUrl, this.isCreator = false});
+  const GroupMember({
+    required this.userId,
+    required this.name,
+    this.photoUrl,
+    this.isCreator = false,
+    this.profileId,
+    this.isServiceProvider = false,
+  });
   final int userId;
   final String name;
   final String? photoUrl;
   final bool isCreator;
+
+  /// Opens their profile from the Members sheet; null from older backends (the row then
+  /// stays plain text).
+  final int? profileId;
+  final bool isServiceProvider;
 
   factory GroupMember.fromJson(Map<String, dynamic> j) => GroupMember(
         userId: _asInt(j['userId']),
         name: j['name'] as String? ?? 'Member',
         photoUrl: j['photoUrl'] as String?,
         isCreator: j['isCreator'] as bool? ?? false,
+        profileId: j['profileId'] == null ? null : _asInt(j['profileId']),
+        isServiceProvider: j['isServiceProvider'] as bool? ?? false,
       );
+}
+
+/// A group's members as this viewer may see them. Members whose Profile visibility leaves the
+/// viewer out (or who are in a block with them) aren't listed, only counted (BUG-104).
+class GroupMembers {
+  const GroupMembers(this.members, {this.hiddenCount = 0});
+  final List<GroupMember> members;
+  final int hiddenCount;
 }
 
 /// Full interest-group detail backing the Group Profile screen.

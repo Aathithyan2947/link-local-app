@@ -21,8 +21,11 @@ import '../../payments/data/payment_charge.dart';
 import '../../payments/presentation/payment_method_screen.dart';
 import '../../profile/data/profile_repository.dart';
 import '../data/group_detail_models.dart';
+import '../../auth/application/auth_controller.dart';
 import '../discovery_repository.dart';
 import '../group_lists_refresh.dart';
+import 'service_provider_detail_screen.dart';
+import 'user_profile_screen.dart';
 import '../../../core/text/plural.dart';
 
 /// Full interest-group profile — the "Group Info" frame. Join (a paid group through the
@@ -139,7 +142,7 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
   /// member, close the group.
   Future<void> _adminExit(GroupDetail g) async {
     setState(() => _busy = true);
-    List<GroupMember> members;
+    GroupMembers members;
     try {
       members = await _repo.groupMembers(g.id);
     } catch (_) {
@@ -152,7 +155,21 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
     }
     if (!mounted) return;
 
-    final others = members.where((m) => !m.isCreator).toList();
+    final others = members.members.where((m) => !m.isCreator).toList();
+    // Everyone else has a private profile (BUG-104): nobody to pick, and the group isn't empty,
+    // so exiting can't close it either.
+    if (others.isEmpty && members.hiddenCount > 0) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('No member to hand over to'),
+          content: Text(
+              'The other members of "${g.title}" have private profiles, so you can’t pick a new admin from here.'),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+        ),
+      );
+      return;
+    }
     if (others.isEmpty) {
       final close = await _confirm(
         title: 'Close this group?',
@@ -300,13 +317,23 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
     if (ok == true) await _run(() => _repo.clearGroupChat(g.id), 'Chat cleared');
   }
 
+  /// A member's profile, as the Members directory opens it; your own row opens My Profile.
+  void _openMember(BuildContext context, GroupMember m, int profileId) {
+    final mine = m.userId == ref.read(authControllerProvider).user?.id;
+    context.pushPage(MaterialPageRoute(
+      builder: (_) => mine || m.isServiceProvider
+          ? ServiceProviderDetailScreen(id: profileId)
+          : UserProfileScreen(id: profileId),
+    ));
+  }
+
   void _showMembers(GroupDetail g) {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => SafeArea(
-        child: FutureBuilder<List<GroupMember>>(
+        child: FutureBuilder<GroupMembers>(
           future: _repo.groupMembers(g.id),
           builder: (context, snap) {
             if (snap.connectionState != ConnectionState.done) {
@@ -315,14 +342,16 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
                 child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
               );
             }
-            final members = snap.data ?? const <GroupMember>[];
+            final members = snap.data?.members ?? const <GroupMember>[];
+            // Joined, but their profile is private to this viewer: counted, not listed.
+            final hidden = snap.data?.hiddenCount ?? 0;
             return Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-                  child: Text('Members (${members.length})',
+                  child: Text('Members (${members.length + hidden})',
                       style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
                 ),
                 if (snap.hasError)
@@ -330,7 +359,7 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
                     padding: EdgeInsets.fromLTRB(20, 0, 20, 24),
                     child: Text("Couldn't load members", style: TextStyle(color: AppColors.textSecondary)),
                   )
-                else if (members.isEmpty)
+                else if (members.isEmpty && hidden == 0)
                   const Padding(
                     padding: EdgeInsets.fromLTRB(20, 0, 20, 24),
                     child: Text('No members yet.', style: TextStyle(color: AppColors.textMuted)),
@@ -343,14 +372,34 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
                       itemCount: members.length,
                       itemBuilder: (_, i) {
                         final m = members[i];
+                        final profileId = m.profileId;
                         return ListTile(
                           leading: Avatar(name: m.name, photoUrl: m.photoUrl, radius: 20),
                           title: Text(m.name, style: const TextStyle(fontWeight: FontWeight.w600)),
                           subtitle: m.isCreator
                               ? const Text('Group creator', style: TextStyle(color: AppColors.primary))
                               : null,
+                          trailing: profileId == null
+                              ? null
+                              : const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                          // A name opens that member's profile, over the sheet (back returns here).
+                          onTap: profileId == null ? null : () => _openMember(context, m, profileId),
                         );
                       },
+                    ),
+                  ),
+                if (!snap.hasError && hidden > 0)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.lock_outline_rounded, size: 16, color: AppColors.textMuted),
+                        const SizedBox(width: 8),
+                        Text(
+                          hidden == 1 ? '1 member has a private profile' : '$hidden members have private profiles',
+                          style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
+                        ),
+                      ],
                     ),
                   ),
               ],
@@ -364,21 +413,10 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
   void _showGuidelines(GroupDetail g) {
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Guidelines', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
-            const SizedBox(height: 10),
-            Text(g.description?.isNotEmpty == true ? g.description! : 'No guidelines added yet.',
-                style: const TextStyle(fontSize: 14, height: 1.5, color: AppColors.textSecondary)),
-          ],
-        ),
-      ),
+      builder: (_) => _GuidelinesSheet(guidelines: g.description),
     );
   }
 
@@ -421,7 +459,7 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
       children: [
         Container(
           width: double.infinity,
-          padding: EdgeInsets.fromLTRB(16, topPad + 8, 16, 34),
+          padding: EdgeInsets.fromLTRB(16, topPad + 8, 16, 12),
           decoration: const BoxDecoration(color: AppColors.primary),
           child: Column(
             children: [
@@ -448,27 +486,39 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
             ],
           ),
         ),
-        Transform.translate(
-          offset: const Offset(0, -22),
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 12, offset: Offset(0, 4))],
+        // The card overlaps the header by 22px: the green runs on behind its top edge, so the
+        // overlap leaves no gap below the card the way a Transform.translate did (BUG-027). The
+        // strip starts 1px up inside the header so the two greens never meet on a fractional
+        // pixel, which leaves a pale hairline at device pixel ratios like 2.75.
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            const Positioned(left: 0, top: -1, right: 0, height: 23, child: ColoredBox(color: AppColors.primary)),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 12, offset: Offset(0, 4))],
+              ),
+              // The actions' ripples paint here, clipped to the rounded corners.
+              child: Material(
+                type: MaterialType.transparency,
+                borderRadius: BorderRadius.circular(16),
+                clipBehavior: Clip.antiAlias,
+                child: Row(
+                  children: [
+                    _action(Icons.groups_rounded, countLabel(g.membersCount, 'Member'), () => _showMembers(g)),
+                    _divider(),
+                    _action(Icons.person_add_alt_1, 'Add Person',
+                        () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invites coming soon')))),
+                    _divider(),
+                    _action(Icons.info_outline, 'Guidelines', () => _showGuidelines(g)),
+                  ],
+                ),
+              ),
             ),
-            child: Row(
-              children: [
-                _action(Icons.groups_rounded, countLabel(g.membersCount, 'Member'), () => _showMembers(g)),
-                _divider(),
-                _action(Icons.person_add_alt_1, 'Add Person',
-                    () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invites coming soon')))),
-                _divider(),
-                _action(Icons.info_outline, 'Guidelines', () => _showGuidelines(g)),
-              ],
-            ),
-          ),
+          ],
         ),
       ],
     );
@@ -492,16 +542,20 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
   Widget _action(IconData icon, String label, VoidCallback onTap) => Expanded(
         child: InkWell(
           onTap: onTap,
-          child: Column(
-            children: [
-              Icon(icon, color: AppColors.primary, size: 24),
-              const SizedBox(height: 6),
-              Text(label,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 12.5)),
-            ],
+          // The card's vertical padding, inside the tap target so the ripple fills the card.
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: Column(
+              children: [
+                Icon(icon, color: AppColors.primary, size: 24),
+                const SizedBox(height: 6),
+                Text(label,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 12.5)),
+              ],
+            ),
           ),
         ),
       );
@@ -510,7 +564,8 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
 
   // ── Join CTA (non-members) ─────────────────────────────────
   Widget _joinCta(GroupDetail g) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+        // 12 below the action card, as the members' Post row (the card no longer leaves a gap).
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
         child: SizedBox(
           width: double.infinity,
           child: ElevatedButton(
@@ -695,6 +750,50 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
           ),
         ),
       );
+}
+
+/// "Guidelines": the group's description (the create form's "Description / guidelines"). A long
+/// one scrolls inside the sheet instead of overflowing it (BUG-027).
+class _GuidelinesSheet extends StatelessWidget {
+  const _GuidelinesSheet({required this.guidelines});
+  final String? guidelines;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = guidelines?.trim() ?? '';
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.85),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          // Stretch, so a short text doesn't shrink the sheet to its own width.
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(top: 10),
+                decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 14, 20, 8),
+              child: Text('Guidelines', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                child: text.isEmpty
+                    ? const Text('No guidelines yet.', style: TextStyle(color: AppColors.textMuted))
+                    : Text(text, style: const TextStyle(fontSize: 14, height: 1.5, color: AppColors.textSecondary)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// "Choose a new admin": the members who could take the group over; tapping one picks them.

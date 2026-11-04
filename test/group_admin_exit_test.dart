@@ -29,7 +29,7 @@ class _Server implements DiscoveryRepository {
   final leaves = <int?>[];
 
   @override
-  Future<List<GroupMember>> groupMembers(int id) async => members;
+  Future<GroupMembers> groupMembers(int id) async => GroupMembers(members);
   @override
   Future<void> leaveGroup(int id, {int? newAdminUserId}) async => leaves.add(newAdminUserId);
 

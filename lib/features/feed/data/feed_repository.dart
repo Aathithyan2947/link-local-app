@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_client.dart';
 import '../../../core/auth/auth_scope.dart';
+import '../../discovery/discovery_repository.dart' show retryUnlessPrivate;
 import '../../home/data/home_repository.dart';
 import 'post_models.dart';
 
@@ -105,7 +106,7 @@ final feedProvider = FutureProvider<List<PostItem>>((ref) {
 final userPostsProvider = FutureProvider.autoDispose.family<List<PostItem>, int>((ref, userId) {
   ref.bindToAccount();
   return ref.watch(feedRepositoryProvider).postsBy(userId);
-});
+}, retry: retryUnlessPrivate);
 
 /// A single post with its comments, keyed by post id.
 final postDetailProvider = FutureProvider.family<PostItem, int>((ref, id) {

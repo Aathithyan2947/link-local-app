@@ -59,11 +59,24 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
     }
   }
 
-  /// Sets a new password with a code instead of the current one (BUG-066).
+  /// Sets a new password with a code instead of the current one (BUG-066). The code goes to
+  /// the account's email (BUG-106), so an account without one is told to add it first.
   Future<void> _forgetPassword() async {
-    final user = ref.read(authControllerProvider).user;
+    var email = ref.read(authControllerProvider).user?.email;
+    if (email == null || email.isEmpty) {
+      // It may have been added in My Email since sign-in.
+      await ref.read(authControllerProvider.notifier).refreshUser();
+      if (!mounted) return;
+      email = ref.read(authControllerProvider).user?.email;
+    }
+    if (email == null || email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Resetting your password needs an email on your account. Add one in My Email first.'),
+      ));
+      return;
+    }
     final done = await context.pushPage<String>(MaterialPageRoute(
-      builder: (_) => ForgotPasswordScreen(identifier: user?.email ?? user?.mobile),
+      builder: (_) => ForgotPasswordScreen(identifier: email),
     ));
     if (done == null || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password updated')));

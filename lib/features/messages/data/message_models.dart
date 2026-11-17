@@ -150,7 +150,7 @@ class SharedPostPreview {
 
   factory SharedPostPreview.fromJson(Map<String, dynamic> j) => SharedPostPreview(
         id: _asInt(j['id']),
-        postType: j['postType'] as String? ?? 'share_update',
+        postType: j['postType'] as String? ?? 'general',
         text: j['text'] as String? ?? '',
         authorName: j['authorName'] as String? ?? 'Member',
         authorPhoto: j['authorPhoto'] as String?,

@@ -12,7 +12,9 @@ import '../../../core/media/image_editor.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/validation/content_limits.dart';
+import '../../../core/widgets/audience_picker.dart';
 import '../../../core/widgets/input_formatters.dart';
+import '../../profile/data/profile_repository.dart';
 import '../data/group_detail_models.dart';
 import '../discovery_repository.dart';
 import '../group_lists_refresh.dart';
@@ -40,6 +42,8 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   bool _isPrivate = false;
   bool _isPaid = false;
   bool _adminApproval = false;
+  /// "Members from" (BUG-115): who sees the group in their lists.
+  String _audience = defaultAudience;
   XFile? _image;
   String? _existingPhotoUrl;
   bool _submitting = false;
@@ -58,6 +62,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     _isPrivate = g.isPrivate;
     _isPaid = g.isPaid;
     _adminApproval = g.adminApprovalNeeded;
+    _audience = g.audience;
     _existingPhotoUrl = g.photoUrl;
   }
 
@@ -99,6 +104,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         if (_isPaid && _price.text.trim().isNotEmpty) 'price': double.tryParse(_price.text.trim()),
         if (_maxMembers.text.trim().isNotEmpty) 'maxMembers': int.tryParse(_maxMembers.text.trim()),
         'adminApprovalNeeded': _adminApproval,
+        'audience': _audience,
       };
 
       if (widget.isEdit) {
@@ -145,95 +151,121 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final place = ref.watch(myProfileProvider).asData?.value.place;
+    final options = audienceOptions(building: place?.building, lane: place?.lane, area: place?.area, city: place?.city);
+    // Laid out as the Figma's "Create Group" (BUG-080).
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(title: Text(widget.isEdit ? 'Edit Group' : 'Start a Group')),
-      body: Form(
-        key: _formKey,
-        autovalidateMode: AutovalidateMode.onUserInteraction,
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            _imagePicker(),
-            const SizedBox(height: 16),
-            _field(_title, 'Group name', serverKey: 'title',
-                maxLength: ContentLimits.titleMax,
-                formatters: [ContentLimits.titleInputFormatter],
-                validator: (v) => ContentLimits.titleError('Group name', v)),
-            const SizedBox(height: 12),
-            _field(_description, 'Description / guidelines', serverKey: 'description', maxLines: 4,
-                maxLength: ContentLimits.description, validator: ContentLimits.descriptionError),
-            const SizedBox(height: 12),
-            _field(_maxMembers, 'Max members (optional)', serverKey: 'maxMembers',
-                keyboard: TextInputType.number, formatters: kIntegerInput, validator: ContentLimits.maxMembersError),
-            const SizedBox(height: 8),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              activeTrackColor: AppColors.primary,
-              title: const Text('Private group', style: TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: const Text('Only invited people can find it', style: TextStyle(fontSize: 12.5)),
-              value: _isPrivate,
-              onChanged: (v) => setState(() => _isPrivate = v),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              activeTrackColor: AppColors.primary,
-              title: const Text('Approve members', style: TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: const Text('You review each join request', style: TextStyle(fontSize: 12.5)),
-              value: _adminApproval,
-              onChanged: (v) => setState(() => _adminApproval = v),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              activeTrackColor: AppColors.primary,
-              title: const Text('Paid group', style: TextStyle(fontWeight: FontWeight.w600)),
-              value: _isPaid,
-              onChanged: (v) => setState(() => _isPaid = v),
-            ),
-            if (_isPaid)
-              _field(_price, 'Price (₹)', serverKey: 'price', keyboard: kDecimalKeyboard, formatters: kDecimalInput,
-                  validator: (v) => ContentLimits.priceError(v, what: 'group')),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _submitting ? null : _submit,
-              child: _submitting
-                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : Text(widget.isEdit ? 'Save Changes' : 'Create Group'),
-            ),
-          ],
+      backgroundColor: AppColors.surface,
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(8, 4, 20, 24),
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Back',
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.chevron_left, color: AppColors.ink, size: 28),
+                  ),
+                  Flexible(
+                    child: AudiencePicker(
+                      label: 'Members from',
+                      value: _audience,
+                      options: options,
+                      onChanged: (v) => setState(() => _audience = v),
+                    ),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 12),
+                    Text(widget.isEdit ? 'Edit Group' : 'Create Group',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.ink)),
+                    const SizedBox(height: 20),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _imagePicker(),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: _field(_title, 'Group name', serverKey: 'title',
+                              maxLength: ContentLimits.titleMax,
+                              formatters: [ContentLimits.titleInputFormatter],
+                              validator: (v) => ContentLimits.titleError('Group name', v)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _field(_description, 'Description / guidelines', serverKey: 'description', maxLines: 4,
+                        maxLength: ContentLimits.description, validator: ContentLimits.descriptionError),
+                    const SizedBox(height: 12),
+                    _field(_maxMembers, 'Max members (optional)', serverKey: 'maxMembers',
+                        keyboard: TextInputType.number, formatters: kIntegerInput, validator: ContentLimits.maxMembersError),
+                    const SizedBox(height: 8),
+                    _toggle('Private Group', 'Only invited people can find this group', _isPrivate,
+                        (v) => setState(() => _isPrivate = v)),
+                    _toggle('Approve Members', 'You review each join request', _adminApproval,
+                        (v) => setState(() => _adminApproval = v)),
+                    _toggle('Paid Group', null, _isPaid, (v) => setState(() => _isPaid = v)),
+                    if (_isPaid)
+                      _field(_price, 'Price (₹)', serverKey: 'price', keyboard: kDecimalKeyboard,
+                          formatters: kDecimalInput, validator: (v) => ContentLimits.priceError(v, what: 'group')),
+                    const SizedBox(height: 28),
+                    SizedBox(
+                      height: 54,
+                      child: ElevatedButton(
+                        onPressed: _submitting ? null : _submit,
+                        child: _submitting
+                            ? const SizedBox(
+                                height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : Text(widget.isEdit ? 'Save Changes' : 'Create Group'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _imagePicker() => GestureDetector(
-        onTap: _pickImage,
-        child: Container(
-          height: 150,
-          decoration: BoxDecoration(
-            color: AppColors.field,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.border),
-            image: _image != null
-                ? DecorationImage(image: FileImage(File(_image!.path)), fit: BoxFit.cover)
-                : (_existingPhotoUrl != null
-                    ? DecorationImage(image: NetworkImage(AppConfig.assetUrl(_existingPhotoUrl!)), fit: BoxFit.cover)
-                    : null),
-          ),
-          child: (_image != null || _existingPhotoUrl != null)
-              ? null
-              : const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.add_photo_alternate_outlined, size: 34, color: AppColors.textMuted),
-                      SizedBox(height: 6),
-                      Text('Add a group photo', style: TextStyle(color: AppColors.textMuted)),
-                    ],
-                  ),
-                ),
-        ),
+  Widget _toggle(String title, String? subtitle, bool value, ValueChanged<bool> onChanged) => SwitchListTile.adaptive(
+        contentPadding: EdgeInsets.zero,
+        activeTrackColor: AppColors.primary,
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink)),
+        subtitle: subtitle == null ? null : Text(subtitle, style: const TextStyle(fontSize: 12)),
+        value: value,
+        onChanged: onChanged,
       );
+
+  /// The Figma's round photo button beside the name.
+  Widget _imagePicker() {
+    final ImageProvider? photo = _image != null
+        ? FileImage(File(_image!.path))
+        : (_existingPhotoUrl != null ? NetworkImage(AppConfig.assetUrl(_existingPhotoUrl!)) : null);
+    return Semantics(
+      button: true,
+      label: 'Add a group photo',
+      child: GestureDetector(
+        onTap: _pickImage,
+        child: CircleAvatar(
+          radius: 34,
+          backgroundColor: AppColors.divider,
+          backgroundImage: photo,
+          child: photo == null ? const Icon(Icons.photo_camera_rounded, color: AppColors.ink, size: 26) : null,
+        ),
+      ),
+    );
+  }
 
   /// A form field whose message comes from [validator] (the shared ContentLimits rules), or
   /// from the server for [serverKey] until the field is edited again.

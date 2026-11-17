@@ -10,7 +10,7 @@ import '../../discovery/data/block_overrides.dart';
 import '../../discovery/presentation/block_action.dart';
 import '../data/message_models.dart';
 import '../../../core/navigation/push_guard.dart';
-import '../../feed/data/post_models.dart' show postTypeLabels;
+import '../../feed/data/post_models.dart' show postTypeLabel;
 import '../../feed/presentation/post_detail_screen.dart';
 import '../../discovery/presentation/event_detail_screen.dart';
 import '../../discovery/presentation/widgets/discover_cards.dart' show NetworkThumb;
@@ -341,7 +341,7 @@ class SharedPostBubble extends StatelessWidget {
                             color: AppColors.primarySurface,
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: Text(postTypeLabels[p.postType] ?? 'Update',
+                          child: Text(postTypeLabel(p.postType),
                               style: const TextStyle(fontSize: 10, color: AppColors.primary, fontWeight: FontWeight.w600)),
                         ),
                       ],

@@ -2,22 +2,45 @@ import '../../../core/time/server_time.dart';
 
 int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
-/// Post types → human labels for the type chip.
 /// How many lines of a post a list card shows before "…": a long post used to fill the
 /// screen. Tapping the card opens the post with the full text.
 const kPostPreviewLines = 4;
 
+/// Post types from the Figma (BUG-108) → labels, in the order Create Post offers them.
 const postTypeLabels = <String, String>{
+  'general': 'General',
+  'query': 'Query',
+  'help': 'Help',
+  'recommendation': 'Recommendation',
+  'buyer': 'Buyer',
+  'seller': 'Seller',
+};
+
+/// The four types posts had before BUG-108, should an older server still send one.
+const _legacyPostTypeLabels = <String, String>{
   'buy_sell': 'Buy / Sell',
   'ask_help': 'Ask for help',
   'offer_help': 'Offer help',
   'share_update': 'Update',
 };
 
+/// The label for a post type, the older four included.
+String postTypeLabel(String type) => postTypeLabels[type] ?? _legacyPostTypeLabels[type] ?? 'General';
+
 class PostMedia {
   const PostMedia({required this.mediaType, required this.url});
   final String mediaType;
   final String url;
+
+  bool get isVideo => mediaType == 'video';
+
+  /// A still to show for a video: Cloudinary serves a frame of an uploaded video when the
+  /// extension is swapped for .jpg. Null when the URL isn't a Cloudinary video.
+  String? get videoPoster {
+    if (!isVideo || !url.contains('/video/upload/')) return null;
+    final dot = url.lastIndexOf('.');
+    return dot > url.lastIndexOf('/') ? '${url.substring(0, dot)}.jpg' : '$url.jpg';
+  }
   factory PostMedia.fromJson(Map<String, dynamic> j) =>
       PostMedia(mediaType: j['mediaType'] as String? ?? 'photo', url: j['url'] as String? ?? '');
 }
@@ -109,6 +132,7 @@ class PostItem {
   const PostItem({
     required this.id,
     required this.postType,
+    this.title,
     this.text,
     required this.authorId,
     this.authorProfileId,
@@ -128,6 +152,8 @@ class PostItem {
 
   final int id;
   final String postType;
+  /// The optional headline above the text (BUG-108).
+  final String? title;
   final String? text;
   final int authorId;
   final int? authorProfileId;
@@ -146,11 +172,12 @@ class PostItem {
   /// False for a group post viewed by a non-member: they may read but not like or reply.
   final bool canInteract;
 
-  String get typeLabel => postTypeLabels[postType] ?? 'Update';
+  String get typeLabel => postTypeLabel(postType);
 
   PostItem copyWith({bool? liked, int? likes}) => PostItem(
         id: id,
         postType: postType,
+        title: title,
         text: text,
         authorId: authorId,
         authorProfileId: authorProfileId,
@@ -175,7 +202,8 @@ class PostItem {
     final group = j['group'] as Map<String, dynamic>?;
     return PostItem(
       id: _asInt(j['id']),
-      postType: j['postType'] as String? ?? 'share_update',
+      postType: j['postType'] as String? ?? 'general',
+      title: (j['title'] as String?)?.trim().isEmpty ?? true ? null : (j['title'] as String).trim(),
       text: j['textContent'] as String?,
       authorId: _asInt(user?['id']),
       authorProfileId: profile?['id'] != null ? _asInt(profile!['id']) : null,

@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:link_local/core/network/dio_client.dart';
 import 'package:link_local/features/auth/application/auth_controller.dart';
 import 'package:link_local/features/discovery/data/public_profile_models.dart';
+import 'package:link_local/features/profile/data/profile_models.dart';
+import 'package:link_local/features/profile/data/profile_repository.dart';
 import 'package:link_local/features/discovery/data/sp_detail_models.dart';
 import 'package:link_local/features/discovery/discovery_repository.dart';
 import 'package:link_local/features/feed/data/feed_repository.dart';
@@ -24,7 +26,14 @@ class _Feed implements FeedRepository {
   final created = <String>[];
 
   @override
-  Future<PostItem> createPost({required String postType, String? text, List<String> photoUrls = const []}) async {
+  Future<PostItem> createPost({
+    required String postType,
+    String? title,
+    String? text,
+    String? audience,
+    bool notifyReplies = true,
+    List<PostMedia> media = const [],
+  }) async {
     created.add(text ?? '');
     return PostItem.fromJson({'id': 99, 'postType': postType, 'textContent': text});
   }
@@ -47,6 +56,7 @@ void main() {
         dioProvider.overrideWithValue(Dio()),
         authControllerProvider.overrideWith(_SignedOut.new),
         feedRepositoryProvider.overrideWithValue(feed),
+        myProfileProvider.overrideWith((ref) async => ProfileDetail.fromJson({'id': 1, 'name': 'Asha'})),
         feedProvider.overrideWith((ref) async {
           load('posts');
           return const [];
@@ -90,8 +100,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(loads, {'home': 1, 'posts': 1, 'home discussions': 1, 'provider profile': 1, 'member profile': 1});
 
-    await tester.enterText(find.byType(TextField), 'testing post 3');
-    await tester.tap(find.text('Post'));
+    await tester.enterText(find.widgetWithText(TextField, 'Write your post....'), 'testing post 3');
+    await tester.tap(find.text('Post Discussion'));
     await tester.pumpAndSettle();
 
     expect(feed.created, ['testing post 3']);

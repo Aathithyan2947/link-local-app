@@ -87,6 +87,7 @@ class EventDetail {
     this.googlePlaceId,
     this.onlineLink,
     this.isPaid = false,
+    this.audience = 'city',
     this.price,
     this.maxAttendees,
     required this.attendeesCount,
@@ -120,6 +121,8 @@ class EventDetail {
   final String? googlePlaceId;
   final String? onlineLink;
   final bool isPaid;
+  /// Who it's for: society | lane | area | city of the host's address (BUG-115).
+  final String audience;
   final double? price;
   final int? maxAttendees;
   final int attendeesCount;
@@ -167,6 +170,7 @@ class EventDetail {
       googlePlaceId: j['googlePlaceId'] as String?,
       onlineLink: j['onlineLink'] as String?,
       isPaid: j['isPaid'] as bool? ?? false,
+      audience: j['audience'] as String? ?? 'city',
       price: _asDouble(j['price']),
       maxAttendees: j['maxAttendees'] != null ? _asInt(j['maxAttendees']) : null,
       attendeesCount: _asInt(count?['attendees']),

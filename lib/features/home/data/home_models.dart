@@ -40,6 +40,7 @@ class ReferralInfo {
 class DiscussionItem {
   const DiscussionItem({
     required this.id,
+    this.title,
     required this.text,
     required this.authorName,
     this.authorPhoto,
@@ -54,6 +55,8 @@ class DiscussionItem {
     this.topComment,
   });
   final int id;
+  /// The optional headline from Write a Post (BUG-108).
+  final String? title;
   final String text;
   final String authorName;
   final String? authorPhoto;
@@ -77,6 +80,7 @@ class DiscussionItem {
     final count = j['_count'] as Map<String, dynamic>?;
     return DiscussionItem(
       id: _asInt(j['id']),
+      title: (j['title'] as String?)?.trim().isEmpty ?? true ? null : (j['title'] as String).trim(),
       text: j['textContent'] as String? ?? '',
       authorName: profile?['name'] as String? ?? 'Neighbour',
       authorPhoto: profile?['photoUrl'] as String?,

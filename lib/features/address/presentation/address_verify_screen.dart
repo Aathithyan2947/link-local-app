@@ -132,9 +132,10 @@ class _AddressVerifyScreenState extends ConsumerState<AddressVerifyScreen> {
                     subtitle: 'This keeps our community authentic and safe',
                   ),
                   const SizedBox(height: 28),
+                  // Text sizes and weights follow the Figma (Sign Up 6, BUG-076).
                   const Center(
                     child: Text('Upload your address proof',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.ink)),
                   ),
                   const SizedBox(height: 20),
                   _ProofCard(
@@ -205,10 +206,10 @@ class _AddressVerifyScreenState extends ConsumerState<AddressVerifyScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text('Got a referral code?',
-                            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                            style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16, color: AppColors.ink)),
                         const SizedBox(height: 4),
                         const Text('This will help us verify your profile faster',
-                            style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                            style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500)),
                         const SizedBox(height: 12),
                         TextField(
                           controller: _refCode,
@@ -220,7 +221,7 @@ class _AddressVerifyScreenState extends ConsumerState<AddressVerifyScreen> {
 
                   if (_error != null) ...[const SizedBox(height: 16), ErrorBanner(message: _error!)],
                   const SizedBox(height: 28),
-                  PrimaryButton(label: 'Next', loading: _loading, onPressed: _submit),
+                  PrimaryButton(label: 'Submit now', loading: _loading, onPressed: _submit),
                   const SizedBox(height: 8),
                   Center(
                     child: TextButton(

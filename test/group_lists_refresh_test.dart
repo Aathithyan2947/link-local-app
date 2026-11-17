@@ -77,8 +77,8 @@ void main() {
     nav.push(MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, 'Group name'), 'testing group 11');
-    await tester.ensureVisible(find.text('Create Group'));
-    await tester.tap(find.text('Create Group'));
+    await tester.ensureVisible(find.widgetWithText(ElevatedButton, 'Create Group'));
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Create Group'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     nav.pop();

@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../address/presentation/address_proof_gate.dart';
 
@@ -135,6 +136,18 @@ class _PostCardState extends ConsumerState<PostCard> {
               ],
             ),
           ),
+          // The optional headline from Write a Post (BUG-108).
+          if (p.title != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+              child: GestureDetector(
+                onTap: widget.onOpen,
+                child: Text(p.title!,
+                    maxLines: widget.onOpen != null ? 2 : null,
+                    overflow: widget.onOpen != null ? TextOverflow.ellipsis : null,
+                    style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: AppColors.ink)),
+              ),
+            ),
           if (p.text?.isNotEmpty == true)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
@@ -148,7 +161,10 @@ class _PostCardState extends ConsumerState<PostCard> {
                     style: const TextStyle(fontSize: 14, height: 1.4, color: AppColors.textPrimary)),
               ),
             ),
-          if (p.media.isNotEmpty) ...[
+          if (p.media.isNotEmpty && p.media.first.isVideo) ...[
+            const SizedBox(height: 12),
+            _VideoTile(media: p.media.first),
+          ] else if (p.media.isNotEmpty) ...[
             const SizedBox(height: 12),
             ClipRRect(
               borderRadius: BorderRadius.circular(0),
@@ -197,4 +213,41 @@ class _PostCardState extends ConsumerState<PostCard> {
           ),
         ),
       );
+}
+
+/// A posted video: its first frame with a play button; tapping plays it in the phone's own
+/// player (there's no in-app player).
+class _VideoTile extends StatelessWidget {
+  const _VideoTile({required this.media});
+  final PostMedia media;
+
+  @override
+  Widget build(BuildContext context) {
+    final poster = media.videoPoster;
+    return GestureDetector(
+      onTap: () => launchUrl(Uri.parse(AppConfig.assetUrl(media.url)), mode: LaunchMode.externalApplication),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            height: 200,
+            child: poster == null
+                ? Container(color: AppColors.ink)
+                : CachedNetworkImage(
+                    imageUrl: poster,
+                    fit: BoxFit.cover,
+                    placeholder: (_, _) => Container(color: AppColors.ink),
+                    errorWidget: (_, _, _) => Container(color: AppColors.ink),
+                  ),
+          ),
+          const CircleAvatar(
+            radius: 26,
+            backgroundColor: Colors.black54,
+            child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 34, semanticLabel: 'Play video'),
+          ),
+        ],
+      ),
+    );
+  }
 }

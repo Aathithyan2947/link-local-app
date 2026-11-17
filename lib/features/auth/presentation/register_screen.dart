@@ -12,6 +12,7 @@ import '../../../core/validation/password_rules.dart';
 import '../../../core/widgets/auth_header.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../core/widgets/terms_notice.dart';
 import '../application/auth_controller.dart';
 import 'otp_screen.dart';
 
@@ -164,6 +165,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     loading: _loading,
                     onPressed: _tab == 0 ? _sendOtp : _registerEmail,
                   ),
+                  // The mobile path shows it on the code screen instead (Figma: Sign Up 1-6).
+                  if (_tab == 1) ...[const SizedBox(height: 12), const TermsNotice()],
                   const SizedBox(height: 16),
                   _footer(context),
                 ],

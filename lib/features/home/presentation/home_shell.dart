@@ -166,31 +166,29 @@ class _BottomBar extends StatelessWidget {
             ),
             child: Row(
               children: [
+                // Filled glyphs in both states, as in the Figma; only the colour marks the
+                // active tab (BUG-078).
                 _NavItem(
-                  icon: Icons.home_outlined,
-                  activeIcon: Icons.home_rounded,
+                  icon: Icons.home_rounded,
                   label: 'Home',
                   active: activeSlot == 0,
                   onTap: onHome,
                 ),
                 _NavItem(
-                  icon: Icons.handyman_outlined,
-                  activeIcon: Icons.handyman_rounded,
+                  icon: Icons.pending,
                   label: 'Services',
                   active: activeSlot == 1,
                   onTap: onServices,
                 ),
                 const SizedBox(width: 64), // gap for the FAB
                 _NavItem(
-                  icon: Icons.storefront_outlined,
-                  activeIcon: Icons.storefront_rounded,
+                  icon: Icons.storefront_rounded,
                   label: 'Events',
                   active: activeSlot == 3,
                   onTap: onEvents,
                 ),
                 _NavItem(
-                  icon: Icons.groups_outlined,
-                  activeIcon: Icons.groups_rounded,
+                  icon: Icons.supervised_user_circle,
                   label: 'Groups',
                   active: activeSlot == 4,
                   onTap: onGroups,
@@ -231,13 +229,11 @@ class _BottomBar extends StatelessWidget {
 class _NavItem extends StatelessWidget {
   const _NavItem({
     required this.icon,
-    required this.activeIcon,
     required this.label,
     required this.active,
     required this.onTap,
   });
   final IconData icon;
-  final IconData activeIcon;
   final String label;
   final bool active;
   final VoidCallback onTap;
@@ -252,7 +248,7 @@ class _NavItem extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(active ? activeIcon : icon, color: color, size: 26),
+            Icon(icon, color: color, size: 26),
             const SizedBox(height: 3),
             Text(label,
                 style: TextStyle(

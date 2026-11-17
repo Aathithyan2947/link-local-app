@@ -218,7 +218,7 @@ void main() {
       await _pump(tester, page: const GroupProfileScreen(id: 3), server: server);
       await _tap(tester, '4 Members');
 
-      expect(find.text('Members (4)'), findsOneWidget, reason: 'the count still includes everyone who joined');
+      expect(find.text('Total Members 4'), findsOneWidget, reason: 'the count still includes everyone who joined');
       expect(find.text('Meera'), findsOneWidget);
       expect(find.text('2 members have private profiles'), findsOneWidget);
     });
@@ -227,7 +227,7 @@ void main() {
       final server = _Server()..members = const GroupMembers([asha, meera], hiddenCount: 1);
       await _pump(tester, page: const GroupProfileScreen(id: 3), server: server);
       await _tap(tester, '4 Members');
-      expect(find.text('Members (3)'), findsOneWidget);
+      expect(find.text('Total Members 3'), findsOneWidget);
       expect(find.text('1 member has a private profile'), findsOneWidget);
     });
 
@@ -235,7 +235,7 @@ void main() {
       final server = _Server()..members = const GroupMembers([asha, meera]);
       await _pump(tester, page: const GroupProfileScreen(id: 3), server: server);
       await _tap(tester, '4 Members');
-      expect(find.text('Members (2)'), findsOneWidget);
+      expect(find.text('Total Members 2'), findsOneWidget);
       expect(find.textContaining('private profile'), findsNothing);
     });
 

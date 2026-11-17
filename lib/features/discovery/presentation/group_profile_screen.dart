@@ -21,11 +21,9 @@ import '../../payments/data/payment_charge.dart';
 import '../../payments/presentation/payment_method_screen.dart';
 import '../../profile/data/profile_repository.dart';
 import '../data/group_detail_models.dart';
-import '../../auth/application/auth_controller.dart';
 import '../discovery_repository.dart';
 import '../group_lists_refresh.dart';
-import 'service_provider_detail_screen.dart';
-import 'user_profile_screen.dart';
+import 'group_members_screen.dart';
 import '../../../core/text/plural.dart';
 
 /// Full interest-group profile — the "Group Info" frame. Join (a paid group through the
@@ -318,97 +316,9 @@ class _GroupProfileScreenState extends ConsumerState<GroupProfileScreen> {
   }
 
   /// A member's profile, as the Members directory opens it; your own row opens My Profile.
-  void _openMember(BuildContext context, GroupMember m, int profileId) {
-    final mine = m.userId == ref.read(authControllerProvider).user?.id;
-    context.pushPage(MaterialPageRoute(
-      builder: (_) => mine || m.isServiceProvider
-          ? ServiceProviderDetailScreen(id: profileId)
-          : UserProfileScreen(id: profileId),
-    ));
-  }
-
-  void _showMembers(GroupDetail g) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => SafeArea(
-        child: FutureBuilder<GroupMembers>(
-          future: _repo.groupMembers(g.id),
-          builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return const Padding(
-                padding: EdgeInsets.all(40),
-                child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
-              );
-            }
-            final members = snap.data?.members ?? const <GroupMember>[];
-            // Joined, but their profile is private to this viewer: counted, not listed.
-            final hidden = snap.data?.hiddenCount ?? 0;
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-                  child: Text('Members (${members.length + hidden})',
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
-                ),
-                if (snap.hasError)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(20, 0, 20, 24),
-                    child: Text("Couldn't load members", style: TextStyle(color: AppColors.textSecondary)),
-                  )
-                else if (members.isEmpty && hidden == 0)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(20, 0, 20, 24),
-                    child: Text('No members yet.', style: TextStyle(color: AppColors.textMuted)),
-                  )
-                else
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      padding: const EdgeInsets.only(bottom: 12),
-                      itemCount: members.length,
-                      itemBuilder: (_, i) {
-                        final m = members[i];
-                        final profileId = m.profileId;
-                        return ListTile(
-                          leading: Avatar(name: m.name, photoUrl: m.photoUrl, radius: 20),
-                          title: Text(m.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: m.isCreator
-                              ? const Text('Group creator', style: TextStyle(color: AppColors.primary))
-                              : null,
-                          trailing: profileId == null
-                              ? null
-                              : const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                          // A name opens that member's profile, over the sheet (back returns here).
-                          onTap: profileId == null ? null : () => _openMember(context, m, profileId),
-                        );
-                      },
-                    ),
-                  ),
-                if (!snap.hasError && hidden > 0)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.lock_outline_rounded, size: 16, color: AppColors.textMuted),
-                        const SizedBox(width: 8),
-                        Text(
-                          hidden == 1 ? '1 member has a private profile' : '$hidden members have private profiles',
-                          style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
+  /// The Group Members page from the Figma (BUG-082), in place of the old bottom sheet.
+  void _showMembers(GroupDetail g) =>
+      context.pushPage(MaterialPageRoute(builder: (_) => GroupMembersScreen(groupId: g.id)));
 
   void _showGuidelines(GroupDetail g) {
     showModalBottomSheet<void>(

@@ -58,6 +58,7 @@ class ProfileDetail {
     required this.hasPaymentMethods,
     this.cityId,
     this.address,
+    this.place = const MemberPlace(),
     this.email,
     this.mobile,
     this.servicePhone,
@@ -88,6 +89,9 @@ class ProfileDetail {
   bool get hasFinishedOnboarding => onboardingCompletedAt != null;
   final int? cityId; // from address.area.city.id — scopes the pincode field's area picker
   final String? address; // profile.address.fullAddress
+  /// Their building, lane, area and city by name: the "Post in" / "Members from" picker
+  /// (BUG-115) offers these.
+  final MemberPlace place;
 
   final List<IdName> educations;
 
@@ -188,6 +192,7 @@ class ProfileDetail {
       hasDelivery: j['delivery'] != null,
       hasPaymentMethods: ((j['paymentMethods'] as List?) ?? []).isNotEmpty,
       address: (j['address'] as Map<String, dynamic>?)?['fullAddress'] as String?,
+      place: MemberPlace.fromAddress(j['address'] as Map<String, dynamic>?),
       cityId: (((j['address'] as Map<String, dynamic>?)?['area'] as Map<String, dynamic>?)?['city']
               as Map<String, dynamic>?)?['id'] !=
               null
@@ -196,4 +201,25 @@ class ProfileDetail {
           : null,
     );
   }
+}
+
+/// A member's own place by name, from their address. Blank parts are null.
+class MemberPlace {
+  const MemberPlace({this.building, this.lane, this.area, this.city});
+
+  factory MemberPlace.fromAddress(Map<String, dynamic>? a) {
+    String? text(Object? v) => (v is String && v.trim().isNotEmpty) ? v.trim() : null;
+    final area = a?['area'] as Map<String, dynamic>?;
+    return MemberPlace(
+      building: text(a?['apartment']),
+      lane: text(a?['lane1']),
+      area: text(area?['areaName']),
+      city: text((area?['city'] as Map<String, dynamic>?)?['name']),
+    );
+  }
+
+  final String? building;
+  final String? lane;
+  final String? area;
+  final String? city;
 }

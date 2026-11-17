@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_scope.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/time/server_time.dart';
 
 /// One row of the Members list — who they are and roughly where, never contact details.
 class MemberItem {
@@ -15,6 +16,7 @@ class MemberItem {
     required this.isServiceProvider,
     this.roleLabel,
     this.areaName,
+    this.joinedAt,
   });
 
   factory MemberItem.fromJson(Map<String, dynamic> j) => MemberItem(
@@ -25,6 +27,7 @@ class MemberItem {
         isServiceProvider: j['isServiceProvider'] as bool? ?? false,
         roleLabel: j['roleLabel'] as String?,
         areaName: j['areaName'] as String?,
+        joinedAt: parseServerTime(j['joinedAt']),
       );
 
   final int profileId;
@@ -38,6 +41,12 @@ class MemberItem {
   /// Their service (providers) or profession (residents), when set.
   final String? roleLabel;
   final String? areaName;
+
+  /// When they signed up; null from older servers.
+  final DateTime? joinedAt;
+
+  /// Joined in the last 30 days: the Members list gives them a "Welcome" (Figma, BUG-079).
+  bool get isNew => joinedAt != null && DateTime.now().difference(joinedAt!) < const Duration(days: 30);
 
   /// "Hair stylist · Pai Nagar", dropping whichever part is missing.
   String get subtitle => [roleLabel, areaName].where((s) => s != null && s.trim().isNotEmpty).join(' · ');

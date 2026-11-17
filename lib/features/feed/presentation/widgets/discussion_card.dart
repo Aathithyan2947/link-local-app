@@ -188,6 +188,16 @@ class _DiscussionCardState extends ConsumerState<DiscussionCard> {
                         ),
                       ],
                     ),
+                    // The optional headline from Write a Post (BUG-108), as on the Figma's cards.
+                    if (_item.title != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        _item.title!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: AppColors.ink),
+                      ),
+                    ],
                     if (_item.text.isNotEmpty) ...[
                       const SizedBox(height: 10),
                       // A preview: the card opens the post, which shows it all.

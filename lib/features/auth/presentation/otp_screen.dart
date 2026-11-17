@@ -8,6 +8,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/auth_header.dart';
 import '../../../core/widgets/error_banner.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../core/widgets/terms_notice.dart';
 import '../application/auth_controller.dart';
 
 class OtpArgs {
@@ -161,6 +162,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                   ],
                   const SizedBox(height: 24),
                   PrimaryButton(label: 'Continue', loading: _loading, onPressed: _submit),
+                  if (widget.args.purpose == 'registration') ...[const SizedBox(height: 12), const TermsNotice()],
                 ],
               ),
             ),

@@ -58,7 +58,10 @@ class AuthHeading extends StatelessWidget {
         ),
         if (subtitle != null) ...[
           const SizedBox(height: 14),
-          Text(subtitle!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, color: AppColors.ink)),
+          // Poppins Medium 16 on every sign-up screen in the Figma (BUG-076).
+          Text(subtitle!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: AppColors.ink)),
         ],
       ],
     );

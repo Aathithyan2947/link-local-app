@@ -36,12 +36,22 @@ class FeedRepository {
     return PostItem.fromJson(res.data['data'] as Map<String, dynamic>);
   }
 
-  Future<PostItem> createPost({required String postType, String? text, List<String> photoUrls = const []}) async {
+  /// [audience] is who it's for ("Post in", BUG-115); [media] are uploaded photos or videos.
+  Future<PostItem> createPost({
+    required String postType,
+    String? title,
+    String? text,
+    String? audience,
+    bool notifyReplies = true,
+    List<PostMedia> media = const [],
+  }) async {
     final res = await _dio.post('/posts', data: {
       'postType': postType,
+      if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
       if (text != null && text.trim().isNotEmpty) 'textContent': text.trim(),
-      if (photoUrls.isNotEmpty)
-        'media': photoUrls.map((u) => {'mediaType': 'photo', 'url': u}).toList(),
+      'audience': ?audience,
+      'notifyReplies': notifyReplies,
+      if (media.isNotEmpty) 'media': media.map((m) => {'mediaType': m.mediaType, 'url': m.url}).toList(),
     });
     return PostItem.fromJson(res.data['data'] as Map<String, dynamic>);
   }

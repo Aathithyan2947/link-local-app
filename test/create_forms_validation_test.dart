@@ -41,7 +41,14 @@ class _Server implements DiscoveryRepository, FeedRepository {
   @override
   Future<void> updateEvent(int id, Map<String, dynamic> data) => _accept(data);
   @override
-  Future<PostItem> createPost({required String postType, String? text, List<String> photoUrls = const []}) async {
+  Future<PostItem> createPost({
+    required String postType,
+    String? title,
+    String? text,
+    String? audience,
+    bool notifyReplies = true,
+    List<PostMedia> media = const [],
+  }) async {
     await _accept({'text': text});
     return PostItem.fromJson({'id': 1, 'postType': postType});
   }
@@ -87,8 +94,10 @@ Future<_Server> _open(WidgetTester tester, Widget screen) async {
 Finder _field(String label) => find.widgetWithText(TextFormField, label);
 
 Future<void> _tapButton(WidgetTester tester, String label) async {
-  await tester.ensureVisible(find.text(label));
-  await tester.tap(find.text(label));
+  // The button itself: Create Group's heading says "Create Group" too (BUG-080).
+  final button = find.widgetWithText(ElevatedButton, label);
+  await tester.ensureVisible(button);
+  await tester.tap(button);
   await tester.pumpAndSettle();
 }
 
@@ -114,7 +123,7 @@ void main() {
       final server = await _open(tester, const CreateGroupScreen());
       await tester.enterText(_field('Group name'), 'Ab');
       await tester.enterText(_field('Max members (optional)'), '1');
-      await tester.tap(find.text('Paid group'));
+      await tester.tap(find.text('Paid Group'));
       await tester.pumpAndSettle();
       await _tapButton(tester, 'Create Group');
 
@@ -212,10 +221,10 @@ void main() {
   group('BUG-070: Create Post', () {
     testWidgets('over 2000 characters is flagged under the field and not posted', (tester) async {
       final server = await _open(tester, const CreatePostScreen());
-      await tester.enterText(find.byType(TextField), 'x' * 2001);
+      await tester.enterText(find.widgetWithText(TextField, 'Write your post....'), 'x' * 2001);
       await tester.pump();
       expect(find.text('Post can be at most 2000 characters'), findsOneWidget);
-      await tester.tap(find.text('Post'));
+      await tester.tap(find.text('Post Discussion'));
       await tester.pumpAndSettle();
       expect(server.created, isEmpty);
     });
@@ -225,8 +234,8 @@ void main() {
       server.reject = ApiException('Post can be at most 2000 characters', statusCode: 400, details: {
         'textContent': ['Post can be at most 2000 characters'],
       });
-      await tester.enterText(find.byType(TextField), 'hello neighbours');
-      await tester.tap(find.text('Post'));
+      await tester.enterText(find.widgetWithText(TextField, 'Write your post....'), 'hello neighbours');
+      await tester.tap(find.text('Post Discussion'));
       await tester.pumpAndSettle();
       expect(server.created, hasLength(1));
       expect(find.text('Post can be at most 2000 characters'), findsOneWidget);

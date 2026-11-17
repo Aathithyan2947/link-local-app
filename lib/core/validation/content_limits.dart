@@ -5,6 +5,10 @@ import 'package:flutter/services.dart';
 /// contentLimits.ts), so a value the app accepts is never rejected for it (BUG-070–074).
 abstract final class ContentLimits {
   static const postText = 2000;
+  /// A post's optional title (BUG-108; the Figma counts to 100).
+  static const postTitle = 100;
+  /// The server takes uploads up to 10 MB (MAX_UPLOAD_MB), videos included.
+  static const uploadBytes = 10 * 1024 * 1024;
   static const titleMin = 3;
   static const titleMax = 80;
   static const description = 2000;

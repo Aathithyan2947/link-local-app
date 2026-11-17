@@ -137,7 +137,8 @@ void main() {
       expect(_inSheet(find.text('No guidelines yet.')), findsOneWidget);
     });
 
-    testWidgets('the title lines up with the Members sheet title', (tester) async {
+    // Members used to open a sheet to line up with; it's a page now (BUG-082).
+    testWidgets('the title lines up with the guidelines text', (tester) async {
       await _open(tester, description: 'Be kind.', phone: false);
       await _openSheet(tester, 'Guidelines');
       final guidelinesInset =
@@ -145,13 +146,6 @@ void main() {
       expect(_inSheet(find.text('Be kind.')), findsOneWidget);
       expect(tester.getTopLeft(_inSheet(find.text('Be kind.'))).dx - tester.getTopLeft(_sheet).dx,
           guidelinesInset);
-
-      await tester.tapAt(const Offset(20, 20)); // outside the sheet
-      await tester.pumpAndSettle();
-      await _openSheet(tester, '1 Member');
-      final membersInset =
-          tester.getTopLeft(_inSheet(find.text('Members (1)'))).dx - tester.getTopLeft(_sheet).dx;
-      expect(guidelinesInset, membersInset);
     });
   });
 

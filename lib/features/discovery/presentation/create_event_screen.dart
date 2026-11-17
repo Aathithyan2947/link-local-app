@@ -13,6 +13,7 @@ import '../../../core/media/image_editor.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/validation/content_limits.dart';
+import '../../../core/widgets/audience_picker.dart';
 import '../../../core/widgets/input_formatters.dart';
 import '../../address/presentation/widgets/place_search_field.dart';
 import '../../profile/data/profile_repository.dart';
@@ -51,6 +52,9 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   TimeOfDay? _time;
   String _mode = 'offline';
   bool _isPaid = false;
+  /// "Post in" (BUG-115): who sees the event in their lists. There's no event design, so it
+  /// follows Write a Post's.
+  String _audience = defaultAudience;
   XFile? _image;
   String? _existingPhotoUrl;
   bool _submitting = false;
@@ -79,6 +83,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
     _time = e.startTime != null ? TimeOfDay(hour: e.startTime!.hour, minute: e.startTime!.minute) : null;
     _mode = e.mode;
     _isPaid = e.isPaid;
+    _audience = e.audience;
     _existingPhotoUrl = e.photoUrl;
     if (e.rawMaterials.isNotEmpty) {
       _materials
@@ -159,6 +164,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
         },
         if (_mode == 'online' && _onlineLink.text.trim().isNotEmpty) 'onlineLink': _onlineLink.text.trim(),
         'isPaid': _isPaid,
+        'audience': _audience,
         if (_isPaid && _price.text.trim().isNotEmpty) 'price': double.tryParse(_price.text.trim()),
         if (_maxAttendees.text.trim().isNotEmpty) 'maxAttendees': int.tryParse(_maxAttendees.text.trim()),
         if (materials.isNotEmpty) 'rawMaterials': materials,
@@ -212,6 +218,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final place = ref.watch(myProfileProvider).asData?.value.place;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: Text(widget.isEdit ? 'Edit Event' : 'Host an Event')),
@@ -221,6 +228,17 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: AudiencePicker(
+                label: 'Post in',
+                value: _audience,
+                options:
+                    audienceOptions(building: place?.building, lane: place?.lane, area: place?.area, city: place?.city),
+                onChanged: (v) => setState(() => _audience = v),
+              ),
+            ),
+            const SizedBox(height: 12),
             _imagePicker(),
             const SizedBox(height: 16),
             // Same rules and counters as Start a Group's name and description.

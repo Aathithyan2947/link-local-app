@@ -1,14 +1,15 @@
-// Item 3: in a group's Members sheet, each name (with a chevron) opens that member's profile
-// over the sheet: a resident → their public profile (UserProfileScreen), a service provider →
+// Item 3: on a group's Group Members page (a bottom sheet until BUG-082), each name opens that
+// member's profile: a resident → their public profile (UserProfileScreen), a service provider →
 // their provider page as visitors see it (ServiceProviderDetailScreen), and the viewer's own row
 // → their own profile page in owner view (ServiceProviderDetailScreen, as My Profile opens it).
-// Back returns to the still-open sheet each time. The members API sends profileId and
+// Back returns to the Group Members page each time. The members API sends profileId and
 // isServiceProvider for this.
 //
 // Run: see integration_test/support/harness.dart.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:link_local/features/discovery/presentation/group_members_screen.dart';
 import 'package:link_local/features/discovery/presentation/group_profile_screen.dart';
 import 'package:link_local/features/discovery/presentation/service_provider_detail_screen.dart';
 import 'package:link_local/features/discovery/presentation/user_profile_screen.dart';
@@ -73,15 +74,16 @@ void main() {
     }
   });
 
-  Finder memberRow(String name) => inSheet(find.widgetWithText(ListTile, name));
+  final membersPage = find.byType(GroupMembersScreen);
+  Finder memberRow(String name) => find.descendant(of: membersPage, matching: find.text(name));
 
-  Future<void> openMembersSheet(WidgetTester tester) async {
+  Future<void> openMembersPage(WidgetTester tester) async {
     await tapOn(
       tester,
       find.descendant(of: find.byType(GroupProfileScreen), matching: find.text('4 Members')),
       settle: const Duration(milliseconds: 900),
     );
-    await pumpUntil(tester, inSheet(find.text('Members (4)')), reason: 'the Members sheet loads');
+    await pumpUntil(tester, find.text('Total Members 4'), reason: 'the Group Members page loads');
   }
 
   /// Taps [name]'s row and waits for [page] to be the screen on top.
@@ -90,20 +92,21 @@ void main() {
     await pumpUntil(tester, page.hitTestable(), reason: 'tapping $name opens their profile');
   }
 
-  /// Back from the profile [page]: it closes and the Members sheet is there again, as it was.
-  Future<void> backToSheet(WidgetTester tester, Finder page) async {
+  /// Back from the profile [page]: it closes and the Group Members page is there again.
+  Future<void> backToMembers(WidgetTester tester, Finder page) async {
     await goBack(tester);
     await pumpUntilGone(tester, page, reason: 'back closes the profile');
-    await pumpUntil(tester, inSheet(find.text('Members (4)')), reason: 'back returns to the Members sheet');
+    await pumpUntil(tester, find.text('Total Members 4').hitTestable(), reason: 'back returns to Group Members');
     for (final u in [creator, neighbour, baker, viewer]) {
       expect(memberRow(u.name), findsOneWidget, reason: '${u.name} is still listed');
     }
-    expect(find.byType(GroupProfileScreen), findsOneWidget, reason: 'the group page is still under the sheet');
+    expect(find.byType(GroupProfileScreen, skipOffstage: false), findsOneWidget,
+        reason: 'the group page is still under the members page');
   }
 
   testWidgets(
-    'each Members row opens that member\'s profile (resident, provider, your own in owner view); back returns '
-    'to the sheet',
+    'each Group Members row opens that member\'s profile (resident, provider, your own in owner view); back '
+    'returns to the page',
     (tester) async {
       // What the sheet is built from: who each member is and which page their row opens.
       final listed = TestApi.ok(await api.send('GET', '/groups/$groupId/members', token: viewer.token), 'members');
@@ -117,20 +120,17 @@ void main() {
       await launchApp(tester);
       await loginWithEmail(tester, viewer.email, viewer.password);
       await openGroupFromGroupsTab(tester, groupTitle);
-      await openMembersSheet(tester);
+      await openMembersPage(tester);
 
-      // Every row, the viewer's own included, carries a chevron.
       for (final u in [creator, neighbour, baker, viewer]) {
-        final row = memberRow(u.name);
-        expect(row, findsOneWidget, reason: '${u.name} is listed');
-        expect(
-          find.descendant(of: row, matching: find.byIcon(Icons.chevron_right_rounded)),
-          findsOneWidget,
-          reason: '${u.name}\'s row shows a chevron',
-        );
+        expect(memberRow(u.name), findsOneWidget, reason: '${u.name} is listed');
       }
-      expect(find.descendant(of: memberRow(creator.name), matching: find.text('Group creator')), findsOneWidget);
-      await screenshot(tester, 'item3_members_sheet');
+      expect(
+        tester.getTopLeft(memberRow(creator.name)).dy,
+        lessThan(tester.getTopLeft(find.text('Members (3)')).dy),
+        reason: 'the creator is listed under Admin',
+      );
+      await screenshot(tester, 'item3_members_page');
 
       // A resident → their public profile.
       final userPage = find.byType(UserProfileScreen);
@@ -143,9 +143,9 @@ void main() {
       );
       expect(find.descendant(of: userPage, matching: find.text('This profile is private')), findsNothing);
       expect(find.byType(ServiceProviderDetailScreen), findsNothing, reason: 'a resident opens the member page');
-      expect(bottomSheet, findsNothing, reason: 'the profile covers the sheet');
+      expect(membersPage.hitTestable(), findsNothing, reason: 'the profile covers the members page');
       await screenshot(tester, 'item3_resident_profile');
-      await backToSheet(tester, userPage);
+      await backToMembers(tester, userPage);
 
       // The group creator is a resident too.
       await openRow(tester, creator.name, userPage);
@@ -155,7 +155,7 @@ void main() {
         find.descendant(of: userPage, matching: find.text(creator.name)),
         reason: 'the creator\'s profile loads',
       );
-      await backToSheet(tester, userPage);
+      await backToMembers(tester, userPage);
 
       // A service provider → their provider page, as a visitor sees it.
       final providerPage = find.byType(ServiceProviderDetailScreen);
@@ -178,7 +178,7 @@ void main() {
       );
       expect(userPage, findsNothing, reason: 'a provider opens the provider page, not the member page');
       await screenshot(tester, 'item3_provider_page');
-      await backToSheet(tester, providerPage);
+      await backToMembers(tester, providerPage);
 
       // Your own row → your own profile page in owner view, as My Profile opens it.
       await openRow(tester, viewer.name, providerPage);
@@ -205,9 +205,10 @@ void main() {
       );
       expect(userPage, findsNothing);
       await screenshot(tester, 'item3_own_profile');
-      await backToSheet(tester, providerPage);
+      await backToMembers(tester, providerPage);
 
-      await dismissSheet(tester);
+      await goBack(tester);
+      await pumpUntilGone(tester, membersPage, reason: 'back closes Group Members');
       expect(find.byType(GroupProfileScreen).hitTestable(), findsOneWidget, reason: 'back on the group page');
     },
   );

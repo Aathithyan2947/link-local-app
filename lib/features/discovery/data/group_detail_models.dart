@@ -11,13 +11,21 @@ class GroupMember {
     required this.name,
     this.photoUrl,
     this.isCreator = false,
+    bool? isAdmin,
     this.profileId,
     this.isServiceProvider = false,
-  });
+    this.joinedAt,
+  }) : isAdmin = isAdmin ?? isCreator;
   final int userId;
   final String name;
   final String? photoUrl;
   final bool isCreator;
+
+  /// Runs the group (the creator or a co-admin): listed under "Admin" on the Group Members page.
+  final bool isAdmin;
+
+  /// When they joined the group; null from older servers.
+  final DateTime? joinedAt;
 
   /// Opens their profile from the Members sheet; null from older backends (the row then
   /// stays plain text).
@@ -29,8 +37,11 @@ class GroupMember {
         name: j['name'] as String? ?? 'Member',
         photoUrl: j['photoUrl'] as String?,
         isCreator: j['isCreator'] as bool? ?? false,
+        // Older servers don't send it; their creator is the only admin they know of.
+        isAdmin: j['isAdmin'] as bool?,
         profileId: j['profileId'] == null ? null : _asInt(j['profileId']),
         isServiceProvider: j['isServiceProvider'] as bool? ?? false,
+        joinedAt: parseServerTime(j['joinedAt']),
       );
 }
 
@@ -61,6 +72,7 @@ class GroupDetail {
     this.myPaymentStatus,
     this.isCreator = false,
     this.isPrivate = false,
+    this.audience = 'city',
     this.maxMembers,
     this.adminApprovalNeeded = false,
     this.area,
@@ -83,6 +95,8 @@ class GroupDetail {
   final String? myPaymentStatus; // paid | unpaid | null
   final bool isCreator;
   final bool isPrivate;
+  /// "Members from": society | lane | area | city of the creator's address (BUG-115).
+  final String audience;
   final int? maxMembers;
   final bool adminApprovalNeeded;
   /// Where the group is anchored — the creator's area. Names the discussions header.
@@ -118,6 +132,7 @@ class GroupDetail {
       myPaymentStatus: mine?['paymentStatus'] as String?,
       isCreator: j['isCreator'] as bool? ?? false,
       isPrivate: j['isPrivate'] as bool? ?? false,
+      audience: j['audience'] as String? ?? 'city',
       maxMembers: j['maxMembers'] != null ? _asInt(j['maxMembers']) : null,
       adminApprovalNeeded: j['adminApprovalNeeded'] as bool? ?? false,
       area: j['area'] as String?,

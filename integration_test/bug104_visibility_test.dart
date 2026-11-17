@@ -9,6 +9,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:link_local/features/discovery/presentation/group_members_screen.dart';
 import 'package:link_local/features/discovery/presentation/group_profile_screen.dart';
 import 'package:link_local/features/discovery/presentation/user_profile_screen.dart';
 import 'package:link_local/features/feed/presentation/user_posts_screen.dart';
@@ -54,7 +55,11 @@ void main() {
       await pumpUntil(tester, members, reason: 'Home → Members opens the members list');
       await typeInto(tester, find.descendant(of: members, matching: find.byType(TextField)), owner.name);
     }
-    final row = find.descendant(of: members, matching: find.widgetWithText(ListTile, owner.name));
+    // The member card, not the search box (which holds the same name).
+    final row = find.ancestor(
+      of: find.text(owner.name),
+      matching: find.byWidgetPredicate((w) => w.key is ValueKey<String> && '${(w.key as ValueKey).value}'.startsWith('member-')),
+    );
     await pumpUntil(tester, row, reason: 'the owner is listed while their profile is visible');
     await tapOn(tester, row, settle: const Duration(milliseconds: 800));
     await pumpUntil(tester, find.byType(UserProfileScreen));
@@ -126,7 +131,10 @@ void main() {
     await screenshot(tester, 'bug104_area_visible_posts');
   });
 
-  testWidgets('the group Members sheet leaves out a private member and says how many', (tester) async {
+  // Group Members is a page since BUG-082 (it was a bottom sheet).
+  Finder onMembersPage(Finder f) => find.descendant(of: find.byType(GroupMembersScreen), matching: f);
+
+  testWidgets('the Group Members page leaves out a private member and says how many', (tester) async {
     await api.setVisibility(owner, 'only_me');
     final asViewer = await api.send('GET', '/groups/$groupId/members', token: viewer.token);
     expect((asViewer.data as Map)['meta'], {'hiddenCount': 1}, reason: 'the API counts the hidden member');
@@ -137,16 +145,16 @@ void main() {
 
     await tapOn(tester, find.descendant(of: find.byType(GroupProfileScreen), matching: find.text('2 Members')),
         settle: const Duration(milliseconds: 900));
-    await pumpUntil(tester, inSheet(find.textContaining('Members (')), reason: 'the Members sheet loads');
-    expect(inSheet(find.text('Members (2)')), findsOneWidget, reason: 'the count stays honest');
-    expect(inSheet(find.text(creator.name)), findsOneWidget);
-    expect(inSheet(find.text(owner.name)), findsNothing, reason: 'the private member is left out');
-    final line = inSheet(find.text('1 member has a private profile'));
+    await pumpUntil(tester, onMembersPage(find.textContaining('Total Members')), reason: 'Group Members loads');
+    expect(onMembersPage(find.text('Total Members 2')), findsOneWidget, reason: 'the count stays honest');
+    expect(onMembersPage(find.text(creator.name)), findsOneWidget);
+    expect(onMembersPage(find.text(owner.name)), findsNothing, reason: 'the private member is left out');
+    final line = onMembersPage(find.text('1 member has a private profile'));
     expect(line, findsOneWidget);
     expect(find.descendant(of: find.ancestor(of: line, matching: find.byType(Row)).first,
         matching: find.byIcon(Icons.lock_outline_rounded)), findsOneWidget);
     await screenshot(tester, 'bug104_group_members_hidden');
-    await dismissSheet(tester);
+    await goBack(tester);
   });
 
   testWidgets('the group creator still sees every member', (tester) async {
@@ -157,12 +165,12 @@ void main() {
 
     await tapOn(tester, find.descendant(of: find.byType(GroupProfileScreen), matching: find.text('2 Members')),
         settle: const Duration(milliseconds: 900));
-    await pumpUntil(tester, inSheet(find.textContaining('Members (')), reason: 'the Members sheet loads');
-    expect(inSheet(find.text('Members (2)')), findsOneWidget);
-    expect(inSheet(find.text(creator.name)), findsOneWidget);
-    expect(inSheet(find.text(owner.name)), findsOneWidget, reason: 'admins see private members too');
-    expect(inSheet(find.textContaining('private profile')), findsNothing);
+    await pumpUntil(tester, onMembersPage(find.textContaining('Total Members')), reason: 'Group Members loads');
+    expect(onMembersPage(find.text('Total Members 2')), findsOneWidget);
+    expect(onMembersPage(find.text(creator.name)), findsOneWidget);
+    expect(onMembersPage(find.text(owner.name)), findsOneWidget, reason: 'admins see private members too');
+    expect(onMembersPage(find.textContaining('private profile')), findsNothing);
     await screenshot(tester, 'bug104_group_members_creator');
-    await dismissSheet(tester);
+    await goBack(tester);
   });
 }
